@@ -599,7 +599,6 @@ function App() {
   const [addAccountModalOpen, setAddAccountModalOpen] = useState(false);
   const [_isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Load accounts from database on startup
   useEffect(() => {
@@ -673,9 +672,8 @@ function App() {
                 console.log('No emails in result or result is empty');
                 console.log('result:', result);
               }
-            } catch (emailErr: any) {
+            } catch (emailErr) {
               console.error('Error loading emails:', emailErr);
-              setLoadError(`Email load error: ${emailErr?.message || emailErr}`);
             }
           } catch (connectErr) {
             console.error('Failed to connect/load emails:', connectErr);
@@ -1148,35 +1146,6 @@ function App() {
         <span>for shortcuts</span>
       </div>
 
-      {/* Debug info */}
-      <div className="fixed bottom-4 left-4 text-xs bg-owl-surface px-3 py-2 rounded-lg border border-owl-border flex flex-col gap-1">
-        <div className="flex gap-2 items-center flex-wrap">
-          <span className={emails.length > 0 ? 'text-green-500' : 'text-red-500'}>
-            {emails.length} emails, selected: {selectedEmail || 'none'}
-          </span>
-          <button
-            onClick={async () => {
-              if (!selectedEmail) {
-                alert('Önce bir email seç!');
-                return;
-              }
-              try {
-                const { getEmail } = await import('./services/mailService');
-                const uid = parseInt(selectedEmail);
-                alert(`Fetching UID: ${uid}...`);
-                const result = await getEmail('1', uid, 'INBOX');
-                alert(`Body text: ${result?.bodyText?.substring(0, 200) || 'none'}\nBody HTML: ${result?.bodyHtml?.substring(0, 200) || 'none'}`);
-              } catch (e: any) {
-                alert(`Error: ${e.message}`);
-              }
-            }}
-            className="px-2 py-1 bg-blue-500 text-white rounded text-xs"
-          >
-            Load Body
-          </button>
-        </div>
-        {loadError && <div className="text-red-500">{loadError}</div>}
-      </div>
     </div>
   );
 }
