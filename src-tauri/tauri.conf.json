@@ -10,9 +10,11 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "Owlivion Mail",
+        "label": "main",
         "width": 1280,
         "height": 800,
         "minWidth": 900,
