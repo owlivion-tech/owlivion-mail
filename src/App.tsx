@@ -769,6 +769,9 @@ function App() {
         // Mark as fetched
         setFetchedEmailIds(prev => new Set([...prev, selectedEmail]));
 
+        // Check if email has images
+        const hasImages = fullEmail.bodyHtml ? /<img[^>]+src=/i.test(fullEmail.bodyHtml) : false;
+
         // Update the email in state with full content
         setEmails(prev => prev.map(e => {
           if (e.id === selectedEmail) {
@@ -777,6 +780,7 @@ function App() {
               body: fullEmail.bodyText || fullEmail.bodyHtml || e.body,
               bodyText: fullEmail.bodyText,
               bodyHtml: fullEmail.bodyHtml,
+              hasImages,
             };
           }
           return e;
