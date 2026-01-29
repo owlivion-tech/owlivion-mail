@@ -2,12 +2,13 @@
 // Owlivion Mail - Settings Page
 // ============================================================================
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useShortcut } from '../hooks/useKeyboardShortcuts';
 import { AccountSettings } from '../components/settings/AccountSettings';
 import { GeneralSettings } from '../components/settings/GeneralSettings';
 import { AISettings } from '../components/settings/AISettings';
 import { ShortcutsSettings } from '../components/settings/ShortcutsSettings';
+import { listAccounts } from '../services/mailService';
 import type { SettingsTab, Settings as SettingsType, Account } from '../types';
 
 interface SettingsProps {
@@ -89,6 +90,38 @@ export function Settings({ onBack }: SettingsProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('accounts');
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [settings, setSettings] = useState<SettingsType>(defaultSettings);
+
+  // Load accounts from database
+  useEffect(() => {
+    const loadAccounts = async () => {
+      try {
+        const dbAccounts = await listAccounts();
+        if (dbAccounts && dbAccounts.length > 0) {
+          const frontendAccounts: Account[] = dbAccounts.map((acc: any) => ({
+            id: acc.id,
+            email: acc.email,
+            displayName: acc.display_name || acc.displayName || acc.email,
+            imapHost: acc.imap_host || acc.imapHost,
+            imapPort: acc.imap_port || acc.imapPort,
+            imapSecurity: acc.imap_security || acc.imapSecurity,
+            smtpHost: acc.smtp_host || acc.smtpHost,
+            smtpPort: acc.smtp_port || acc.smtpPort,
+            smtpSecurity: acc.smtp_security || acc.smtpSecurity,
+            isActive: acc.is_active ?? true,
+            isDefault: acc.is_default ?? true,
+            signature: acc.signature || '',
+            syncDays: acc.sync_days || 30,
+            createdAt: acc.created_at || new Date().toISOString(),
+            updatedAt: acc.updated_at || new Date().toISOString(),
+          }));
+          setAccounts(frontendAccounts);
+        }
+      } catch (err) {
+        console.error('Failed to load accounts:', err);
+      }
+    };
+    loadAccounts();
+  }, []);
 
   // Close on Escape
   useShortcut('Escape', onBack, { enabled: true });
