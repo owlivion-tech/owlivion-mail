@@ -3,6 +3,7 @@
 //! Email functionality including IMAP, SMTP, and auto-configuration.
 
 pub mod autoconfig;
+pub mod async_imap;
 pub mod config;
 pub mod imap;
 
@@ -10,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 // Re-export commonly used types
 pub use autoconfig::{fetch_autoconfig, AutoConfig};
+pub use async_imap::AsyncImapClient;
 pub use config::{AccountConfig, ImapConfig, SecurityType, SmtpConfig};
 pub use imap::ImapClient;
 

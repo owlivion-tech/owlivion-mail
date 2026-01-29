@@ -5,10 +5,11 @@
 pub mod db;
 pub mod mail;
 
-use mail::{fetch_autoconfig, AutoConfig, ImapClient, ImapConfig, SecurityType};
+use db::{Database, NewAccount as DbNewAccount};
+use mail::{fetch_autoconfig, AsyncImapClient, AutoConfig, ImapClient, ImapConfig, SecurityType};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::State;
 
 /// Result wrapper for API responses
@@ -55,16 +56,18 @@ pub struct StoredAccount {
 
 /// Application state for managing accounts and connections
 pub struct AppState {
-    accounts: Mutex<HashMap<String, StoredAccount>>,
+    db: Arc<Database>,
     imap_clients: Mutex<HashMap<String, ImapClient>>,
+    async_imap_clients: tokio::sync::Mutex<HashMap<String, AsyncImapClient>>,
     current_folder: Mutex<HashMap<String, String>>,
 }
 
-impl Default for AppState {
-    fn default() -> Self {
+impl AppState {
+    pub fn new(db: Database) -> Self {
         Self {
-            accounts: Mutex::new(HashMap::new()),
+            db: Arc::new(db),
             imap_clients: Mutex::new(HashMap::new()),
+            async_imap_clients: tokio::sync::Mutex::new(HashMap::new()),
             current_folder: Mutex::new(HashMap::new()),
         }
     }
@@ -103,24 +106,43 @@ async fn account_test_imap(
     email: String,
     password: String,
 ) -> Result<(), String> {
-    log::info!("Testing IMAP connection to {}:{}", host, port);
+    log::info!("Testing IMAP connection to {}:{} with security: {}", host, port, security);
+    log::info!("Username: {}", email);
+
+    let sec = parse_security(&security);
+    log::info!("Parsed security type: {:?}", sec);
 
     let config = ImapConfig {
         host: host.clone(),
         port,
-        security: parse_security(&security),
-        username: email,
+        security: sec,
+        username: email.clone(),
         password,
     };
 
     // Run in blocking task since imap crate is synchronous
-    tokio::task::spawn_blocking(move || {
+    let result = tokio::task::spawn_blocking(move || {
         let mut client = ImapClient::new(config);
         client.test_connection()
     })
-    .await
-    .map_err(|e| format!("Task error: {}", e))?
-    .map_err(|e| e.to_string())
+    .await;
+
+    match result {
+        Ok(Ok(())) => {
+            log::info!("IMAP connection test successful for {}", email);
+            Ok(())
+        }
+        Ok(Err(e)) => {
+            let err_msg = format!("IMAP error: {}", e);
+            log::error!("{}", err_msg);
+            Err(err_msg)
+        }
+        Err(e) => {
+            let err_msg = format!("Task panic: {}", e);
+            log::error!("{}", err_msg);
+            Err(err_msg)
+        }
+    }
 }
 
 /// Test SMTP connection
@@ -263,96 +285,76 @@ async fn account_add(
     smtp_security: String,
     is_default: bool,
 ) -> Result<String, String> {
-    log::info!("Adding account: {}", email);
+    log::info!("Adding account to database: {}", email);
 
-    let account_id = uuid::Uuid::new_v4().to_string();
-
-    let account = StoredAccount {
-        id: account_id.clone(),
+    let new_account = DbNewAccount {
         email: email.clone(),
         display_name,
-        password: password.clone(),
-        imap_host: imap_host.clone(),
-        imap_port,
-        imap_security: imap_security.clone(),
+        imap_host,
+        imap_port: imap_port as i32,
+        imap_security,
+        imap_username: Some(email.clone()),
         smtp_host,
-        smtp_port,
+        smtp_port: smtp_port as i32,
         smtp_security,
+        smtp_username: Some(email),
+        password_encrypted: Some(password), // TODO: encrypt password
+        oauth_provider: None,
+        oauth_access_token: None,
+        oauth_refresh_token: None,
+        oauth_expires_at: None,
         is_default,
+        signature: String::new(),
+        sync_days: 30,
     };
 
-    // Store the account
-    {
-        let mut accounts = state.accounts.lock().map_err(|e| e.to_string())?;
-        accounts.insert(account_id.clone(), account);
-    }
+    let account_id = state.db.add_account(&new_account)
+        .map_err(|e| format!("Database error: {}", e))?;
 
-    // Create and connect IMAP client
-    let config = ImapConfig {
-        host: imap_host,
-        port: imap_port,
-        security: parse_security(&imap_security),
-        username: email,
-        password,
-    };
-
-    let id_clone = account_id.clone();
-    let client = tokio::task::spawn_blocking(move || {
-        let mut client = ImapClient::new(config);
-        client.connect()?;
-        Ok::<ImapClient, mail::MailError>(client)
-    })
-    .await
-    .map_err(|e| format!("Task error: {}", e))?
-    .map_err(|e| e.to_string())?;
-
-    // Store the connected client
-    {
-        let mut clients = state.imap_clients.lock().map_err(|e| e.to_string())?;
-        clients.insert(id_clone, client);
-    }
-
-    Ok(account_id)
+    log::info!("Account added with ID: {}", account_id);
+    Ok(account_id.to_string())
 }
 
 /// List all configured accounts
 #[tauri::command]
-async fn account_list(state: State<'_, AppState>) -> Result<Vec<StoredAccount>, String> {
-    let accounts = state.accounts.lock().map_err(|e| e.to_string())?;
-    Ok(accounts.values().cloned().collect())
+async fn account_list(state: State<'_, AppState>) -> Result<Vec<db::Account>, String> {
+    log::info!("Listing accounts from database");
+    let accounts = state.db.get_accounts()
+        .map_err(|e| format!("Database error: {}", e))?;
+    log::info!("Found {} accounts", accounts.len());
+    Ok(accounts)
 }
 
 /// Connect to an account (used when app starts or reconnecting)
 #[tauri::command]
 async fn account_connect(state: State<'_, AppState>, account_id: String) -> Result<(), String> {
-    let account = {
-        let accounts = state.accounts.lock().map_err(|e| e.to_string())?;
-        accounts
-            .get(&account_id)
-            .cloned()
-            .ok_or_else(|| "Account not found".to_string())?
-    };
+    log::info!("Connecting to account: {}", account_id);
+    let id: i64 = account_id.parse().map_err(|_| "Invalid account ID")?;
+
+    let account = state.db.get_account(id)
+        .map_err(|e| format!("Database error: {}", e))?;
+
+    let password = state.db.get_account_password(id)
+        .map_err(|e| format!("Database error: {}", e))?
+        .ok_or_else(|| "No password stored".to_string())?;
 
     let config = ImapConfig {
-        host: account.imap_host,
-        port: account.imap_port,
+        host: account.imap_host.clone(),
+        port: account.imap_port as u16,
         security: parse_security(&account.imap_security),
-        username: account.email,
-        password: account.password,
+        username: account.imap_username.clone().unwrap_or(account.email.clone()),
+        password: password.clone(),
     };
 
-    let client = tokio::task::spawn_blocking(move || {
-        let mut client = ImapClient::new(config);
-        client.connect()?;
-        Ok::<ImapClient, mail::MailError>(client)
-    })
-    .await
-    .map_err(|e| format!("Task error: {}", e))?
-    .map_err(|e| e.to_string())?;
+    // Create async IMAP client only (sync client has parser issues)
+    let mut async_client = AsyncImapClient::new(config);
+    async_client.connect().await.map_err(|e| e.to_string())?;
 
-    let mut clients = state.imap_clients.lock().map_err(|e| e.to_string())?;
-    clients.insert(account_id, client);
+    // Store async client
+    let mut async_clients = state.async_imap_clients.lock().await;
+    async_clients.insert(account_id.clone(), async_client);
 
+    log::info!("Account {} connected successfully", account_id);
     Ok(())
 }
 
@@ -383,6 +385,7 @@ async fn email_list(
     page: u32,
     page_size: u32,
 ) -> Result<mail::FetchResult, String> {
+    log::info!("Fetching emails for account {} folder {:?} page {} size {}", account_id, folder, page, page_size);
     let folder_path = folder.unwrap_or_else(|| "INBOX".to_string());
 
     // Update current folder
@@ -391,16 +394,18 @@ async fn email_list(
         current.insert(account_id.clone(), folder_path.clone());
     }
 
-    let mut clients = state.imap_clients.lock().map_err(|e| e.to_string())?;
-
-    let client = clients
+    // Use async IMAP client
+    let mut async_clients = state.async_imap_clients.lock().await;
+    let client = async_clients
         .get_mut(&account_id)
         .ok_or_else(|| "Account not connected".to_string())?;
 
     let result = client
         .fetch_emails(&folder_path, page, page_size)
+        .await
         .map_err(|e| e.to_string())?;
 
+    log::info!("email_list returning {} emails, total={}", result.emails.len(), result.total);
     Ok(result)
 }
 
@@ -584,13 +589,14 @@ async fn email_send(
     text_body: Option<String>,
     html_body: Option<String>,
 ) -> Result<(), String> {
-    let account = {
-        let accounts = state.accounts.lock().map_err(|e| e.to_string())?;
-        accounts
-            .get(&account_id)
-            .cloned()
-            .ok_or_else(|| "Account not found".to_string())?
-    };
+    let id: i64 = account_id.parse().map_err(|_| "Invalid account ID")?;
+
+    let account = state.db.get_account(id)
+        .map_err(|e| format!("Database error: {}", e))?;
+
+    let password = state.db.get_account_password(id)
+        .map_err(|e| format!("Database error: {}", e))?
+        .ok_or_else(|| "No password stored".to_string())?;
 
     log::info!("Sending email from {} to {:?}", account.email, to);
 
@@ -661,7 +667,7 @@ async fn email_send(
             .map_err(|e| e.to_string())?
     };
 
-    let creds = Credentials::new(account.email.clone(), account.password.clone());
+    let creds = Credentials::new(account.smtp_username.clone().unwrap_or(account.email.clone()), password);
 
     let security = parse_security(&account.smtp_security);
 
@@ -670,14 +676,14 @@ async fn email_send(
             AsyncSmtpTransport::<lettre::Tokio1Executor>::relay(&account.smtp_host)
                 .map_err(|e| e.to_string())?
                 .credentials(creds)
-                .port(account.smtp_port)
+                .port(account.smtp_port as u16)
                 .build()
         }
         SecurityType::STARTTLS => {
             AsyncSmtpTransport::<lettre::Tokio1Executor>::starttls_relay(&account.smtp_host)
                 .map_err(|e| e.to_string())?
                 .credentials(creds)
-                .port(account.smtp_port)
+                .port(account.smtp_port as u16)
                 .build()
         }
         SecurityType::NONE => {
@@ -700,8 +706,28 @@ pub fn run() {
     // Initialize logger
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
+    // Initialize database
+    let app_dir = directories::ProjectDirs::from("com", "owlivion", "owlivion-mail")
+        .expect("Failed to get app directories");
+    let data_dir = app_dir.data_dir();
+    std::fs::create_dir_all(data_dir).expect("Failed to create data directory");
+    let db_path = data_dir.join("owlivion.db");
+
+    log::info!("Database path: {:?}", db_path);
+
+    let db = match Database::new(db_path) {
+        Ok(db) => db,
+        Err(e) => {
+            log::error!("Failed to initialize database: {}", e);
+            panic!("Database initialization failed: {}", e);
+        }
+    };
+    log::info!("Database initialized successfully");
+
+    let app_state = AppState::new(db);
+
     tauri::Builder::default()
-        .manage(AppState::default())
+        .manage(app_state)
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             greet,

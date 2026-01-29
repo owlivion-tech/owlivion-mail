@@ -68,16 +68,18 @@ export function AddAccountModal({
       const result = await invoke<AutoConfig>('autoconfig_detect', { email });
 
       setConfig(result);
-      setImapHost(result.imap.host);
-      setImapPort(result.imap.port);
-      setImapSecurity(result.imap.security);
-      setSmtpHost(result.smtp.host);
-      setSmtpPort(result.smtp.port);
-      setSmtpSecurity(result.smtp.security);
+      setImapHost(result.imapHost);
+      setImapPort(result.imapPort);
+      setImapSecurity(result.imapSecurity);
+      setSmtpHost(result.smtpHost);
+      setSmtpPort(result.smtpPort);
+      setSmtpSecurity(result.smtpSecurity);
 
       if (result.displayName && !displayName) {
         setDisplayName(result.displayName);
       }
+
+      console.log('Autoconfig result:', result);
 
       setStep('configure');
     } catch (err) {
@@ -155,7 +157,9 @@ export function AddAccountModal({
         onAccountAdded(newAccount);
       }, 1500);
     } catch (err: any) {
-      setError(err.message || 'Bağlantı testi başarısız oldu');
+      const errorMsg = typeof err === 'string' ? err : (err.message || JSON.stringify(err));
+      console.error('Connection test error:', err);
+      setError(errorMsg || 'Bağlantı testi başarısız oldu');
       setStep('error');
     }
   };
@@ -353,13 +357,19 @@ export function AddAccountModal({
             {step === 'configure' && (
               <div className="space-y-6">
                 {/* Detected Provider */}
-                {config?.provider && (
-                  <div className="flex items-center gap-3 p-3 bg-owl-success/10 border border-owl-success/20 rounded-lg">
-                    <svg className="w-5 h-5 text-owl-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                {config && (
+                  <div className={`flex items-center gap-3 p-3 rounded-lg ${
+                    config.provider
+                      ? 'bg-owl-success/10 border border-owl-success/20'
+                      : 'bg-owl-warning/10 border border-owl-warning/20'
+                  }`}>
+                    <svg className={`w-5 h-5 ${config.provider ? 'text-owl-success' : 'text-owl-warning'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
-                    <span className="text-sm text-owl-success">
-                      {config.provider} ayarları otomatik algılandı
+                    <span className={`text-sm ${config.provider ? 'text-owl-success' : 'text-owl-warning'}`}>
+                      {config.provider
+                        ? `${config.provider} ayarları otomatik algılandı`
+                        : `Ayarlar tahmin edildi (${config.detectionMethod || 'guessed'})`}
                     </span>
                   </div>
                 )}

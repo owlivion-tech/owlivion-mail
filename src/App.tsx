@@ -37,6 +37,7 @@ const Icons = {
   MailOpen: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 19v-8.93a2 2 0 01.89-1.664l7-4.666a2 2 0 012.22 0l7 4.666A2 2 0 0121 10.07V19M3 19a2 2 0 002 2h14a2 2 0 002-2M3 19l6.75-4.5M21 19l-6.75-4.5M3 10l6.75 4.5M21 10l-6.75 4.5m0 0l-1.14.76a2 2 0 01-2.22 0l-1.14-.76" /></svg>,
   MailUnread: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /><circle cx="18" cy="5" r="3" fill="currentColor" /></svg>,
   Summarize: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>,
+  Refresh: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>,
 };
 
 // Types
@@ -83,6 +84,8 @@ function MailPanel({
   onFolderChange,
   onSettingsClick,
   onComposeClick,
+  onSyncClick,
+  isSyncing,
   searchQuery,
   onSearchChange,
 }: {
@@ -93,6 +96,8 @@ function MailPanel({
   onFolderChange: (id: string) => void;
   onSettingsClick: () => void;
   onComposeClick: () => void;
+  onSyncClick: () => void;
+  isSyncing: boolean;
   searchQuery: string;
   onSearchChange: (query: string) => void;
 }) {
@@ -149,14 +154,24 @@ function MailPanel({
             <img src={owlivionIcon} alt="Owlivion" className="h-8 w-auto object-contain" />
             <span className="font-semibold text-owl-text text-lg">Owlivion <span className="text-owl-accent">Mail</span></span>
           </div>
-          <button
-            onClick={onComposeClick}
-            className="flex items-center gap-1.5 bg-owl-accent hover:bg-owl-accent-hover text-white py-1.5 px-3 rounded-lg transition-colors text-sm"
-          >
-            <Icons.Plus />
-            <span>Compose</span>
-            <kbd className="text-xs bg-white/20 px-1 rounded ml-1">C</kbd>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onSyncClick}
+              disabled={isSyncing}
+              className={`p-2 rounded-lg transition-colors ${isSyncing ? 'text-owl-accent animate-spin' : 'text-owl-text-secondary hover:text-owl-text hover:bg-owl-surface-2'}`}
+              title="Senkronize Et"
+            >
+              <Icons.Refresh />
+            </button>
+            <button
+              onClick={onComposeClick}
+              className="flex items-center gap-1.5 bg-owl-accent hover:bg-owl-accent-hover text-white py-1.5 px-3 rounded-lg transition-colors text-sm"
+            >
+              <Icons.Plus />
+              <span>Compose</span>
+              <kbd className="text-xs bg-white/20 px-1 rounded ml-1">C</kbd>
+            </button>
+          </div>
         </div>
 
         {/* Search Bar */}
@@ -582,6 +597,122 @@ function App() {
   // Account state
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [addAccountModalOpen, setAddAccountModalOpen] = useState(false);
+  const [_isLoading, setIsLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  // Load accounts from database on startup
+  useEffect(() => {
+    const loadAccounts = async () => {
+      try {
+        const { listAccounts, connectAccount, listEmails } = await import('./services/mailService');
+        const dbAccounts = await listAccounts();
+        console.log('Loaded accounts from DB:', dbAccounts);
+
+        if (dbAccounts && dbAccounts.length > 0) {
+          // Convert database accounts to frontend Account type
+          const frontendAccounts: Account[] = dbAccounts.map((acc: any) => ({
+            id: acc.id,
+            email: acc.email,
+            displayName: acc.display_name || acc.displayName,
+            imapHost: acc.imap_host || acc.imapHost,
+            imapPort: acc.imap_port || acc.imapPort,
+            imapSecurity: acc.imap_security || acc.imapSecurity,
+            smtpHost: acc.smtp_host || acc.smtpHost,
+            smtpPort: acc.smtp_port || acc.smtpPort,
+            smtpSecurity: acc.smtp_security || acc.smtpSecurity,
+            isActive: acc.is_active ?? true,
+            isDefault: acc.is_default ?? true,
+            signature: acc.signature || '',
+            syncDays: acc.sync_days || 30,
+            createdAt: acc.created_at || new Date().toISOString(),
+            updatedAt: acc.updated_at || new Date().toISOString(),
+          }));
+
+          setAccounts(frontendAccounts);
+
+          // Connect to first account and load emails
+          const firstAccount = frontendAccounts[0];
+          try {
+            await connectAccount(firstAccount.id.toString());
+            console.log('Connected to account:', firstAccount.email);
+
+            // Load emails (page is 0-indexed)
+            const result = await listEmails(firstAccount.id.toString(), 0, 50, 'INBOX');
+            console.log('listEmails result:', result);
+            if (result && result.emails) {
+              console.log('Raw emails from backend:', result.emails);
+              const loadedEmails: Email[] = result.emails.map((e: any) => ({
+                id: e.uid?.toString() || e.id?.toString(),
+                from: { name: e.fromName || e.from || '', email: e.from || '' },
+                to: [{ name: '', email: '' }],
+                subject: e.subject || '(Konu yok)',
+                preview: e.preview || '',
+                body: e.bodyText || '',
+                bodyHtml: e.bodyHtml,
+                bodyText: e.bodyText,
+                date: new Date(e.date || Date.now()),
+                read: e.isRead ?? false,
+                starred: e.isStarred ?? false,
+                hasAttachments: e.hasAttachments ?? false,
+                hasImages: false,
+              }));
+              setEmails(loadedEmails);
+              console.log('Mapped emails:', loadedEmails.length, loadedEmails);
+            }
+          } catch (connectErr) {
+            console.error('Failed to connect/load emails:', connectErr);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load accounts:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadAccounts();
+  }, []);
+
+  // Sync emails handler
+  const handleSync = useCallback(async () => {
+    if (isSyncing || accounts.length === 0) return;
+    setIsSyncing(true);
+    try {
+      const { connectAccount, listEmails } = await import('./services/mailService');
+      const account = accounts[0];
+
+      // Reconnect to refresh connection
+      await connectAccount(account.id.toString());
+
+      // Fetch emails
+      const result = await listEmails(account.id.toString(), 0, 50, 'INBOX');
+      console.log('Sync result:', result);
+
+      if (result && result.emails) {
+        const loadedEmails: Email[] = result.emails.map((e: any) => ({
+          id: e.uid?.toString() || e.id?.toString(),
+          from: { name: e.fromName || e.from || '', email: e.from || '' },
+          to: [{ name: '', email: '' }],
+          subject: e.subject || '(Konu yok)',
+          preview: e.preview || '',
+          body: e.bodyText || '',
+          bodyHtml: e.bodyHtml,
+          bodyText: e.bodyText,
+          date: new Date(e.date || Date.now()),
+          read: e.isRead ?? false,
+          starred: e.isStarred ?? false,
+          hasAttachments: e.hasAttachments ?? false,
+          hasImages: false,
+        }));
+        setEmails(loadedEmails);
+        console.log('Synced emails:', loadedEmails.length);
+      }
+    } catch (err) {
+      console.error('Sync failed:', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [accounts, isSyncing]);
 
   // Modal states
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -791,9 +922,42 @@ function App() {
   }, [selectedEmail, emails]);
 
   // Handle account added
-  const handleAccountAdded = (account: Account) => {
+  const handleAccountAdded = async (account: Account) => {
     setAccounts(prev => [...prev, account]);
     setAddAccountModalOpen(false);
+
+    // Connect and load emails for the new account
+    try {
+      const { connectAccount, listEmails } = await import('./services/mailService');
+      await connectAccount(account.id.toString());
+      console.log('Connected to new account:', account.email);
+
+      // Load emails (page is 0-indexed)
+      const result = await listEmails(account.id.toString(), 0, 50, 'INBOX');
+      console.log('listEmails result after add:', result);
+      if (result && result.emails) {
+        console.log('Raw emails from backend:', result.emails);
+        const loadedEmails: Email[] = result.emails.map((e: any) => ({
+          id: e.uid?.toString() || e.id?.toString(),
+          from: { name: e.fromName || e.from || '', email: e.from || '' },
+          to: [{ name: '', email: '' }],
+          subject: e.subject || '(Konu yok)',
+          preview: e.preview || '',
+          body: e.bodyText || '',
+          bodyHtml: e.bodyHtml,
+          bodyText: e.bodyText,
+          date: new Date(e.date || Date.now()),
+          read: e.isRead ?? false,
+          starred: e.isStarred ?? false,
+          hasAttachments: e.hasAttachments ?? false,
+          hasImages: false,
+        }));
+        setEmails(loadedEmails);
+        console.log('Mapped emails after add:', loadedEmails.length, loadedEmails);
+      }
+    } catch (err) {
+      console.error('Failed to connect/load emails after account add:', err);
+    }
   };
 
   // Show Welcome screen if no accounts
@@ -828,6 +992,8 @@ function App() {
         onFolderChange={setActiveFolder}
         onSettingsClick={() => setCurrentPage('settings')}
         onComposeClick={() => openCompose('new')}
+        onSyncClick={handleSync}
+        isSyncing={isSyncing}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
       />

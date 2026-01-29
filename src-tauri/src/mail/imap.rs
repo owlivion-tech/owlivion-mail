@@ -172,16 +172,67 @@ impl ImapClient {
         page: u32,
         page_size: u32,
     ) -> MailResult<FetchResult> {
+        log::info!("fetch_emails called: folder={}, page={}, page_size={}", folder, page, page_size);
+
+        log::info!("Checking session validity...");
         let session = self.session()?;
 
-        // Select the folder first
-        let mailbox = session
-            .select(folder)
-            .map_err(|e| MailError::Imap(e.to_string()))?;
+        // Test connection with NOOP first
+        match session.noop() {
+            Ok(_) => log::info!("NOOP succeeded, connection is valid"),
+            Err(e) => {
+                log::error!("NOOP failed, connection may be broken: {}", e);
+                return Err(MailError::Connection("Session expired".to_string()));
+            }
+        }
+
+        // Try to list folders first to verify connection
+        log::info!("Testing folder listing...");
+        match session.list(Some(""), Some("*")) {
+            Ok(folders) => {
+                log::info!("Found {} folders", folders.len());
+                for f in folders.iter().take(5) {
+                    log::info!("  Folder: {}", f.name());
+                }
+            }
+            Err(e) => {
+                log::warn!("List folders failed: {}", e);
+            }
+        }
+
+        // Try to select
+        log::info!("Attempting to select folder: {}", folder);
+        let mailbox = match session.select(folder) {
+            Ok(m) => {
+                log::info!("Successfully selected folder: {}", folder);
+                m
+            }
+            Err(e) => {
+                log::error!("select({}) failed: {}", folder, e);
+                // Try examine as fallback
+                log::info!("Trying examine() instead...");
+                match session.examine(folder) {
+                    Ok(m) => {
+                        log::info!("examine() succeeded");
+                        m
+                    }
+                    Err(e2) => {
+                        log::error!("Both select and examine failed: {}, {}", e, e2);
+                        return Ok(FetchResult {
+                            emails: vec![],
+                            total: 0,
+                            has_more: false,
+                        });
+                    }
+                }
+            }
+        };
 
         let total = mailbox.exists;
+        log::info!("Mailbox selected: {} - total messages: {}", folder, total);
 
         if total == 0 {
+            log::info!("No emails in folder");
             return Ok(FetchResult {
                 emails: vec![],
                 total: 0,
@@ -202,11 +253,14 @@ impl ImapClient {
         }
 
         let range = format!("{}:{}", start, end);
+        log::info!("Fetching range: {}", range);
 
         // Fetch headers and flags
         let messages = session
             .fetch(&range, "(UID FLAGS ENVELOPE RFC822.SIZE)")
             .map_err(|e| MailError::Imap(e.to_string()))?;
+
+        log::info!("Fetched {} messages from server", messages.len());
 
         let mut emails: Vec<EmailSummary> = Vec::new();
 
@@ -276,6 +330,11 @@ impl ImapClient {
         emails.reverse();
 
         let has_more = start > 1;
+
+        log::info!("Returning {} emails, total={}, has_more={}", emails.len(), total, has_more);
+        for (i, email) in emails.iter().take(3).enumerate() {
+            log::info!("  Email {}: uid={}, from={}, subject={}", i, email.uid, email.from, email.subject);
+        }
 
         Ok(FetchResult {
             emails,

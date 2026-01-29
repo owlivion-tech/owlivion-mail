@@ -123,20 +123,17 @@ export interface NewAccount {
 // Security type for connections
 export type SecurityType = 'SSL' | 'TLS' | 'STARTTLS' | 'NONE';
 
-// Auto-detected email configuration
+// Auto-detected email configuration (flat structure from Rust backend)
 export interface AutoConfig {
   provider?: string;
   displayName?: string;
-  imap: {
-    host: string;
-    port: number;
-    security: SecurityType;
-  };
-  smtp: {
-    host: string;
-    port: number;
-    security: SecurityType;
-  };
+  imapHost: string;
+  imapPort: number;
+  imapSecurity: SecurityType;
+  smtpHost: string;
+  smtpPort: number;
+  smtpSecurity: SecurityType;
+  detectionMethod?: string;
 }
 
 // Folder
