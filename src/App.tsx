@@ -415,7 +415,10 @@ function MailPanel({
           {mainFolders.slice(0, 4).map((folder) => (
             <button
               key={folder.path}
-              onClick={() => onFolderChange(folder.path)}
+              onClick={() => {
+                console.log('Main folder tab clicked:', folder.name, folder.path);
+                onFolderChange(folder.path);
+              }}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap text-sm ${
                 activeFolder === folder.path
                   ? "bg-owl-accent/20 text-owl-accent"
@@ -1240,16 +1243,22 @@ function App() {
 
   // Handle folder change - fetch emails from the selected IMAP folder
   const handleFolderChange = useCallback(async (folderPath: string) => {
+    console.log('handleFolderChange called with:', folderPath, 'current activeFolder:', activeFolder);
+
     setActiveFolder(folderPath);
     setSelectedEmail(null);
     setFetchedEmailIds(new Set());
 
     // Starred is filtered locally, not a real folder
     if (folderPath === '__starred__') {
+      console.log('Starred folder - filtering locally');
       return; // Just filter existing emails from cache/current list
     }
 
-    if (!selectedAccountId || accounts.length === 0) return;
+    if (!selectedAccountId || accounts.length === 0) {
+      console.log('No account selected, skipping fetch');
+      return;
+    }
 
     console.log('Switching to folder:', folderPath);
 
