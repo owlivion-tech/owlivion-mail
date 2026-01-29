@@ -214,6 +214,7 @@ function MailPanel({
   onAccountChange,
   imapFolders,
   isLoadingFolders,
+  onToggleStar,
 }: {
   emails: Email[];
   selectedId: string | null;
@@ -231,6 +232,7 @@ function MailPanel({
   onAccountChange: (id: number) => void;
   imapFolders: ImapFolder[];
   isLoadingFolders: boolean;
+  onToggleStar: (emailId: string) => void;
 }) {
   const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
   const [showAllFolders, setShowAllFolders] = useState(false);
@@ -242,19 +244,24 @@ function MailPanel({
   // Get main folders (inbox, sent, drafts, trash) for quick access tabs
   const mainFolders = useMemo(() => {
     const main: { path: string; name: string; type: string; icon: React.ReactElement; count: number }[] = [];
+    const addedTypes = new Set<string>();
 
     for (const folder of imapFolders) {
       const type = folder.folder_type.toLowerCase();
       const nameLower = folder.name.toLowerCase();
 
-      if (type === 'inbox' || nameLower === 'inbox') {
+      if ((type === 'inbox' || nameLower === 'inbox') && !addedTypes.has('inbox')) {
         main.push({ path: folder.path, name: 'Inbox', type: 'inbox', icon: <Icons.Inbox />, count: folder.unread_count });
-      } else if (type === 'sent' || nameLower.includes('sent')) {
+        addedTypes.add('inbox');
+      } else if ((type === 'sent' || nameLower.includes('sent')) && !addedTypes.has('sent')) {
         main.push({ path: folder.path, name: 'Sent', type: 'sent', icon: <Icons.Send />, count: 0 });
-      } else if (type === 'drafts' || nameLower.includes('draft')) {
+        addedTypes.add('sent');
+      } else if ((type === 'drafts' || nameLower.includes('draft')) && !addedTypes.has('drafts')) {
         main.push({ path: folder.path, name: 'Drafts', type: 'drafts', icon: <Icons.File />, count: folder.total_count });
-      } else if (type === 'trash' || nameLower.includes('trash') || nameLower.includes('deleted')) {
+        addedTypes.add('drafts');
+      } else if ((type === 'trash' || nameLower.includes('trash') || nameLower.includes('deleted')) && !addedTypes.has('trash')) {
         main.push({ path: folder.path, name: 'Trash', type: 'trash', icon: <Icons.Trash />, count: 0 });
+        addedTypes.add('trash');
       }
     }
 
@@ -543,7 +550,20 @@ function MailPanel({
                   <div className="text-xs text-owl-text-secondary truncate">{email.preview}</div>
                 </div>
                 <div className="flex flex-col items-center gap-1 shrink-0">
-                  {email.starred && <Icons.StarFilled />}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleStar(email.id);
+                    }}
+                    className={`p-1 rounded transition-colors ${
+                      email.starred
+                        ? 'text-yellow-500 hover:text-yellow-400'
+                        : 'text-owl-text-secondary/50 hover:text-yellow-500'
+                    }`}
+                    title={email.starred ? "Yıldızı kaldır" : "Yıldızla"}
+                  >
+                    {email.starred ? <Icons.StarFilled /> : <Icons.Star />}
+                  </button>
                   {email.hasAttachments && <Icons.Paperclip />}
                 </div>
               </div>
@@ -562,11 +582,11 @@ function MailPanel({
       <div className="p-3 border-t border-owl-border">
         <div className="flex items-center gap-3 px-2">
           <div className="w-8 h-8 bg-owl-accent rounded-full flex items-center justify-center text-white text-sm font-medium">
-            BC
+            {selectedAccount?.displayName?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || selectedAccount?.email?.charAt(0).toUpperCase() || '?'}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-sm text-owl-text truncate">Berkan Çetinel</div>
-            <div className="text-xs text-owl-text-secondary truncate">berkan@berkancetinel.com</div>
+            <div className="text-sm text-owl-text truncate">{selectedAccount?.displayName || 'Hesap seçin'}</div>
+            <div className="text-xs text-owl-text-secondary truncate">{selectedAccount?.email || ''}</div>
           </div>
           <button
             onClick={onSettingsClick}
@@ -1385,10 +1405,28 @@ function App() {
   }, [emails, activeFolder, searchQuery]);
 
   // Email actions
-  const handleToggleStar = useCallback(() => {
-    if (!selectedEmail) return;
-    setEmails(prev => prev.map(e => e.id === selectedEmail ? { ...e, starred: !e.starred } : e));
-  }, [selectedEmail]);
+  const handleToggleStar = useCallback(async (emailId?: string) => {
+    const targetId = emailId || selectedEmail;
+    if (!targetId || !selectedAccountId) return;
+
+    const email = emails.find(e => e.id === targetId);
+    if (!email) return;
+
+    const newStarred = !email.starred;
+
+    // Optimistic update
+    setEmails(prev => prev.map(e => e.id === targetId ? { ...e, starred: newStarred } : e));
+
+    // Call backend
+    try {
+      const { markEmailStarred } = await import('./services/mailService');
+      await markEmailStarred(selectedAccountId.toString(), parseInt(targetId), newStarred, activeFolder);
+    } catch (err) {
+      console.error('Failed to toggle star:', err);
+      // Revert on error
+      setEmails(prev => prev.map(e => e.id === targetId ? { ...e, starred: !newStarred } : e));
+    }
+  }, [selectedEmail, selectedAccountId, emails, activeFolder]);
 
   const handleToggleRead = useCallback(() => {
     if (!selectedEmail) return;
@@ -1644,6 +1682,7 @@ function App() {
         onAccountChange={handleAccountChange}
         imapFolders={imapFolders}
         isLoadingFolders={isLoadingFolders}
+        onToggleStar={handleToggleStar}
       />
       <EmailView
         email={currentEmail}

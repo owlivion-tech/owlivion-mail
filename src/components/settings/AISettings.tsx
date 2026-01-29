@@ -40,13 +40,12 @@ export function AISettings({ settings, onSettingsChange }: AISettingsProps) {
             <select
               value={settings.aiReplyTone}
               onChange={(e) => updateSetting('aiReplyTone', e.target.value as Settings['aiReplyTone'])}
-              className="px-4 py-2 border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm"
-              style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}
+              className="px-4 py-2 bg-owl-bg border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm text-owl-text appearance-none cursor-pointer"
             >
-              <option value="professional" style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}>Profesyonel</option>
-              <option value="friendly" style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}>Samimi</option>
-              <option value="formal" style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}>Resmi</option>
-              <option value="casual" style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}>Günlük</option>
+              <option value="professional" className="bg-owl-bg text-owl-text">Profesyonel</option>
+              <option value="friendly" className="bg-owl-bg text-owl-text">Samimi</option>
+              <option value="formal" className="bg-owl-bg text-owl-text">Resmi</option>
+              <option value="casual" className="bg-owl-bg text-owl-text">Günlük</option>
             </select>
           </div>
 

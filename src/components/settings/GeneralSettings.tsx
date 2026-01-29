@@ -40,12 +40,11 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
             <select
               value={settings.theme}
               onChange={(e) => updateSetting('theme', e.target.value as Settings['theme'])}
-              className="px-4 py-2 border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm"
-              style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}
+              className="px-4 py-2 bg-owl-bg border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm text-owl-text appearance-none cursor-pointer"
             >
-              <option value="dark" style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}>Koyu</option>
-              <option value="light" style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}>Açık</option>
-              <option value="system" style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}>Sistem</option>
+              <option value="dark" className="bg-owl-bg text-owl-text">Koyu</option>
+              <option value="light" className="bg-owl-bg text-owl-text">Açık</option>
+              <option value="system" className="bg-owl-bg text-owl-text">Sistem</option>
             </select>
           </div>
 
@@ -60,11 +59,10 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
             <select
               value={settings.language}
               onChange={(e) => updateSetting('language', e.target.value as Settings['language'])}
-              className="px-4 py-2 border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm"
-              style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}
+              className="px-4 py-2 bg-owl-bg border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm text-owl-text appearance-none cursor-pointer"
             >
-              <option value="tr" style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}>Türkçe</option>
-              <option value="en" style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}>English</option>
+              <option value="tr" className="bg-owl-bg text-owl-text">Türkçe</option>
+              <option value="en" className="bg-owl-bg text-owl-text">English</option>
             </select>
           </div>
 
@@ -194,14 +192,13 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
               <select
                 value={settings.autoMarkReadDelay}
                 onChange={(e) => updateSetting('autoMarkReadDelay', parseInt(e.target.value))}
-                className="px-4 py-2 border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm"
-                style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}
+                className="px-4 py-2 bg-owl-bg border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm text-owl-text appearance-none cursor-pointer"
               >
-                <option value="0" style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}>Hemen</option>
-                <option value="1" style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}>1 saniye</option>
-                <option value="3" style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}>3 saniye</option>
-                <option value="5" style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}>5 saniye</option>
-                <option value="10" style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}>10 saniye</option>
+                <option value="0" className="bg-owl-bg text-owl-text">Hemen</option>
+                <option value="1" className="bg-owl-bg text-owl-text">1 saniye</option>
+                <option value="3" className="bg-owl-bg text-owl-text">3 saniye</option>
+                <option value="5" className="bg-owl-bg text-owl-text">5 saniye</option>
+                <option value="10" className="bg-owl-bg text-owl-text">10 saniye</option>
               </select>
             </div>
           )}
@@ -252,11 +249,10 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
             <select
               value={settings.signaturePosition}
               onChange={(e) => updateSetting('signaturePosition', e.target.value as Settings['signaturePosition'])}
-              className="px-4 py-2 border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm"
-              style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}
+              className="px-4 py-2 bg-owl-bg border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm text-owl-text appearance-none cursor-pointer"
             >
-              <option value="bottom" style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}>Alt (Alıntının altında)</option>
-              <option value="top" style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}>Üst (Alıntının üstünde)</option>
+              <option value="bottom" className="bg-owl-bg text-owl-text">Alt (Alıntının altında)</option>
+              <option value="top" className="bg-owl-bg text-owl-text">Üst (Alıntının üstünde)</option>
             </select>
           </div>
 
@@ -271,11 +267,10 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
             <select
               value={settings.replyPosition}
               onChange={(e) => updateSetting('replyPosition', e.target.value as Settings['replyPosition'])}
-              className="px-4 py-2 border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm"
-              style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}
+              className="px-4 py-2 bg-owl-bg border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm text-owl-text appearance-none cursor-pointer"
             >
-              <option value="top" style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}>Üst (Alıntının üstünde)</option>
-              <option value="bottom" style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}>Alt (Alıntının altında)</option>
+              <option value="top" className="bg-owl-bg text-owl-text">Üst (Alıntının üstünde)</option>
+              <option value="bottom" className="bg-owl-bg text-owl-text">Alt (Alıntının altında)</option>
             </select>
           </div>
         </div>

@@ -415,12 +415,11 @@ export function AddAccountModal({
                     <select
                       value={imapSecurity}
                       onChange={(e) => setImapSecurity(e.target.value as SecurityType)}
-                      className="w-full px-4 py-2.5 border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm"
-                      style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}
+                      className="w-full px-4 py-2.5 bg-owl-bg border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm text-owl-text appearance-none cursor-pointer"
                     >
-                      <option value="SSL" style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}>SSL/TLS</option>
-                      <option value="STARTTLS" style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}>STARTTLS</option>
-                      <option value="NONE" style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}>Şifresiz (önerilmez)</option>
+                      <option value="SSL" className="bg-owl-bg text-owl-text">SSL/TLS</option>
+                      <option value="STARTTLS" className="bg-owl-bg text-owl-text">STARTTLS</option>
+                      <option value="NONE" className="bg-owl-bg text-owl-text">Şifresiz (önerilmez)</option>
                     </select>
                   </div>
                 </div>
@@ -455,12 +454,11 @@ export function AddAccountModal({
                     <select
                       value={smtpSecurity}
                       onChange={(e) => setSmtpSecurity(e.target.value as SecurityType)}
-                      className="w-full px-4 py-2.5 border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm"
-                      style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}
+                      className="w-full px-4 py-2.5 bg-owl-bg border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm text-owl-text appearance-none cursor-pointer"
                     >
-                      <option value="STARTTLS" style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}>STARTTLS</option>
-                      <option value="SSL" style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}>SSL/TLS</option>
-                      <option value="NONE" style={{ backgroundColor: '#1a1a24', color: '#e4e4e7' }}>Şifresiz (önerilmez)</option>
+                      <option value="STARTTLS" className="bg-owl-bg text-owl-text">STARTTLS</option>
+                      <option value="SSL" className="bg-owl-bg text-owl-text">SSL/TLS</option>
+                      <option value="NONE" className="bg-owl-bg text-owl-text">Şifresiz (önerilmez)</option>
                     </select>
                   </div>
                 </div>
