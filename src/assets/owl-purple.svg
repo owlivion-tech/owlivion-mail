@@ -1,0 +1,33 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="owlGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#a78bfa"/>
+      <stop offset="50%" stop-color="#8b5cf6"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+  </defs>
+  <!-- Owl body/head -->
+  <path fill="url(#owlGrad)" d="M50 10 C20 10 5 35 5 55 C5 80 25 95 50 95 C75 95 95 80 95 55 C95 35 80 10 50 10 Z"/>
+  <!-- Left ear -->
+  <path fill="url(#owlGrad)" d="M20 25 Q10 5 25 15 Q30 20 25 30 Z"/>
+  <!-- Right ear -->
+  <path fill="url(#owlGrad)" d="M80 25 Q90 5 75 15 Q70 20 75 30 Z"/>
+  <!-- Left eye outer -->
+  <circle cx="35" cy="45" r="18" fill="#1a1a24"/>
+  <!-- Right eye outer -->
+  <circle cx="65" cy="45" r="18" fill="#1a1a24"/>
+  <!-- Left eye inner -->
+  <circle cx="35" cy="45" r="12" fill="#8b5cf6"/>
+  <!-- Right eye inner -->
+  <circle cx="65" cy="45" r="12" fill="#8b5cf6"/>
+  <!-- Left pupil -->
+  <circle cx="38" cy="43" r="5" fill="#1a1a24"/>
+  <!-- Right pupil -->
+  <circle cx="68" cy="43" r="5" fill="#1a1a24"/>
+  <!-- Left eye shine -->
+  <circle cx="33" cy="41" r="3" fill="#e4e4e7" opacity="0.8"/>
+  <!-- Right eye shine -->
+  <circle cx="63" cy="41" r="3" fill="#e4e4e7" opacity="0.8"/>
+  <!-- Beak -->
+  <path fill="#f59e0b" d="M50 55 L44 68 Q50 75 56 68 Z"/>
+</svg>
