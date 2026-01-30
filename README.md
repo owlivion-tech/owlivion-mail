@@ -5,7 +5,7 @@
 <h1 align="center">Owlivion Mail</h1>
 
 <p align="center">
-  <strong>Akıllı, Güvenli, Özgür E-posta İstemcisi</strong>
+  <strong>Smart, Secure, Free Email Client</strong>
 </p>
 
 <p align="center">
@@ -16,114 +16,114 @@
 </p>
 
 <p align="center">
-  <a href="#özellikler">Özellikler</a> •
-  <a href="#kurulum">Kurulum</a> •
-  <a href="#desteklenen-servisler">Desteklenen Servisler</a> •
-  <a href="#geliştirme">Geliştirme</a> •
-  <a href="#güvenlik">Güvenlik</a> •
-  <a href="#katkıda-bulunma">Katkıda Bulunma</a>
+  <a href="#features">Features</a> •
+  <a href="#installation">Installation</a> •
+  <a href="#supported-services">Supported Services</a> •
+  <a href="#development">Development</a> •
+  <a href="#security">Security</a> •
+  <a href="#contributing">Contributing</a>
 </p>
 
 ---
 
-## Hakkında
+## About
 
-Owlivion Mail, gizliliğinize saygı duyan, yapay zeka destekli açık kaynak masaüstü e-posta istemcisidir. Phishing saldırılarını tespit eder, takip piksellerini engeller ve şifrelerinizi güvenle saklar.
+Owlivion Mail is a privacy-respecting, AI-powered open-source desktop email client. It detects phishing attacks, blocks tracking pixels, and securely stores your passwords.
 
-**Sonsuza kadar ücretsiz. Reklamsız. Açık kaynak.**
+**Free forever. No ads. Open source.**
 
-## Özellikler
+## Features
 
-### 🤖 AI Destekli Phishing Tespiti
-- Google Gemini AI ile gerçek zamanlı e-posta analizi
-- Şüpheli bağlantı ve içerik tespiti
-- Risk seviyesi değerlendirmesi (Düşük/Orta/Yüksek/Kritik)
-- Kural tabanlı yedek sistem (API olmadan da çalışır)
+### 🤖 AI-Powered Phishing Detection
+- Real-time email analysis with Google Gemini AI
+- Suspicious link and content detection
+- Risk level assessment (Low/Medium/High/Critical)
+- Rule-based fallback system (works without API)
 
-### 🛡️ Takip Pikseli Engelleme
-- 60+ pazarlama servisi tanıma (Mailchimp, SendGrid, HubSpot, vb.)
-- Otomatik takip pikseli tespiti
-- Okundu bilgisi gönderimini engelleme
-- Gizlilik koruması
+### 🛡️ Tracking Pixel Blocking
+- Recognizes 60+ marketing services (Mailchimp, SendGrid, HubSpot, etc.)
+- Automatic tracking pixel detection
+- Blocks read receipt transmission
+- Privacy protection
 
-### 🔐 Uçtan Uca Güvenlik
-- **AES-256-GCM** şifreleme
-- **HKDF** anahtar türetme
-- Şifrelerin bellekten otomatik silinmesi (Zeroize)
-- Makine bazlı anahtar üretimi
-- SSL/TLS zorunluluğu (güvensiz bağlantı yok)
+### 🔐 End-to-End Security
+- **AES-256-GCM** encryption
+- **HKDF** key derivation
+- Automatic password wiping from memory (Zeroize)
+- Machine-based key generation
+- SSL/TLS enforcement (no insecure connections)
 
-### 📧 E-posta Yönetimi
-- Çoklu hesap desteği
-- Birleşik gelen kutusu
-- Klasör yönetimi (IMAP)
-- E-posta yıldızlama
-- Arama (FTS5 tam metin arama)
-- HTML ve düz metin görüntüleme
+### 📧 Email Management
+- Multiple account support
+- Unified inbox
+- Folder management (IMAP)
+- Email starring
+- Search (FTS5 full-text search)
+- HTML and plain text viewing
 
-### 🎨 Modern Arayüz
-- Karanlık/Aydınlık tema
-- Türkçe ve İngilizce dil desteği
-- Duyarlı tasarım
-- Klavye kısayolları
+### 🎨 Modern Interface
+- Dark/Light theme
+- Turkish and English language support
+- Responsive design
+- Keyboard shortcuts
 
-### ⚡ Performans
-- Rust backend (hızlı ve güvenli)
-- SQLite veritabanı
-- Asenkron IMAP/SMTP
-- Düşük bellek kullanımı
+### ⚡ Performance
+- Rust backend (fast and secure)
+- SQLite database
+- Asynchronous IMAP/SMTP
+- Low memory usage
 
-## Ekran Görüntüleri
+## Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/main.png" alt="Ana Ekran" width="800">
+  <img src="docs/screenshots/main.png" alt="Main Screen" width="800">
 </p>
 
-## Kurulum
+## Installation
 
-### Hazır İndirme
+### Pre-built Downloads
 
-[Releases](https://github.com/babafpv/owlivion-mail/releases) sayfasından işletim sisteminize uygun sürümü indirin:
+Download the appropriate version for your operating system from the [Releases](https://github.com/babafpv/owlivion-mail/releases) page:
 
-| Platform | İndirme |
-|----------|---------|
+| Platform | Download |
+|----------|----------|
 | Windows | `owlivion-mail_x.x.x_x64-setup.exe` |
 | macOS | `owlivion-mail_x.x.x_x64.dmg` |
 | Linux (deb) | `owlivion-mail_x.x.x_amd64.deb` |
 | Linux (AppImage) | `owlivion-mail_x.x.x_amd64.AppImage` |
 
-### Kaynaktan Derleme
+### Building from Source
 
-#### Gereksinimler
+#### Requirements
 
 - [Node.js](https://nodejs.org/) (v18+)
 - [pnpm](https://pnpm.io/) (v8+)
 - [Rust](https://rustup.rs/) (1.70+)
 - Tauri CLI: `cargo install tauri-cli`
 
-#### Adımlar
+#### Steps
 
 ```bash
-# Repoyu klonla
+# Clone the repository
 git clone https://github.com/babafpv/owlivion-mail.git
 cd owlivion-mail
 
-# Bağımlılıkları yükle
+# Install dependencies
 pnpm install
 
-# Geliştirme modunda çalıştır
+# Run in development mode
 pnpm tauri dev
 
-# Üretim için derle
+# Build for production
 pnpm tauri build
 ```
 
-## Desteklenen Servisler
+## Supported Services
 
-Owlivion Mail, IMAP/SMTP destekleyen tüm e-posta servisleriyle çalışır:
+Owlivion Mail works with all email services that support IMAP/SMTP:
 
-| Servis | IMAP | SMTP | Otomatik Yapılandırma |
-|--------|------|------|----------------------|
+| Service | IMAP | SMTP | Auto-configuration |
+|---------|------|------|-------------------|
 | Gmail | ✅ | ✅ | ✅ |
 | Outlook/Hotmail | ✅ | ✅ | ✅ |
 | Yahoo Mail | ✅ | ✅ | ✅ |
@@ -134,80 +134,80 @@ Owlivion Mail, IMAP/SMTP destekleyen tüm e-posta servisleriyle çalışır:
 | FastMail | ✅ | ✅ | ✅ |
 | Mailbox.org | ✅ | ✅ | ✅ |
 | Tutanota | ❌ | ❌ | - |
-| ProtonMail | ⚠️ | ⚠️ | Bridge gerekli |
+| ProtonMail | ⚠️ | ⚠️ | Requires Bridge |
 
-**+40 diğer servis** otomatik yapılandırma ile desteklenir.
+**+40 other services** are supported with auto-configuration.
 
-> **Not:** Gmail ve diğer Google hesapları için [Uygulama Şifresi](https://myaccount.google.com/apppasswords) oluşturmanız gerekir.
+> **Note:** For Gmail and other Google accounts, you need to create an [App Password](https://myaccount.google.com/apppasswords).
 
-## Yapılandırma
+## Configuration
 
-### AI Phishing Tespiti (Opsiyonel)
+### AI Phishing Detection (Optional)
 
-Gemini AI ile phishing tespiti için:
+For phishing detection with Gemini AI:
 
-1. [Google AI Studio](https://aistudio.google.com/app/apikey) adresinden API anahtarı alın
-2. Ayarlar → AI Ayarları → Gemini API Key alanına yapıştırın
+1. Get an API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
+2. Go to Settings → AI Settings → Paste into Gemini API Key field
 
-> API anahtarı olmadan da kural tabanlı tespit çalışır.
+> Rule-based detection works without an API key.
 
-### Dil Ayarı
+### Language Setting
 
-Ayarlar → Genel → Dil menüsünden Türkçe veya İngilizce seçebilirsiniz.
+You can select Turkish or English from Settings → General → Language.
 
-### Tema
+### Theme
 
-Ayarlar → Görünüm → Tema menüsünden Karanlık veya Aydınlık tema seçebilirsiniz.
+You can select Dark or Light theme from Settings → Appearance → Theme.
 
-## Güvenlik
+## Security
 
-### Şifreleme Detayları
+### Encryption Details
 
 ```
-Algoritma: AES-256-GCM
-Anahtar Türetme: HKDF-SHA256
-Nonce: 12 byte rastgele
-Salt: 32 byte kurulum bazlı
-Anahtar Kaynağı: Makine ID + Kullanıcı + Salt
+Algorithm: AES-256-GCM
+Key Derivation: HKDF-SHA256
+Nonce: 12 bytes random
+Salt: 32 bytes installation-based
+Key Source: Machine ID + User + Salt
 ```
 
-### Güvenlik Özellikleri
+### Security Features
 
-- ✅ Şifreler veritabanında şifreli saklanır
-- ✅ Şifreler kullanım sonrası bellekten silinir (zeroize)
-- ✅ SSL/TLS zorunlu (güvensiz bağlantı engellendi)
-- ✅ SSRF koruması (localhost/private IP engeli)
-- ✅ Rate limiting (brute force koruması)
-- ✅ SQL injection koruması (FTS5 sanitization)
-- ✅ Hassas bilgiler loglara yazılmaz
+- ✅ Passwords stored encrypted in database
+- ✅ Passwords wiped from memory after use (zeroize)
+- ✅ SSL/TLS enforced (insecure connections blocked)
+- ✅ SSRF protection (localhost/private IP blocked)
+- ✅ Rate limiting (brute force protection)
+- ✅ SQL injection protection (FTS5 sanitization)
+- ✅ Sensitive information not written to logs
 
-### Güvenlik Açığı Bildirimi
+### Security Vulnerability Reporting
 
-Güvenlik açığı bulduysanız lütfen [security@owlivion.com](mailto:security@owlivion.com) adresine bildirin.
+If you find a security vulnerability, please report it to [security@owlivion.com](mailto:security@owlivion.com).
 
-## Geliştirme
+## Development
 
-### Proje Yapısı
+### Project Structure
 
 ```
 owlivion-mail/
 ├── src/                    # React frontend
-│   ├── components/         # UI bileşenleri
-│   ├── services/           # API servisleri
-│   └── App.tsx             # Ana uygulama
+│   ├── components/         # UI components
+│   ├── services/           # API services
+│   └── App.tsx             # Main application
 ├── src-tauri/              # Rust backend
 │   ├── src/
-│   │   ├── main.rs         # Giriş noktası
-│   │   ├── lib.rs          # Tauri komutları
-│   │   ├── db/             # SQLite veritabanı
-│   │   ├── mail/           # IMAP/SMTP işlemleri
-│   │   └── crypto.rs       # Şifreleme
+│   │   ├── main.rs         # Entry point
+│   │   ├── lib.rs          # Tauri commands
+│   │   ├── db/             # SQLite database
+│   │   ├── mail/           # IMAP/SMTP operations
+│   │   └── crypto.rs       # Encryption
 │   └── Cargo.toml
-├── landing/                # Web sitesi
+├── landing/                # Website
 └── package.json
 ```
 
-### Teknolojiler
+### Technologies
 
 **Frontend:**
 - React 18
@@ -220,12 +220,12 @@ owlivion-mail/
 - Tauri v2
 - SQLite (rusqlite)
 - async-imap / async-smtp
-- ring (kriptografi)
+- ring (cryptography)
 
-### Komutlar
+### Commands
 
 ```bash
-# Geliştirme
+# Development
 pnpm tauri dev
 
 # Lint
@@ -241,86 +241,86 @@ cd src-tauri && cargo test
 pnpm tauri build
 ```
 
-## Katkıda Bulunma
+## Contributing
 
-Katkılarınızı bekliyoruz!
+We welcome your contributions!
 
-1. Fork edin
-2. Feature branch oluşturun (`git checkout -b feature/yeni-ozellik`)
-3. Değişikliklerinizi commit edin (`git commit -m 'Yeni özellik eklendi'`)
-4. Branch'i push edin (`git push origin feature/yeni-ozellik`)
-5. Pull Request açın
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/new-feature`)
+3. Commit your changes (`git commit -m 'Add new feature'`)
+4. Push the branch (`git push origin feature/new-feature`)
+5. Open a Pull Request
 
-### Geliştirme Kuralları
+### Development Guidelines
 
-- Kod Türkçe yorum içerebilir
-- Commit mesajları İngilizce veya Türkçe olabilir
-- PR açmadan önce `pnpm lint` çalıştırın
-- Güvenlik değişiklikleri için detaylı açıklama ekleyin
+- Code comments can be in Turkish or English
+- Commit messages can be in Turkish or English
+- Run `pnpm lint` before opening a PR
+- Add detailed descriptions for security changes
 
-## Yol Haritası
+## Roadmap
 
-- [ ] E-posta oluşturma/yanıtlama
-- [ ] Takvim entegrasyonu
-- [ ] Kişiler yönetimi
-- [ ] PGP şifreleme
-- [ ] Mobil uygulama (iOS/Android)
-- [ ] Çoklu cihaz senkronizasyonu
+- [ ] Email composing/replying
+- [ ] Calendar integration
+- [ ] Contacts management
+- [ ] PGP encryption
+- [ ] Mobile app (iOS/Android)
+- [ ] Multi-device sync
 
-## SSS
+## FAQ
 
 <details>
-<summary><strong>Gmail ile bağlanamıyorum</strong></summary>
+<summary><strong>I can't connect to Gmail</strong></summary>
 
-Gmail için normal şifreniz yerine [Uygulama Şifresi](https://myaccount.google.com/apppasswords) kullanmanız gerekir. 2FA aktif olmalıdır.
+For Gmail, you need to use an [App Password](https://myaccount.google.com/apppasswords) instead of your regular password. 2FA must be enabled.
 </details>
 
 <details>
-<summary><strong>Verilerim nerede saklanıyor?</strong></summary>
+<summary><strong>Where is my data stored?</strong></summary>
 
-Tüm veriler yerel bilgisayarınızda saklanır:
+All data is stored locally on your computer:
 - Windows: `%APPDATA%\com.owlivion.owlivion-mail`
 - macOS: `~/Library/Application Support/com.owlivion.owlivion-mail`
 - Linux: `~/.local/share/com.owlivion.owlivion-mail`
 </details>
 
 <details>
-<summary><strong>Şifrelerim güvende mi?</strong></summary>
+<summary><strong>Are my passwords secure?</strong></summary>
 
-Evet. Şifreleriniz AES-256-GCM ile şifrelenir ve sadece sizin bilgisayarınızda çözülebilir. Şifreleme anahtarı makine bazlı üretilir.
+Yes. Your passwords are encrypted with AES-256-GCM and can only be decrypted on your computer. The encryption key is generated based on your machine.
 </details>
 
 <details>
-<summary><strong>İnternet olmadan çalışır mı?</strong></summary>
+<summary><strong>Does it work offline?</strong></summary>
 
-Daha önce indirilen e-postalar çevrimdışı okunabilir. Yeni e-posta almak/göndermek için internet gerekir.
+Previously downloaded emails can be read offline. Internet connection is required to receive/send new emails.
 </details>
 
-## Lisans
+## License
 
-Bu proje [MIT Lisansı](LICENSE) ile lisanslanmıştır.
+This project is licensed under the [MIT License](LICENSE).
 
 ```
-MIT License - Özet:
-✅ Ticari kullanım
-✅ Değiştirme
-✅ Dağıtım
-✅ Özel kullanım
-❌ Sorumluluk
-❌ Garanti
+MIT License - Summary:
+✅ Commercial use
+✅ Modification
+✅ Distribution
+✅ Private use
+❌ Liability
+❌ Warranty
 ```
 
-## İletişim
+## Contact
 
 - **Website:** [owlivion.com/mail](https://owlivion.com/mail)
 - **GitHub:** [github.com/babafpv/owlivion-mail](https://github.com/babafpv/owlivion-mail)
-- **E-posta:** [contact@owlivion.com](mailto:contact@owlivion.com)
+- **Email:** [contact@owlivion.com](mailto:contact@owlivion.com)
 - **Twitter:** [@owlivion](https://twitter.com/owlivion)
 
 ---
 
 <p align="center">
-  <strong>Owlivion</strong> tarafından ❤️ ile yapıldı
+  Made with ❤️ by <strong>Owlivion</strong>
 </p>
 
 <p align="center">
