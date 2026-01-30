@@ -1,11 +1,26 @@
 // ============================================================================
 // Owlivion Mail - Add Account Modal (Thunderbird-style Auto-configuration)
 // ============================================================================
+// SECURITY HARDENED: No sensitive data in console logs
 
 import React, { useState, useEffect } from 'react';
 import { useShortcut } from '../../hooks/useKeyboardShortcuts';
 import type { Account, AutoConfig, SecurityType } from '../../types';
 import { invoke } from '@tauri-apps/api/core';
+
+// SECURITY: Logger wrapper - only log in development, never log sensitive data
+const log = {
+  info: (message: string) => {
+    if (import.meta.env.DEV) {
+      console.log(message);
+    }
+  },
+  error: (message: string) => {
+    if (import.meta.env.DEV) {
+      console.error(message);
+    }
+  },
+};
 
 interface AddAccountModalProps {
   isOpen: boolean;
@@ -79,11 +94,13 @@ export function AddAccountModal({
         setDisplayName(result.displayName);
       }
 
-      console.log('Autoconfig result:', result);
+      // SECURITY: Don't log full config details with potential sensitive info
+      log.info('Autoconfig detected successfully');
 
       setStep('configure');
-    } catch (err) {
-      console.error('Auto-detect failed:', err);
+    } catch (_err) {
+      // SECURITY: Don't expose error details
+      log.error('Auto-detect failed');
       // Fallback to manual configuration
       setShowManual(true);
       setStep('configure');

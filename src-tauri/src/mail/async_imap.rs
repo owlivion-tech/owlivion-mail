@@ -4,11 +4,63 @@
 
 use crate::mail::{
     config::{ImapConfig, SecurityType},
-    EmailSummary, FetchResult, Folder, FolderType, MailError, MailResult, ParsedEmail, EmailAttachment,
+    EmailSummary, FetchResult, Folder, FolderType, MailError, MailResult, ParsedEmail,
 };
 use async_imap::Session;
 use futures::{pin_mut, StreamExt};
 use tokio_util::compat::TokioAsyncReadCompatExt;
+
+// SECURITY: Maximum search query length to prevent injection attacks
+const MAX_SEARCH_QUERY_LENGTH: usize = 200;
+
+/// SECURITY: Sanitize IMAP string to prevent injection attacks
+/// Removes characters that could be used for IMAP command injection
+fn sanitize_imap_string(input: &str) -> String {
+    input
+        .chars()
+        .filter(|c| {
+            c.is_alphanumeric()
+                || *c == ' '
+                || *c == '.'
+                || *c == '-'
+                || *c == '_'
+                || *c == '@'
+                || *c == '+'
+                || *c == ','
+                || *c == ':'
+                || *c == '/'
+                || *c == '['
+                || *c == ']'
+                || c.is_alphabetic()
+        })
+        .collect::<String>()
+        .replace('"', "")
+        .replace('\\', "")
+        .replace('\r', "")
+        .replace('\n', "")
+        .replace('\0', "")
+}
+
+/// SECURITY: Sanitize folder name for IMAP operations
+fn sanitize_folder_name(folder: &str) -> String {
+    // Allow standard folder characters but remove injection vectors
+    folder
+        .chars()
+        .filter(|c| {
+            c.is_alphanumeric()
+                || *c == '/'
+                || *c == '.'
+                || *c == '-'
+                || *c == '_'
+                || *c == '['
+                || *c == ']'
+                || *c == ' '
+        })
+        .collect::<String>()
+        .replace('\r', "")
+        .replace('\n', "")
+        .replace('\0', "")
+}
 
 /// Decode MIME encoded header (RFC 2047)
 fn decode_mime_header(input: &str) -> String {
@@ -184,23 +236,27 @@ impl AsyncImapClient {
     }
 
     /// Fetch emails with pagination
+    /// SECURITY: Folder name sanitized to prevent IMAP injection
     pub async fn fetch_emails(
         &mut self,
         folder: &str,
         page: u32,
         page_size: u32,
     ) -> MailResult<FetchResult> {
+        // SECURITY: Sanitize folder name
+        let safe_folder = sanitize_folder_name(folder);
+
         log::info!(
             "async fetch_emails: folder={}, page={}, page_size={}",
-            folder, page, page_size
+            safe_folder, page, page_size
         );
 
         let session = self.session.as_mut().ok_or(MailError::NotConnected)?;
 
         // Select the folder
-        log::info!("Selecting folder: {}", folder);
+        log::info!("Selecting folder: {}", safe_folder);
         let mailbox = session
-            .select(folder)
+            .select(&safe_folder)
             .await
             .map_err(|e| {
                 log::error!("Failed to select folder: {}", e);
@@ -330,15 +386,19 @@ impl AsyncImapClient {
     }
 
     /// Fetch a single email with full content
+    /// SECURITY: Folder name sanitized to prevent IMAP injection
     pub async fn fetch_email(&mut self, folder: &str, uid: u32) -> MailResult<ParsedEmail> {
-        log::info!("fetch_email: folder={}, uid={}", folder, uid);
+        // SECURITY: Sanitize folder name
+        let safe_folder = sanitize_folder_name(folder);
+
+        log::info!("fetch_email: folder={}, uid={}", safe_folder, uid);
 
         let session = self.session.as_mut().ok_or(MailError::NotConnected)?;
 
         // Select folder
         log::info!("fetch_email: selecting folder...");
         session
-            .select(folder)
+            .select(&safe_folder)
             .await
             .map_err(|e| {
                 log::error!("fetch_email: failed to select folder: {}", e);
@@ -471,18 +531,32 @@ impl AsyncImapClient {
     }
 
     /// Search emails
+    /// SECURITY: Input sanitized and length-limited to prevent IMAP injection
     pub async fn search(&mut self, folder: &str, query: &str) -> MailResult<Vec<u32>> {
+        // SECURITY: Validate query length
+        if query.len() > MAX_SEARCH_QUERY_LENGTH {
+            return Err(MailError::Imap(format!(
+                "Search query too long (max {} characters)",
+                MAX_SEARCH_QUERY_LENGTH
+            )));
+        }
+
+        // SECURITY: Sanitize folder name
+        let safe_folder = sanitize_folder_name(folder);
+
         let session = self.session.as_mut().ok_or(MailError::NotConnected)?;
 
         session
-            .select(folder)
+            .select(&safe_folder)
             .await
             .map_err(|e| MailError::Imap(e.to_string()))?;
 
-        // Search in subject, from, and body
-        // Escape quotes in query to prevent IMAP injection
-        let escaped_query = query.replace("\"", "\\\"");
-        let search_query = format!("OR OR SUBJECT \"{}\" FROM \"{}\" BODY \"{}\"", escaped_query, escaped_query, escaped_query);
+        // SECURITY: Sanitize search query to prevent IMAP injection
+        let sanitized_query = sanitize_imap_string(query);
+        let search_query = format!(
+            "OR OR SUBJECT \"{}\" FROM \"{}\" BODY \"{}\"",
+            sanitized_query, sanitized_query, sanitized_query
+        );
 
         let uids_set = session
             .uid_search(&search_query)
@@ -493,11 +567,15 @@ impl AsyncImapClient {
     }
 
     /// Mark email as read/unread
+    /// SECURITY: Folder name sanitized to prevent IMAP injection
     pub async fn set_read(&mut self, folder: &str, uid: u32, read: bool) -> MailResult<()> {
+        // SECURITY: Sanitize folder name
+        let safe_folder = sanitize_folder_name(folder);
+
         let session = self.session.as_mut().ok_or(MailError::NotConnected)?;
 
         session
-            .select(folder)
+            .select(&safe_folder)
             .await
             .map_err(|e| MailError::Imap(e.to_string()))?;
 
@@ -515,11 +593,15 @@ impl AsyncImapClient {
     }
 
     /// Mark email as starred/unstarred
+    /// SECURITY: Folder name sanitized to prevent IMAP injection
     pub async fn set_starred(&mut self, folder: &str, uid: u32, starred: bool) -> MailResult<()> {
+        // SECURITY: Sanitize folder name
+        let safe_folder = sanitize_folder_name(folder);
+
         let session = self.session.as_mut().ok_or(MailError::NotConnected)?;
 
         session
-            .select(folder)
+            .select(&safe_folder)
             .await
             .map_err(|e| MailError::Imap(e.to_string()))?;
 
@@ -537,11 +619,16 @@ impl AsyncImapClient {
     }
 
     /// Move email to another folder
+    /// SECURITY: Folder names sanitized to prevent IMAP injection
     pub async fn move_email(&mut self, folder: &str, uid: u32, target_folder: &str) -> MailResult<()> {
+        // SECURITY: Sanitize folder names
+        let safe_folder = sanitize_folder_name(folder);
+        let safe_target = sanitize_folder_name(target_folder);
+
         let session = self.session.as_mut().ok_or(MailError::NotConnected)?;
 
         session
-            .select(folder)
+            .select(&safe_folder)
             .await
             .map_err(|e| MailError::Imap(e.to_string()))?;
 
@@ -549,7 +636,7 @@ impl AsyncImapClient {
 
         // Copy to target folder
         session
-            .uid_copy(&uid_str, target_folder)
+            .uid_copy(&uid_str, &safe_target)
             .await
             .map_err(|e| MailError::Imap(e.to_string()))?;
 
@@ -576,11 +663,15 @@ impl AsyncImapClient {
     }
 
     /// Delete email
+    /// SECURITY: Folder name sanitized to prevent IMAP injection
     pub async fn delete_email(&mut self, folder: &str, uid: u32, permanent: bool) -> MailResult<()> {
+        // SECURITY: Sanitize folder name
+        let safe_folder = sanitize_folder_name(folder);
+
         let session = self.session.as_mut().ok_or(MailError::NotConnected)?;
 
         session
-            .select(folder)
+            .select(&safe_folder)
             .await
             .map_err(|e| MailError::Imap(e.to_string()))?;
 

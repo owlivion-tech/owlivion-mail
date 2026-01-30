@@ -1,13 +1,109 @@
 // ============================================================================
 // Owlivion Mail - Gemini AI Service
 // ============================================================================
+// SECURITY HARDENED: API key in headers, input sanitization, rate limiting
 
 import type { AIReplyRequest, AIReplyResponse, Settings } from '../types';
 
 const GEMINI_API_URL =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
-// API key must be provided by user in settings - no hardcoded key for security
+// Rate limiting state
+let lastRequestTime = 0;
+const MIN_REQUEST_INTERVAL_MS = 1000; // Minimum 1 second between requests
+const MAX_REQUESTS_PER_MINUTE = 10;
+const requestTimestamps: number[] = [];
+
+/**
+ * SECURITY: Check rate limits before making API request
+ */
+function checkRateLimit(): void {
+  const now = Date.now();
+
+  // Check minimum interval
+  if (now - lastRequestTime < MIN_REQUEST_INTERVAL_MS) {
+    throw new Error('Too many requests. Please wait a moment.');
+  }
+
+  // Check requests per minute
+  const oneMinuteAgo = now - 60000;
+  const recentRequests = requestTimestamps.filter(t => t > oneMinuteAgo);
+  if (recentRequests.length >= MAX_REQUESTS_PER_MINUTE) {
+    throw new Error('Rate limit exceeded. Please wait a minute.');
+  }
+
+  // Update tracking
+  lastRequestTime = now;
+  requestTimestamps.push(now);
+
+  // Clean old timestamps
+  while (requestTimestamps.length > 0 && requestTimestamps[0] < oneMinuteAgo) {
+    requestTimestamps.shift();
+  }
+}
+
+/**
+ * SECURITY: Sanitize email content before sending to AI
+ * Removes sensitive headers and PII patterns
+ */
+function sanitizeEmailContent(content: string, maxLength: number = 10000): string {
+  if (!content) return '';
+
+  let sanitized = content;
+
+  // Remove potentially sensitive headers if present
+  sanitized = sanitized.replace(/^(X-[A-Za-z-]+|Received|DKIM-Signature|Authentication-Results|ARC-[A-Za-z-]+):.*$/gmi, '');
+
+  // Remove email addresses from headers (keep in body for context)
+  sanitized = sanitized.replace(/^(From|To|Cc|Bcc|Reply-To|Return-Path):.*$/gmi, '[Header removed]');
+
+  // Remove potential credit card numbers
+  sanitized = sanitized.replace(/\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b/g, '[REDACTED]');
+
+  // Remove potential SSN patterns
+  sanitized = sanitized.replace(/\b\d{3}[- ]?\d{2}[- ]?\d{4}\b/g, '[REDACTED]');
+
+  // Remove potential phone numbers (Turkish format)
+  sanitized = sanitized.replace(/\b0?5\d{2}[- ]?\d{3}[- ]?\d{2}[- ]?\d{2}\b/g, '[REDACTED]');
+
+  // Truncate to max length
+  if (sanitized.length > maxLength) {
+    sanitized = sanitized.substring(0, maxLength) + '\n[Content truncated]';
+  }
+
+  return sanitized.trim();
+}
+
+/**
+ * SECURITY: Make API request with key in header instead of URL
+ */
+async function makeGeminiRequest(
+  apiKey: string,
+  body: object,
+  timeout: number = 30000
+): Promise<Response> {
+  checkRateLimit();
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    // SECURITY: API key passed in x-goog-api-key header instead of URL query parameter
+    const response = await fetch(GEMINI_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey, // SECURITY: Key in header, not URL
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    return response;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 /**
  * Generate AI reply for an email
@@ -19,48 +115,45 @@ export async function generateReply(
   if (!apiKey) {
     throw new Error('Gemini API key is required. Please set it in Settings > AI.');
   }
-  const systemPrompt = getSystemPrompt(request.tone, request.language);
-  const userPrompt = getUserPrompt(request);
 
-  const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      contents: [
-        {
-          parts: [
-            { text: systemPrompt },
-            { text: userPrompt },
-          ],
-        },
-      ],
-      generationConfig: {
-        temperature: 0.7,
-        topK: 40,
-        topP: 0.95,
-        maxOutputTokens: 1024,
+  const systemPrompt = getSystemPrompt(request.tone, request.language);
+  // SECURITY: Sanitize email content before sending to AI
+  const sanitizedContent = sanitizeEmailContent(request.emailContent);
+  const userPrompt = getUserPrompt({ ...request, emailContent: sanitizedContent });
+
+  const response = await makeGeminiRequest(apiKey, {
+    contents: [
+      {
+        parts: [
+          { text: systemPrompt },
+          { text: userPrompt },
+        ],
       },
-      safetySettings: [
-        {
-          category: 'HARM_CATEGORY_HARASSMENT',
-          threshold: 'BLOCK_MEDIUM_AND_ABOVE',
-        },
-        {
-          category: 'HARM_CATEGORY_HATE_SPEECH',
-          threshold: 'BLOCK_MEDIUM_AND_ABOVE',
-        },
-        {
-          category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
-          threshold: 'BLOCK_MEDIUM_AND_ABOVE',
-        },
-        {
-          category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
-          threshold: 'BLOCK_MEDIUM_AND_ABOVE',
-        },
-      ],
-    }),
+    ],
+    generationConfig: {
+      temperature: 0.7,
+      topK: 40,
+      topP: 0.95,
+      maxOutputTokens: 1024,
+    },
+    safetySettings: [
+      {
+        category: 'HARM_CATEGORY_HARASSMENT',
+        threshold: 'BLOCK_MEDIUM_AND_ABOVE',
+      },
+      {
+        category: 'HARM_CATEGORY_HATE_SPEECH',
+        threshold: 'BLOCK_MEDIUM_AND_ABOVE',
+      },
+      {
+        category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+        threshold: 'BLOCK_MEDIUM_AND_ABOVE',
+      },
+      {
+        category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
+        threshold: 'BLOCK_MEDIUM_AND_ABOVE',
+      },
+    ],
   });
 
   if (!response.ok) {
@@ -91,37 +184,35 @@ export async function summarizeEmail(
   if (!apiKey) {
     throw new Error('Gemini API key is required. Please set it in Settings > AI.');
   }
+
+  // SECURITY: Sanitize email content
+  const sanitizedContent = sanitizeEmailContent(emailContent);
+
   const prompt =
     language === 'tr'
       ? `Bu e-postayı kısa ve öz bir şekilde özetle (3-5 cümle). Ana konuyu, önemli noktaları ve varsa eylem öğelerini belirt:
 
 E-posta:
-${emailContent}
+${sanitizedContent}
 
 Özet:`
       : `Summarize this email concisely (3-5 sentences). Include the main topic, key points, and any action items:
 
 Email:
-${emailContent}
+${sanitizedContent}
 
 Summary:`;
 
-  const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      contents: [
-        {
-          parts: [{ text: prompt }],
-        },
-      ],
-      generationConfig: {
-        temperature: 0.5,
-        maxOutputTokens: 256,
+  const response = await makeGeminiRequest(apiKey, {
+    contents: [
+      {
+        parts: [{ text: prompt }],
       },
-    }),
+    ],
+    generationConfig: {
+      temperature: 0.5,
+      maxOutputTokens: 256,
+    },
   });
 
   if (!response.ok) {
@@ -144,37 +235,35 @@ export async function extractActionItems(
   if (!apiKey) {
     throw new Error('Gemini API key is required. Please set it in Settings > AI.');
   }
+
+  // SECURITY: Sanitize email content
+  const sanitizedContent = sanitizeEmailContent(emailContent);
+
   const prompt =
     language === 'tr'
       ? `Bu e-postadan yapılması gereken işleri (action items) çıkar. Her bir maddeyi ayrı bir satırda, madde işareti olmadan yaz. Eğer eylem öğesi yoksa "YOK" yaz.
 
 E-posta:
-${emailContent}
+${sanitizedContent}
 
 Eylem öğeleri:`
       : `Extract action items from this email. List each item on a separate line without bullet points. If there are no action items, write "NONE".
 
 Email:
-${emailContent}
+${sanitizedContent}
 
 Action items:`;
 
-  const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      contents: [
-        {
-          parts: [{ text: prompt }],
-        },
-      ],
-      generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 256,
+  const response = await makeGeminiRequest(apiKey, {
+    contents: [
+      {
+        parts: [{ text: prompt }],
       },
-    }),
+    ],
+    generationConfig: {
+      temperature: 0.3,
+      maxOutputTokens: 256,
+    },
   });
 
   if (!response.ok) {
@@ -205,29 +294,27 @@ export async function analyzeSentiment(
   if (!apiKey) {
     throw new Error('Gemini API key is required. Please set it in Settings > AI.');
   }
+
+  // SECURITY: Sanitize email content
+  const sanitizedContent = sanitizeEmailContent(emailContent, 5000);
+
   const prompt = `Analyze the sentiment of this email and respond with exactly one word: "positive", "negative", or "neutral".
 
 Email:
-${emailContent}
+${sanitizedContent}
 
 Sentiment:`;
 
-  const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      contents: [
-        {
-          parts: [{ text: prompt }],
-        },
-      ],
-      generationConfig: {
-        temperature: 0.1,
-        maxOutputTokens: 10,
+  const response = await makeGeminiRequest(apiKey, {
+    contents: [
+      {
+        parts: [{ text: prompt }],
       },
-    }),
+    ],
+    generationConfig: {
+      temperature: 0.1,
+      maxOutputTokens: 10,
+    },
   });
 
   if (!response.ok) {
@@ -286,7 +373,7 @@ Kurallar:
 
 function getUserPrompt(request: AIReplyRequest): string {
   const contextPart = request.context
-    ? `\n\nÖnceki konuşma:\n${request.context}`
+    ? `\n\nÖnceki konuşma:\n${sanitizeEmailContent(request.context, 3000)}`
     : '';
 
   return `${
@@ -310,19 +397,13 @@ export async function testConnection(apiKey?: string): Promise<boolean> {
     return false;
   }
   try {
-    const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [{ text: 'Say "OK" if you can read this.' }],
-          },
-        ],
-      }),
-    });
+    const response = await makeGeminiRequest(apiKey, {
+      contents: [
+        {
+          parts: [{ text: 'Say "OK" if you can read this.' }],
+        },
+      ],
+    }, 10000);
 
     return response.ok;
   } catch {

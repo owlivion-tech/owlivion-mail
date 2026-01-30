@@ -58,4 +58,5 @@ hickory-resolver = "0.24"
 # Crypto for password encryption
 ring = "0.17"
 hostname = "0.4"
+zeroize = { version = "1.7", features = ["derive"] }
 

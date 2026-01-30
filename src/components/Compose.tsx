@@ -1,6 +1,7 @@
 // ============================================================================
 // Owlivion Mail - Compose Email Modal
 // ============================================================================
+// SECURITY HARDENED: Strict sanitization, no style/img in compose
 
 import React, { useState, useEffect, useRef } from 'react';
 import DOMPurify from 'dompurify';
@@ -9,15 +10,31 @@ import { RecipientInput } from './compose/RecipientInput';
 import { AttachmentList } from './compose/AttachmentList';
 import type { Email, EmailAddress, DraftEmail, Attachment, Account } from '../types';
 
-// Sanitize HTML for Compose (more permissive for editing)
+// SECURITY: Logger wrapper to avoid exposing details in production
+const log = {
+  error: (message: string, _err?: unknown) => {
+    if (import.meta.env.DEV) {
+      console.error(message, _err);
+    }
+  },
+};
+
+// SECURITY: Strict sanitization for compose - NO style or img allowed
 const sanitizeForCompose = (html: string): string => {
   return DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: ['p', 'br', 'b', 'i', 'u', 'strong', 'em', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'code', 'span', 'div', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'img'],
-    ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'style', 'align', 'valign', 'width', 'height', 'colspan', 'rowspan', 'src', 'alt'],
+    ALLOWED_TAGS: ['p', 'br', 'b', 'i', 'u', 'strong', 'em', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'code', 'span', 'div', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'hr'],
+    ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'align', 'valign', 'width', 'height', 'colspan', 'rowspan'],
     ALLOW_DATA_ATTR: false,
-    FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select'],
-    FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur'],
+    FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select', 'style', 'link', 'meta', 'base', 'img'],
+    FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur', 'style', 'srcset', 'src'],
   });
+};
+
+// SECURITY: Additional text sanitizer for display
+const escapeHtml = (text: string): string => {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 };
 
 interface ComposeProps {
@@ -54,10 +71,25 @@ export function Compose({
   // State
   const [isSending, setIsSending] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  // SECURITY: Use state-based notifications instead of alert()
+  const [notification, setNotification] = useState<{ type: 'error' | 'success' | 'warning'; message: string } | null>(null);
 
   // Refs
   const bodyRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Clear notification after timeout
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => setNotification(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
+
+  // SECURITY: Show notification helper (replaces alert)
+  const showNotification = (type: 'error' | 'success' | 'warning', message: string) => {
+    setNotification({ type, message });
+  };
 
   // Initialize form based on mode
   useEffect(() => {
@@ -95,7 +127,7 @@ export function Compose({
   const initializedRef = useRef(false);
   useEffect(() => {
     if (bodyRef.current && isOpen) {
-      // Set content when opening or when mode changes - sanitize for security
+      // SECURITY: Sanitize content before inserting into DOM
       bodyRef.current.innerHTML = sanitizeForCompose(bodyHtml);
       initializedRef.current = true;
     }
@@ -109,7 +141,7 @@ export function Compose({
   useShortcut('Ctrl+Enter', handleSend, { enabled: isOpen && !isSending, allowInInput: true });
   useShortcut('Ctrl+s', handleSaveDraft, { enabled: isOpen && !isSending, allowInInput: true });
 
-  // Generate quote for reply
+  // SECURITY: Generate sanitized quote for reply
   function generateQuote(email: Email): string {
     const dateStr = new Date(email.date).toLocaleString('tr-TR', {
       weekday: 'long',
@@ -120,18 +152,23 @@ export function Compose({
       minute: '2-digit',
     });
 
+    // SECURITY: Escape sender name and sanitize body content
+    const safeName = escapeHtml(email.from.name || email.from.email);
+    // SECURITY: Sanitize email body before including in quote
+    const safeBody = sanitizeForCompose(email.bodyHtml || `<p>${escapeHtml(email.bodyText || '')}</p>`);
+
     return `
 <br><br>
-<div style="padding-left: 1em; border-left: 2px solid #8b5cf6; margin-left: 0.5em; color: #71717a;">
-  <p style="margin: 0 0 1em 0; font-size: 0.875em;">
-    ${dateStr} tarihinde ${email.from.name || email.from.email} yazdı:
+<div class="email-quote">
+  <p class="quote-header">
+    ${escapeHtml(dateStr)} tarihinde ${safeName} yazdı:
   </p>
-  ${email.bodyHtml || `<p>${email.bodyText}</p>`}
+  ${safeBody}
 </div>
     `.trim();
   }
 
-  // Generate quote for forward
+  // SECURITY: Generate sanitized quote for forward
   function generateForwardQuote(email: Email): string {
     const dateStr = new Date(email.date).toLocaleString('tr-TR', {
       weekday: 'long',
@@ -142,18 +179,28 @@ export function Compose({
       minute: '2-digit',
     });
 
+    // SECURITY: Escape all user-provided content
+    const safeName = escapeHtml(email.from.name || '');
+    const safeEmail = escapeHtml(email.from.email);
+    const safeSubject = escapeHtml(email.subject);
+    const safeRecipients = email.to.map((a) =>
+      escapeHtml(a.name ? `${a.name} <${a.email}>` : a.email)
+    ).join(', ');
+    // SECURITY: Sanitize email body
+    const safeBody = sanitizeForCompose(email.bodyHtml || `<p>${escapeHtml(email.bodyText || '')}</p>`);
+
     return `
 <br><br>
-<div style="border-top: 1px solid #2a2a3a; padding-top: 1em;">
-  <p style="margin: 0; font-size: 0.875em; color: #71717a;">---------- İletilen İleti ----------</p>
-  <p style="margin: 0.5em 0; font-size: 0.875em; color: #71717a;">
-    <strong>Kimden:</strong> ${email.from.name ? `${email.from.name} <${email.from.email}>` : email.from.email}<br>
-    <strong>Tarih:</strong> ${dateStr}<br>
-    <strong>Konu:</strong> ${email.subject}<br>
-    <strong>Kime:</strong> ${email.to.map((a) => a.name ? `${a.name} <${a.email}>` : a.email).join(', ')}
+<div class="email-forward">
+  <p class="forward-header">---------- İletilen İleti ----------</p>
+  <p class="forward-meta">
+    <strong>Kimden:</strong> ${safeName ? `${safeName} &lt;${safeEmail}&gt;` : safeEmail}<br>
+    <strong>Tarih:</strong> ${escapeHtml(dateStr)}<br>
+    <strong>Konu:</strong> ${safeSubject}<br>
+    <strong>Kime:</strong> ${safeRecipients}
   </p>
   <br>
-  ${email.bodyHtml || `<p>${email.bodyText}</p>`}
+  ${safeBody}
 </div>
     `.trim();
   }
@@ -161,13 +208,16 @@ export function Compose({
   // Handle send
   async function handleSend() {
     if (to.length === 0) {
-      alert('Lütfen en az bir alıcı girin');
+      showNotification('warning', 'Lütfen en az bir alıcı girin');
       return;
     }
 
     setIsSending(true);
 
     try {
+      // SECURITY: Sanitize body content before sending
+      const sanitizedBodyHtml = sanitizeForCompose(bodyRef.current?.innerHTML || '');
+
       const draft: DraftEmail = {
         accountId: defaultAccount?.id || 0,
         to,
@@ -175,7 +225,7 @@ export function Compose({
         bcc,
         subject,
         bodyText: bodyRef.current?.innerText || '',
-        bodyHtml: bodyRef.current?.innerHTML || '',
+        bodyHtml: sanitizedBodyHtml,
         attachments,
         replyToEmailId: mode === 'reply' || mode === 'replyAll' ? originalEmail?.id : undefined,
         forwardEmailId: mode === 'forward' ? originalEmail?.id : undefined,
@@ -185,8 +235,9 @@ export function Compose({
       await onSend(draft);
       onClose();
     } catch (err) {
-      console.error('Send failed:', err);
-      alert('E-posta gönderilemedi');
+      // SECURITY: Don't expose detailed error info to users
+      log.error('Send failed:', err);
+      showNotification('error', 'E-posta gönderilemedi. Lütfen tekrar deneyin.');
     } finally {
       setIsSending(false);
     }
@@ -197,6 +248,9 @@ export function Compose({
     setIsSaving(true);
 
     try {
+      // SECURITY: Sanitize body content before saving
+      const sanitizedBodyHtml = sanitizeForCompose(bodyRef.current?.innerHTML || '');
+
       const draft: DraftEmail = {
         accountId: defaultAccount?.id || 0,
         to,
@@ -204,7 +258,7 @@ export function Compose({
         bcc,
         subject,
         bodyText: bodyRef.current?.innerText || '',
-        bodyHtml: bodyRef.current?.innerHTML || '',
+        bodyHtml: sanitizedBodyHtml,
         attachments,
         replyToEmailId: mode === 'reply' || mode === 'replyAll' ? originalEmail?.id : undefined,
         forwardEmailId: mode === 'forward' ? originalEmail?.id : undefined,
@@ -212,8 +266,11 @@ export function Compose({
       };
 
       await onSaveDraft(draft);
+      showNotification('success', 'Taslak kaydedildi');
     } catch (err) {
-      console.error('Save draft failed:', err);
+      // SECURITY: Don't expose detailed error info
+      log.error('Save draft failed:', err);
+      showNotification('error', 'Taslak kaydedilemedi');
     } finally {
       setIsSaving(false);
     }
@@ -223,6 +280,13 @@ export function Compose({
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
     if (!files) return;
+
+    // SECURITY: Limit number of attachments
+    const MAX_ATTACHMENTS = 10;
+    if (attachments.length + files.length > MAX_ATTACHMENTS) {
+      showNotification('warning', `En fazla ${MAX_ATTACHMENTS} dosya ekleyebilirsiniz`);
+      return;
+    }
 
     const newAttachments: Attachment[] = Array.from(files).map((file) => ({
       filename: file.name,
@@ -254,6 +318,13 @@ export function Compose({
     const files = e.dataTransfer.files;
     if (!files.length) return;
 
+    // SECURITY: Limit number of attachments
+    const MAX_ATTACHMENTS = 10;
+    if (attachments.length + files.length > MAX_ATTACHMENTS) {
+      showNotification('warning', `En fazla ${MAX_ATTACHMENTS} dosya ekleyebilirsiniz`);
+      return;
+    }
+
     const newAttachments: Attachment[] = Array.from(files).map((file) => ({
       filename: file.name,
       contentType: file.type || 'application/octet-stream',
@@ -274,6 +345,28 @@ export function Compose({
       onDrop={handleDrop}
     >
       <div className="bg-owl-surface border border-owl-border rounded-xl shadow-owl-lg w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden">
+        {/* SECURITY: Notification Toast (replaces alert) */}
+        {notification && (
+          <div
+            className={`absolute top-4 left-1/2 transform -translate-x-1/2 z-60 px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 ${
+              notification.type === 'error'
+                ? 'bg-red-900/90 border border-red-500/50 text-red-200'
+                : notification.type === 'warning'
+                ? 'bg-yellow-900/90 border border-yellow-500/50 text-yellow-200'
+                : 'bg-green-900/90 border border-green-500/50 text-green-200'
+            }`}
+          >
+            <span className="text-sm">{notification.message}</span>
+            <button
+              onClick={() => setNotification(null)}
+              className="ml-2 text-current opacity-70 hover:opacity-100"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        )}
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-owl-border">
           <h2 className="text-lg font-semibold text-owl-text">
@@ -368,6 +461,7 @@ export function Compose({
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
               placeholder="Konu..."
+              maxLength={500}
               className="flex-1 px-3 py-2 bg-transparent text-owl-text placeholder-owl-text-secondary focus:outline-none"
             />
           </div>
@@ -382,7 +476,11 @@ export function Compose({
             className="min-h-[300px] p-6 text-owl-text focus:outline-none email-content"
             style={{ direction: 'ltr', textAlign: 'left', unicodeBidi: 'plaintext' }}
             data-placeholder="E-posta içeriği..."
-            onBlur={(e) => setBodyHtml(e.currentTarget.innerHTML)}
+            onBlur={(e) => {
+              // SECURITY: Sanitize on blur before storing
+              const sanitized = sanitizeForCompose(e.currentTarget.innerHTML);
+              setBodyHtml(sanitized);
+            }}
           />
         </div>
 

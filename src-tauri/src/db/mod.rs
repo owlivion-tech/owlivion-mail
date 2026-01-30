@@ -1,12 +1,25 @@
 //! Database module for Owlivion Mail
 //!
 //! Provides SQLite database operations for email storage, accounts, and settings.
+//! SECURITY HARDENED: Input validation, LIKE escaping, pagination limits
 
-use rusqlite::{Connection, params, Result as SqliteResult};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use thiserror::Error;
+
+// SECURITY: Maximum pagination limits
+const MAX_PAGE_SIZE: i32 = 100;
+const MAX_SEARCH_LIMIT: i32 = 200;
+
+/// SECURITY: Escape LIKE wildcards to prevent pattern injection
+fn escape_like_pattern(query: &str) -> String {
+    query
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
 
 /// Database error types
 #[derive(Error, Debug)]
@@ -73,7 +86,11 @@ impl Database {
 
     /// Add a new email account
     pub fn add_account(&self, account: &NewAccount) -> DbResult<i64> {
-        let conn = self.conn.lock().unwrap();
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
 
         // If this account is set as default, first remove default from all other accounts
         if account.is_default {
@@ -118,7 +135,11 @@ impl Database {
 
     /// Get all accounts
     pub fn get_accounts(&self) -> DbResult<Vec<Account>> {
-        let conn = self.conn.lock().unwrap();
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
         let mut stmt = conn.prepare(
             r#"
             SELECT id, email, display_name,
@@ -161,7 +182,11 @@ impl Database {
 
     /// Get account by ID
     pub fn get_account(&self, id: i64) -> DbResult<Account> {
-        let conn = self.conn.lock().unwrap();
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
         let account = conn.query_row(
             r#"
             SELECT id, email, display_name,
@@ -201,7 +226,11 @@ impl Database {
 
     /// Get account password (encrypted)
     pub fn get_account_password(&self, id: i64) -> DbResult<Option<String>> {
-        let conn = self.conn.lock().unwrap();
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
         let password: Option<String> = conn.query_row(
             "SELECT password_encrypted FROM accounts WHERE id = ?1",
             [id],
@@ -212,14 +241,22 @@ impl Database {
 
     /// Delete account
     pub fn delete_account(&self, id: i64) -> DbResult<()> {
-        let conn = self.conn.lock().unwrap();
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
         conn.execute("DELETE FROM accounts WHERE id = ?1", [id])?;
         Ok(())
     }
 
     /// Set default account
     pub fn set_default_account(&self, id: i64) -> DbResult<()> {
-        let conn = self.conn.lock().unwrap();
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
         conn.execute("UPDATE accounts SET is_default = 0", [])?;
         conn.execute("UPDATE accounts SET is_default = 1 WHERE id = ?1", [id])?;
         Ok(())
@@ -231,7 +268,11 @@ impl Database {
 
     /// Add or update folder
     pub fn upsert_folder(&self, folder: &NewFolder) -> DbResult<i64> {
-        let conn = self.conn.lock().unwrap();
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
 
         conn.execute(
             r#"
@@ -266,7 +307,11 @@ impl Database {
 
     /// Get folders for account
     pub fn get_folders(&self, account_id: i64) -> DbResult<Vec<Folder>> {
-        let conn = self.conn.lock().unwrap();
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
         let mut stmt = conn.prepare(
             r#"
             SELECT id, account_id, name, remote_name, folder_type,
@@ -310,7 +355,11 @@ impl Database {
 
     /// Update folder counts
     pub fn update_folder_counts(&self, folder_id: i64, unread: i32, total: i32) -> DbResult<()> {
-        let conn = self.conn.lock().unwrap();
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
         conn.execute(
             "UPDATE folders SET unread_count = ?1, total_count = ?2 WHERE id = ?3",
             params![unread, total, folder_id],
@@ -324,7 +373,11 @@ impl Database {
 
     /// Insert or update email
     pub fn upsert_email(&self, email: &NewEmail) -> DbResult<i64> {
-        let conn = self.conn.lock().unwrap();
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
 
         conn.execute(
             r#"
@@ -388,6 +441,7 @@ impl Database {
     }
 
     /// Get emails for folder with pagination
+    /// SECURITY: Enforces pagination limits to prevent DoS
     pub fn get_emails(
         &self,
         account_id: i64,
@@ -395,7 +449,20 @@ impl Database {
         limit: i32,
         offset: i32,
     ) -> DbResult<Vec<EmailSummary>> {
-        let conn = self.conn.lock().unwrap();
+        // SECURITY: Validate account_id is positive
+        if account_id <= 0 {
+            return Err(DbError::Constraint("Invalid account ID".to_string()));
+        }
+
+        // SECURITY: Enforce pagination limits
+        let safe_limit = limit.min(MAX_PAGE_SIZE).max(1);
+        let safe_offset = offset.max(0);
+
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
         let mut stmt = conn.prepare(
             r#"
             SELECT id, message_id, uid, from_address, from_name, subject, preview, date,
@@ -408,7 +475,7 @@ impl Database {
         )?;
 
         let emails = stmt
-            .query_map(params![account_id, folder_id, limit, offset], |row| {
+            .query_map(params![account_id, folder_id, safe_limit, safe_offset], |row| {
                 Ok(EmailSummary {
                     id: row.get(0)?,
                     message_id: row.get(1)?,
@@ -431,7 +498,11 @@ impl Database {
 
     /// Get full email by ID
     pub fn get_email(&self, id: i64) -> DbResult<Email> {
-        let conn = self.conn.lock().unwrap();
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
         let email = conn.query_row(
             r#"
             SELECT id, account_id, folder_id, message_id, uid,
@@ -490,7 +561,11 @@ impl Database {
         is_starred: Option<bool>,
         is_deleted: Option<bool>,
     ) -> DbResult<()> {
-        let conn = self.conn.lock().unwrap();
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
 
         if let Some(read) = is_read {
             conn.execute("UPDATE emails SET is_read = ?1 WHERE id = ?2", params![read, id])?;
@@ -506,8 +581,26 @@ impl Database {
     }
 
     /// Search emails using FTS
+    /// SECURITY: Validates account_id and enforces search limits
     pub fn search_emails(&self, account_id: i64, query: &str, limit: i32) -> DbResult<Vec<EmailSummary>> {
-        let conn = self.conn.lock().unwrap();
+        // SECURITY: Validate account_id is positive
+        if account_id <= 0 {
+            return Err(DbError::Constraint("Invalid account ID".to_string()));
+        }
+
+        // SECURITY: Validate query is not empty and not too long
+        if query.is_empty() || query.len() > 500 {
+            return Err(DbError::Constraint("Invalid search query length".to_string()));
+        }
+
+        // SECURITY: Enforce search limit
+        let safe_limit = limit.min(MAX_SEARCH_LIMIT).max(1);
+
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
         let mut stmt = conn.prepare(
             r#"
             SELECT e.id, e.message_id, e.uid, e.from_address, e.from_name,
@@ -522,7 +615,7 @@ impl Database {
         )?;
 
         let emails = stmt
-            .query_map(params![account_id, query, limit], |row| {
+            .query_map(params![account_id, query, safe_limit], |row| {
                 Ok(EmailSummary {
                     id: row.get(0)?,
                     message_id: row.get(1)?,
@@ -549,7 +642,11 @@ impl Database {
 
     /// Get a setting value
     pub fn get_setting<T: serde::de::DeserializeOwned>(&self, key: &str) -> DbResult<Option<T>> {
-        let conn = self.conn.lock().unwrap();
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
         let result: Result<String, _> = conn.query_row(
             "SELECT value FROM settings WHERE key = ?1",
             [key],
@@ -569,7 +666,11 @@ impl Database {
 
     /// Set a setting value
     pub fn set_setting<T: Serialize>(&self, key: &str, value: &T) -> DbResult<()> {
-        let conn = self.conn.lock().unwrap();
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
         let json = serde_json::to_string(value)
             .map_err(|e| DbError::Serialization(e.to_string()))?;
 
@@ -587,7 +688,11 @@ impl Database {
 
     /// Add trusted sender
     pub fn add_trusted_sender(&self, email: &str, domain: Option<&str>) -> DbResult<()> {
-        let conn = self.conn.lock().unwrap();
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
         conn.execute(
             "INSERT OR IGNORE INTO trusted_senders (email, domain) VALUES (?1, ?2)",
             params![email, domain],
@@ -597,7 +702,11 @@ impl Database {
 
     /// Check if sender is trusted
     pub fn is_trusted_sender(&self, email: &str) -> DbResult<bool> {
-        let conn = self.conn.lock().unwrap();
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
 
         // Check exact email match
         let email_trusted: bool = conn.query_row(
@@ -625,7 +734,11 @@ impl Database {
 
     /// Get all trusted senders
     pub fn get_trusted_senders(&self) -> DbResult<Vec<TrustedSender>> {
-        let conn = self.conn.lock().unwrap();
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
         let mut stmt = conn.prepare(
             "SELECT id, email, domain, trusted_at FROM trusted_senders ORDER BY trusted_at DESC",
         )?;
@@ -646,7 +759,11 @@ impl Database {
 
     /// Remove trusted sender
     pub fn remove_trusted_sender(&self, id: i64) -> DbResult<()> {
-        let conn = self.conn.lock().unwrap();
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
         conn.execute("DELETE FROM trusted_senders WHERE id = ?1", [id])?;
         Ok(())
     }
@@ -657,7 +774,11 @@ impl Database {
 
     /// Add or update contact
     pub fn upsert_contact(&self, contact: &NewContact) -> DbResult<i64> {
-        let conn = self.conn.lock().unwrap();
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
 
         conn.execute(
             r#"
@@ -686,70 +807,59 @@ impl Database {
     }
 
     /// Search contacts
-    pub fn search_contacts(&self, account_id: Option<i64>, query: &str, limit: i32) -> DbResult<Vec<Contact>> {
-        let conn = self.conn.lock().unwrap();
-        let search_pattern = format!("%{}%", query);
+    /// SECURITY: Requires account_id, escapes LIKE wildcards, enforces limits
+    pub fn search_contacts(&self, account_id: i64, query: &str, limit: i32) -> DbResult<Vec<Contact>> {
+        // SECURITY: Validate account_id is positive (no global search allowed)
+        if account_id <= 0 {
+            return Err(DbError::Constraint("Account ID is required for contact search".to_string()));
+        }
 
-        let mut stmt = if let Some(acc_id) = account_id {
-            conn.prepare(
-                r#"
-                SELECT id, account_id, email, name, avatar_url, company, phone, notes,
-                       is_favorite, email_count, last_emailed_at
-                FROM contacts
-                WHERE (account_id = ?1 OR account_id IS NULL)
-                  AND (email LIKE ?2 OR name LIKE ?2)
-                ORDER BY email_count DESC, name ASC
-                LIMIT ?3
-                "#,
-            )?
-        } else {
-            conn.prepare(
-                r#"
-                SELECT id, account_id, email, name, avatar_url, company, phone, notes,
-                       is_favorite, email_count, last_emailed_at
-                FROM contacts
-                WHERE email LIKE ?2 OR name LIKE ?2
-                ORDER BY email_count DESC, name ASC
-                LIMIT ?3
-                "#,
-            )?
-        };
+        // SECURITY: Validate query length
+        if query.len() > 200 {
+            return Err(DbError::Constraint("Search query too long".to_string()));
+        }
 
-        let contacts = if let Some(acc_id) = account_id {
-            stmt.query_map(params![acc_id, search_pattern, limit], |row| {
-                Ok(Contact {
-                    id: row.get(0)?,
-                    account_id: row.get(1)?,
-                    email: row.get(2)?,
-                    name: row.get(3)?,
-                    avatar_url: row.get(4)?,
-                    company: row.get(5)?,
-                    phone: row.get(6)?,
-                    notes: row.get(7)?,
-                    is_favorite: row.get(8)?,
-                    email_count: row.get(9)?,
-                    last_emailed_at: row.get(10)?,
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()?
-        } else {
-            stmt.query_map(params![0, search_pattern, limit], |row| {
-                Ok(Contact {
-                    id: row.get(0)?,
-                    account_id: row.get(1)?,
-                    email: row.get(2)?,
-                    name: row.get(3)?,
-                    avatar_url: row.get(4)?,
-                    company: row.get(5)?,
-                    phone: row.get(6)?,
-                    notes: row.get(7)?,
-                    is_favorite: row.get(8)?,
-                    email_count: row.get(9)?,
-                    last_emailed_at: row.get(10)?,
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()?
-        };
+        // SECURITY: Enforce search limit
+        let safe_limit = limit.min(MAX_SEARCH_LIMIT).max(1);
+
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        // SECURITY: Escape LIKE wildcards to prevent pattern injection
+        let escaped_query = escape_like_pattern(query);
+        let search_pattern = format!("%{}%", escaped_query);
+
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id, account_id, email, name, avatar_url, company, phone, notes,
+                   is_favorite, email_count, last_emailed_at
+            FROM contacts
+            WHERE account_id = ?1
+              AND (email LIKE ?2 ESCAPE '\' OR name LIKE ?2 ESCAPE '\')
+            ORDER BY email_count DESC, name ASC
+            LIMIT ?3
+            "#,
+        )?;
+
+        let contacts = stmt.query_map(params![account_id, search_pattern, safe_limit], |row| {
+            Ok(Contact {
+                id: row.get(0)?,
+                account_id: row.get(1)?,
+                email: row.get(2)?,
+                name: row.get(3)?,
+                avatar_url: row.get(4)?,
+                company: row.get(5)?,
+                phone: row.get(6)?,
+                notes: row.get(7)?,
+                is_favorite: row.get(8)?,
+                email_count: row.get(9)?,
+                last_emailed_at: row.get(10)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
 
         Ok(contacts)
     }
@@ -760,7 +870,11 @@ impl Database {
 
     /// Get sync state for folder
     pub fn get_sync_state(&self, account_id: i64, folder_id: i64) -> DbResult<Option<SyncState>> {
-        let conn = self.conn.lock().unwrap();
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
         let result = conn.query_row(
             r#"
             SELECT id, account_id, folder_id, last_uid, uid_validity, highest_mod_seq,
@@ -800,7 +914,11 @@ impl Database {
         last_uid: u32,
         uid_validity: Option<u32>,
     ) -> DbResult<()> {
-        let conn = self.conn.lock().unwrap();
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
 
         conn.execute(
             r#"

@@ -268,79 +268,500 @@ fn get_preset(domain: &str) -> Option<AutoConfig> {
             detection_method: None,
         }),
 
+        // =========================================================================
+        // TURKISH EMAIL PROVIDERS
+        // =========================================================================
+
+        // Turk Telekom (TTMail)
+        "ttmail.com" | "turktelekom.com.tr" => Some(AutoConfig {
+            provider: Some("Türk Telekom".to_string()),
+            display_name: Some("TTMail".to_string()),
+            imap_host: "imap.ttmail.com".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "smtp.ttmail.com".to_string(),
+            smtp_port: 587,
+            smtp_security: SecurityType::STARTTLS,
+            detection_method: None,
+        }),
+
+        // Turkcell (Superonline)
+        "superonline.com" => Some(AutoConfig {
+            provider: Some("Turkcell Superonline".to_string()),
+            display_name: Some("Superonline".to_string()),
+            imap_host: "imap.superonline.com".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "smtp.superonline.com".to_string(),
+            smtp_port: 587,
+            smtp_security: SecurityType::STARTTLS,
+            detection_method: None,
+        }),
+
+        // Yandex Turkey
+        "yandex.com.tr" => Some(AutoConfig {
+            provider: Some("Yandex".to_string()),
+            display_name: Some("Yandex Türkiye".to_string()),
+            imap_host: "imap.yandex.com.tr".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "smtp.yandex.com.tr".to_string(),
+            smtp_port: 465,
+            smtp_security: SecurityType::SSL,
+            detection_method: None,
+        }),
+
+        // =========================================================================
+        // GERMAN EMAIL PROVIDERS
+        // =========================================================================
+
+        // Web.de
+        "web.de" => Some(AutoConfig {
+            provider: Some("Web.de".to_string()),
+            display_name: Some("Web.de".to_string()),
+            imap_host: "imap.web.de".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "smtp.web.de".to_string(),
+            smtp_port: 587,
+            smtp_security: SecurityType::STARTTLS,
+            detection_method: None,
+        }),
+
+        // T-Online
+        "t-online.de" => Some(AutoConfig {
+            provider: Some("T-Online".to_string()),
+            display_name: Some("T-Online".to_string()),
+            imap_host: "secureimap.t-online.de".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "securesmtp.t-online.de".to_string(),
+            smtp_port: 465,
+            smtp_security: SecurityType::SSL,
+            detection_method: None,
+        }),
+
+        // Freenet
+        "freenet.de" => Some(AutoConfig {
+            provider: Some("Freenet".to_string()),
+            display_name: Some("Freenet".to_string()),
+            imap_host: "mx.freenet.de".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "mx.freenet.de".to_string(),
+            smtp_port: 587,
+            smtp_security: SecurityType::STARTTLS,
+            detection_method: None,
+        }),
+
+        // =========================================================================
+        // FRENCH EMAIL PROVIDERS
+        // =========================================================================
+
+        // Orange France
+        "orange.fr" | "wanadoo.fr" => Some(AutoConfig {
+            provider: Some("Orange".to_string()),
+            display_name: Some("Orange Mail".to_string()),
+            imap_host: "imap.orange.fr".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "smtp.orange.fr".to_string(),
+            smtp_port: 587,
+            smtp_security: SecurityType::STARTTLS,
+            detection_method: None,
+        }),
+
+        // Free.fr
+        "free.fr" => Some(AutoConfig {
+            provider: Some("Free".to_string()),
+            display_name: Some("Free Mail".to_string()),
+            imap_host: "imap.free.fr".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "smtp.free.fr".to_string(),
+            smtp_port: 587,
+            smtp_security: SecurityType::STARTTLS,
+            detection_method: None,
+        }),
+
+        // LaPoste.net
+        "laposte.net" => Some(AutoConfig {
+            provider: Some("La Poste".to_string()),
+            display_name: Some("LaPoste.net".to_string()),
+            imap_host: "imap.laposte.net".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "smtp.laposte.net".to_string(),
+            smtp_port: 587,
+            smtp_security: SecurityType::STARTTLS,
+            detection_method: None,
+        }),
+
+        // =========================================================================
+        // ITALIAN EMAIL PROVIDERS
+        // =========================================================================
+
+        // Libero
+        "libero.it" => Some(AutoConfig {
+            provider: Some("Libero".to_string()),
+            display_name: Some("Libero Mail".to_string()),
+            imap_host: "imapmail.libero.it".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "smtp.libero.it".to_string(),
+            smtp_port: 465,
+            smtp_security: SecurityType::SSL,
+            detection_method: None,
+        }),
+
+        // Virgilio
+        "virgilio.it" => Some(AutoConfig {
+            provider: Some("Virgilio".to_string()),
+            display_name: Some("Virgilio Mail".to_string()),
+            imap_host: "in.virgilio.it".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "out.virgilio.it".to_string(),
+            smtp_port: 465,
+            smtp_security: SecurityType::SSL,
+            detection_method: None,
+        }),
+
+        // TIM / Alice
+        "tim.it" | "alice.it" => Some(AutoConfig {
+            provider: Some("TIM".to_string()),
+            display_name: Some("TIM Mail".to_string()),
+            imap_host: "imap.tim.it".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "smtp.tim.it".to_string(),
+            smtp_port: 587,
+            smtp_security: SecurityType::STARTTLS,
+            detection_method: None,
+        }),
+
+        // =========================================================================
+        // RUSSIAN EMAIL PROVIDERS
+        // =========================================================================
+
+        // Mail.ru
+        d if d == "mail.ru" || d == "inbox.ru" || d == "list.ru" || d == "bk.ru" => Some(AutoConfig {
+            provider: Some("Mail.ru".to_string()),
+            display_name: Some("Mail.ru".to_string()),
+            imap_host: "imap.mail.ru".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "smtp.mail.ru".to_string(),
+            smtp_port: 465,
+            smtp_security: SecurityType::SSL,
+            detection_method: None,
+        }),
+
+        // Rambler
+        "rambler.ru" => Some(AutoConfig {
+            provider: Some("Rambler".to_string()),
+            display_name: Some("Rambler Mail".to_string()),
+            imap_host: "imap.rambler.ru".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "smtp.rambler.ru".to_string(),
+            smtp_port: 465,
+            smtp_security: SecurityType::SSL,
+            detection_method: None,
+        }),
+
+        // =========================================================================
+        // CHINESE EMAIL PROVIDERS
+        // =========================================================================
+
+        // QQ Mail
+        "qq.com" => Some(AutoConfig {
+            provider: Some("Tencent".to_string()),
+            display_name: Some("QQ Mail".to_string()),
+            imap_host: "imap.qq.com".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "smtp.qq.com".to_string(),
+            smtp_port: 465,
+            smtp_security: SecurityType::SSL,
+            detection_method: None,
+        }),
+
+        // 163.com (NetEase)
+        "163.com" | "126.com" | "yeah.net" => Some(AutoConfig {
+            provider: Some("NetEase".to_string()),
+            display_name: Some("163 Mail".to_string()),
+            imap_host: "imap.163.com".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "smtp.163.com".to_string(),
+            smtp_port: 465,
+            smtp_security: SecurityType::SSL,
+            detection_method: None,
+        }),
+
+        // Sina Mail
+        "sina.com" | "sina.cn" => Some(AutoConfig {
+            provider: Some("Sina".to_string()),
+            display_name: Some("Sina Mail".to_string()),
+            imap_host: "imap.sina.com".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "smtp.sina.com".to_string(),
+            smtp_port: 465,
+            smtp_security: SecurityType::SSL,
+            detection_method: None,
+        }),
+
+        // =========================================================================
+        // PRIVACY-FOCUSED PROVIDERS
+        // =========================================================================
+
+        // Tutanota
+        "tutanota.com" | "tutanota.de" | "tutamail.com" | "tuta.io" => Some(AutoConfig {
+            provider: Some("Tutanota".to_string()),
+            display_name: Some("Tutanota (Desktop App Required)".to_string()),
+            // Tutanota doesn't support IMAP - requires their own app
+            imap_host: "".to_string(),
+            imap_port: 0,
+            imap_security: SecurityType::SSL,
+            smtp_host: "".to_string(),
+            smtp_port: 0,
+            smtp_security: SecurityType::SSL,
+            detection_method: Some("Note: Tutanota requires their desktop app".to_string()),
+        }),
+
+        // Mailfence
+        "mailfence.com" => Some(AutoConfig {
+            provider: Some("Mailfence".to_string()),
+            display_name: Some("Mailfence".to_string()),
+            imap_host: "imap.mailfence.com".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "smtp.mailfence.com".to_string(),
+            smtp_port: 465,
+            smtp_security: SecurityType::SSL,
+            detection_method: None,
+        }),
+
+        // Posteo
+        "posteo.de" | "posteo.net" => Some(AutoConfig {
+            provider: Some("Posteo".to_string()),
+            display_name: Some("Posteo".to_string()),
+            imap_host: "posteo.de".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "posteo.de".to_string(),
+            smtp_port: 465,
+            smtp_security: SecurityType::SSL,
+            detection_method: None,
+        }),
+
+        // Disroot
+        "disroot.org" => Some(AutoConfig {
+            provider: Some("Disroot".to_string()),
+            display_name: Some("Disroot".to_string()),
+            imap_host: "disroot.org".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "disroot.org".to_string(),
+            smtp_port: 465,
+            smtp_security: SecurityType::SSL,
+            detection_method: None,
+        }),
+
+        // =========================================================================
+        // BUSINESS / HOSTING PROVIDERS
+        // =========================================================================
+
+        // GoDaddy
+        d if d.ends_with(".secureserver.net") => Some(AutoConfig {
+            provider: Some("GoDaddy".to_string()),
+            display_name: Some("GoDaddy Email".to_string()),
+            imap_host: "imap.secureserver.net".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "smtpout.secureserver.net".to_string(),
+            smtp_port: 465,
+            smtp_security: SecurityType::SSL,
+            detection_method: None,
+        }),
+
+        // Rackspace
+        "emailsrvr.com" => Some(AutoConfig {
+            provider: Some("Rackspace".to_string()),
+            display_name: Some("Rackspace Email".to_string()),
+            imap_host: "secure.emailsrvr.com".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "secure.emailsrvr.com".to_string(),
+            smtp_port: 465,
+            smtp_security: SecurityType::SSL,
+            detection_method: None,
+        }),
+
+        // Namecheap
+        "privateemail.com" => Some(AutoConfig {
+            provider: Some("Namecheap".to_string()),
+            display_name: Some("Private Email".to_string()),
+            imap_host: "mail.privateemail.com".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "mail.privateemail.com".to_string(),
+            smtp_port: 465,
+            smtp_security: SecurityType::SSL,
+            detection_method: None,
+        }),
+
+        // Hover
+        "hover.com" => Some(AutoConfig {
+            provider: Some("Hover".to_string()),
+            display_name: Some("Hover Mail".to_string()),
+            imap_host: "mail.hover.com".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "mail.hover.com".to_string(),
+            smtp_port: 587,
+            smtp_security: SecurityType::STARTTLS,
+            detection_method: None,
+        }),
+
+        // =========================================================================
+        // OTHER INTERNATIONAL PROVIDERS
+        // =========================================================================
+
+        // Cox Email
+        "cox.net" => Some(AutoConfig {
+            provider: Some("Cox".to_string()),
+            display_name: Some("Cox Email".to_string()),
+            imap_host: "imap.cox.net".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "smtp.cox.net".to_string(),
+            smtp_port: 465,
+            smtp_security: SecurityType::SSL,
+            detection_method: None,
+        }),
+
+        // Comcast / Xfinity
+        "comcast.net" | "xfinity.com" => Some(AutoConfig {
+            provider: Some("Comcast".to_string()),
+            display_name: Some("Xfinity Email".to_string()),
+            imap_host: "imap.comcast.net".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "smtp.comcast.net".to_string(),
+            smtp_port: 587,
+            smtp_security: SecurityType::STARTTLS,
+            detection_method: None,
+        }),
+
+        // AT&T
+        "att.net" | "sbcglobal.net" | "bellsouth.net" => Some(AutoConfig {
+            provider: Some("AT&T".to_string()),
+            display_name: Some("AT&T Mail".to_string()),
+            imap_host: "imap.mail.att.net".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "smtp.mail.att.net".to_string(),
+            smtp_port: 465,
+            smtp_security: SecurityType::SSL,
+            detection_method: None,
+        }),
+
+        // Verizon
+        "verizon.net" => Some(AutoConfig {
+            provider: Some("Verizon".to_string()),
+            display_name: Some("Verizon Email".to_string()),
+            imap_host: "incoming.verizon.net".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "outgoing.verizon.net".to_string(),
+            smtp_port: 465,
+            smtp_security: SecurityType::SSL,
+            detection_method: None,
+        }),
+
+        // iCloud+ Custom Domains
+        d if d.ends_with(".icloud.com") => Some(AutoConfig {
+            provider: Some("Apple iCloud".to_string()),
+            display_name: Some("iCloud+ Custom Domain".to_string()),
+            imap_host: "imap.mail.me.com".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "smtp.mail.me.com".to_string(),
+            smtp_port: 587,
+            smtp_security: SecurityType::STARTTLS,
+            detection_method: None,
+        }),
+
+        // Zoho regional variants
+        d if d == "zoho.eu" || d == "zoho.in" || d == "zoho.com.au" => Some(AutoConfig {
+            provider: Some("Zoho".to_string()),
+            display_name: Some("Zoho Mail".to_string()),
+            imap_host: format!("imap.{}", d),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: format!("smtp.{}", d),
+            smtp_port: 465,
+            smtp_security: SecurityType::SSL,
+            detection_method: None,
+        }),
+
         _ => None,
     }
 }
 
 /// Fetch from ISP's own autoconfig server
+/// SECURITY: Only HTTPS URLs are used to prevent MITM attacks
 /// Tries: https://autoconfig.{domain}/mail/config-v1.1.xml
 async fn fetch_isp_autoconfig(domain: &str) -> Result<AutoConfig, String> {
-    let urls = [
-        format!(
-            "https://autoconfig.{}/mail/config-v1.1.xml",
-            domain
-        ),
-        format!(
-            "http://autoconfig.{}/mail/config-v1.1.xml",
-            domain
-        ),
-    ];
+    // SECURITY: Only use HTTPS - HTTP removed to prevent credential interception via MITM
+    let url = format!("https://autoconfig.{}/mail/config-v1.1.xml", domain);
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .danger_accept_invalid_certs(false)
+        .https_only(true) // SECURITY: Enforce HTTPS only
         .build()
         .map_err(|e| e.to_string())?;
 
-    for url in &urls {
-        log::debug!("Trying ISP autoconfig: {}", url);
-        if let Ok(response) = client.get(url).send().await {
-            if response.status().is_success() {
-                if let Ok(xml) = response.text().await {
-                    if let Ok(config) = parse_autoconfig_xml(&xml) {
-                        return Ok(config);
-                    }
-                }
-            }
-        }
+    log::debug!("Trying ISP autoconfig (HTTPS only): {}", url);
+
+    let response = client.get(&url).send().await.map_err(|e| e.to_string())?;
+
+    if !response.status().is_success() {
+        return Err("ISP autoconfig not found".to_string());
     }
 
-    Err("ISP autoconfig not found".to_string())
+    let xml = response.text().await.map_err(|e| e.to_string())?;
+    parse_autoconfig_xml(&xml)
 }
 
 /// Fetch from well-known autoconfig URL
+/// SECURITY: Only HTTPS URLs are used to prevent MITM attacks
 /// Tries: https://{domain}/.well-known/autoconfig/mail/config-v1.1.xml
 async fn fetch_wellknown_autoconfig(domain: &str) -> Result<AutoConfig, String> {
-    let urls = [
-        format!(
-            "https://{}/.well-known/autoconfig/mail/config-v1.1.xml",
-            domain
-        ),
-        format!(
-            "http://{}/.well-known/autoconfig/mail/config-v1.1.xml",
-            domain
-        ),
-    ];
+    // SECURITY: Only use HTTPS - HTTP removed to prevent credential interception via MITM
+    let url = format!("https://{}/.well-known/autoconfig/mail/config-v1.1.xml", domain);
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
+        .danger_accept_invalid_certs(false)
+        .https_only(true) // SECURITY: Enforce HTTPS only
         .build()
         .map_err(|e| e.to_string())?;
 
-    for url in &urls {
-        log::debug!("Trying well-known autoconfig: {}", url);
-        if let Ok(response) = client.get(url).send().await {
-            if response.status().is_success() {
-                if let Ok(xml) = response.text().await {
-                    if let Ok(config) = parse_autoconfig_xml(&xml) {
-                        return Ok(config);
-                    }
-                }
-            }
-        }
+    log::debug!("Trying well-known autoconfig (HTTPS only): {}", url);
+
+    let response = client.get(&url).send().await.map_err(|e| e.to_string())?;
+
+    if !response.status().is_success() {
+        return Err("Well-known autoconfig not found".to_string());
     }
 
-    Err("Well-known autoconfig not found".to_string())
+    let xml = response.text().await.map_err(|e| e.to_string())?;
+    parse_autoconfig_xml(&xml)
 }
 
 /// Fetch configuration from Mozilla ISPDB
@@ -665,6 +1086,171 @@ fn get_config_from_mx_host(mx_host: &str, user_domain: &str) -> Option<AutoConfi
         });
     }
 
+    // Apple iCloud (custom domains use iCloud+ with same servers)
+    if mx_host.contains("icloud.com") || mx_host.contains("me.com") || mx_host.contains("apple.com") {
+        return Some(AutoConfig {
+            provider: Some("Apple iCloud".to_string()),
+            display_name: None,
+            imap_host: "imap.mail.me.com".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "smtp.mail.me.com".to_string(),
+            smtp_port: 587,
+            smtp_security: SecurityType::STARTTLS,
+            detection_method: None,
+        });
+    }
+
+    // Yahoo (including custom domains)
+    if mx_host.contains("yahoodns.net") || mx_host.contains("yahoo.com") {
+        return Some(AutoConfig {
+            provider: Some("Yahoo".to_string()),
+            display_name: None,
+            imap_host: "imap.mail.yahoo.com".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "smtp.mail.yahoo.com".to_string(),
+            smtp_port: 465,
+            smtp_security: SecurityType::SSL,
+            detection_method: None,
+        });
+    }
+
+    // GMX
+    if mx_host.contains("gmx.net") || mx_host.contains("gmx.com") {
+        return Some(AutoConfig {
+            provider: Some("GMX".to_string()),
+            display_name: None,
+            imap_host: "imap.gmx.com".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "mail.gmx.com".to_string(),
+            smtp_port: 587,
+            smtp_security: SecurityType::STARTTLS,
+            detection_method: None,
+        });
+    }
+
+    // Migadu (privacy-focused email hosting)
+    if mx_host.contains("migadu.com") {
+        return Some(AutoConfig {
+            provider: Some("Migadu".to_string()),
+            display_name: None,
+            imap_host: "imap.migadu.com".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "smtp.migadu.com".to_string(),
+            smtp_port: 465,
+            smtp_security: SecurityType::SSL,
+            detection_method: None,
+        });
+    }
+
+    // Mailbox.org (German privacy-focused)
+    if mx_host.contains("mailbox.org") {
+        return Some(AutoConfig {
+            provider: Some("Mailbox.org".to_string()),
+            display_name: None,
+            imap_host: "imap.mailbox.org".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "smtp.mailbox.org".to_string(),
+            smtp_port: 465,
+            smtp_security: SecurityType::SSL,
+            detection_method: None,
+        });
+    }
+
+    // Runbox (Norwegian privacy-focused)
+    if mx_host.contains("runbox.com") {
+        return Some(AutoConfig {
+            provider: Some("Runbox".to_string()),
+            display_name: None,
+            imap_host: "mail.runbox.com".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "mail.runbox.com".to_string(),
+            smtp_port: 587,
+            smtp_security: SecurityType::STARTTLS,
+            detection_method: None,
+        });
+    }
+
+    // Hetzner (German hosting)
+    if mx_host.contains("hetzner.com") || mx_host.contains("your-server.de") {
+        return Some(AutoConfig {
+            provider: Some("Hetzner".to_string()),
+            display_name: None,
+            imap_host: format!("mail.{}", user_domain),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: format!("mail.{}", user_domain),
+            smtp_port: 587,
+            smtp_security: SecurityType::STARTTLS,
+            detection_method: None,
+        });
+    }
+
+    // Ionos / 1&1
+    if mx_host.contains("ionos.") || mx_host.contains("1and1.") || mx_host.contains("kundenserver.de") {
+        return Some(AutoConfig {
+            provider: Some("IONOS".to_string()),
+            display_name: None,
+            imap_host: "imap.ionos.com".to_string(),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: "smtp.ionos.com".to_string(),
+            smtp_port: 587,
+            smtp_security: SecurityType::STARTTLS,
+            detection_method: None,
+        });
+    }
+
+    // Bluehost
+    if mx_host.contains("bluehost.com") {
+        return Some(AutoConfig {
+            provider: Some("Bluehost".to_string()),
+            display_name: None,
+            imap_host: format!("mail.{}", user_domain),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: format!("mail.{}", user_domain),
+            smtp_port: 465,
+            smtp_security: SecurityType::SSL,
+            detection_method: None,
+        });
+    }
+
+    // SiteGround
+    if mx_host.contains("siteground") || mx_host.contains("sgcpanel") {
+        return Some(AutoConfig {
+            provider: Some("SiteGround".to_string()),
+            display_name: None,
+            imap_host: format!("mail.{}", user_domain),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: format!("mail.{}", user_domain),
+            smtp_port: 465,
+            smtp_security: SecurityType::SSL,
+            detection_method: None,
+        });
+    }
+
+    // DigitalOcean (via mail services)
+    if mx_host.contains("digitalocean") {
+        return Some(AutoConfig {
+            provider: Some("DigitalOcean".to_string()),
+            display_name: None,
+            imap_host: format!("mail.{}", user_domain),
+            imap_port: 993,
+            imap_security: SecurityType::SSL,
+            smtp_host: format!("mail.{}", user_domain),
+            smtp_port: 587,
+            smtp_security: SecurityType::STARTTLS,
+            detection_method: None,
+        });
+    }
+
     // Generic cPanel/Plesk hosting (common patterns)
     if mx_host.starts_with("mail.") || mx_host.starts_with("mx.") {
         return Some(AutoConfig {
@@ -764,6 +1350,7 @@ async fn guess_and_test_config(domain: &str) -> Result<AutoConfig, String> {
 }
 
 /// Test if a TCP connection can be established
+/// SECURITY: No unwrap/panic - graceful error handling
 async fn test_tcp_connection(host: &str, port: u16) -> bool {
     let addr = format!("{}:{}", host, port);
     log::debug!("Testing connection to {}", addr);
@@ -771,18 +1358,23 @@ async fn test_tcp_connection(host: &str, port: u16) -> bool {
     // Use tokio's timeout with blocking DNS resolution
     let result = tokio::time::timeout(Duration::from_secs(3), async {
         tokio::task::spawn_blocking(move || {
-            TcpStream::connect_timeout(
-                &addr.parse().unwrap_or_else(|_| {
-                    // If direct parse fails, try DNS resolution
-                    use std::net::ToSocketAddrs;
-                    addr.to_socket_addrs()
-                        .ok()
-                        .and_then(|mut addrs| addrs.next())
-                        .unwrap_or_else(|| "0.0.0.0:0".parse().unwrap())
-                }),
-                Duration::from_secs(2),
-            )
-            .is_ok()
+            // SECURITY: Safe address parsing without panics
+            use std::net::ToSocketAddrs;
+            let socket_addr = match addr.to_socket_addrs() {
+                Ok(mut addrs) => match addrs.next() {
+                    Some(addr) => addr,
+                    None => {
+                        log::debug!("No addresses resolved for {}", addr);
+                        return false;
+                    }
+                },
+                Err(e) => {
+                    log::debug!("DNS resolution failed for {}: {}", addr, e);
+                    return false;
+                }
+            };
+
+            TcpStream::connect_timeout(&socket_addr, Duration::from_secs(2)).is_ok()
         })
         .await
         .unwrap_or(false)

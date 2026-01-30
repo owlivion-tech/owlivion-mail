@@ -80,6 +80,156 @@ fn parse_security(s: &str) -> SecurityType {
     }
 }
 
+/// SECURITY: Validate security type string before parsing
+fn validate_security_type(s: &str) -> Result<(), String> {
+    match s.to_uppercase().as_str() {
+        "SSL" | "TLS" | "STARTTLS" => Ok(()),
+        "NONE" => Err("Insecure connections (NONE) are not allowed".to_string()),
+        _ => Err(format!("Invalid security type: {}. Use SSL, TLS, or STARTTLS", s)),
+    }
+}
+
+// ============================================================================
+// Input Validation (SSRF Prevention)
+// ============================================================================
+
+/// Validate host to prevent SSRF attacks
+/// Blocks: localhost, private IPs, loopback addresses
+fn validate_host(host: &str) -> Result<(), String> {
+    let host_lower = host.to_lowercase();
+
+    // Block localhost and variations
+    if host_lower == "localhost"
+        || host_lower == "127.0.0.1"
+        || host_lower == "::1"
+        || host_lower.starts_with("127.")
+        || host_lower == "0.0.0.0"
+    {
+        return Err("Localhost connections are not allowed".to_string());
+    }
+
+    // Block private IP ranges (RFC 1918)
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        match ip {
+            std::net::IpAddr::V4(ipv4) => {
+                if ipv4.is_private()
+                    || ipv4.is_loopback()
+                    || ipv4.is_link_local()
+                    || ipv4.is_broadcast()
+                    || ipv4.is_unspecified()
+                {
+                    return Err("Private/reserved IP addresses are not allowed".to_string());
+                }
+                // Additional checks for common internal ranges
+                let octets = ipv4.octets();
+                // 10.0.0.0/8
+                if octets[0] == 10 {
+                    return Err("Private IP range 10.0.0.0/8 is not allowed".to_string());
+                }
+                // 172.16.0.0/12
+                if octets[0] == 172 && (octets[1] >= 16 && octets[1] <= 31) {
+                    return Err("Private IP range 172.16.0.0/12 is not allowed".to_string());
+                }
+                // 192.168.0.0/16
+                if octets[0] == 192 && octets[1] == 168 {
+                    return Err("Private IP range 192.168.0.0/16 is not allowed".to_string());
+                }
+                // 169.254.0.0/16 (link-local)
+                if octets[0] == 169 && octets[1] == 254 {
+                    return Err("Link-local IP range is not allowed".to_string());
+                }
+            }
+            std::net::IpAddr::V6(ipv6) => {
+                if ipv6.is_loopback() || ipv6.is_unspecified() {
+                    return Err("Loopback/unspecified IPv6 addresses are not allowed".to_string());
+                }
+            }
+        }
+    }
+
+    // Validate hostname format
+    if host.is_empty() || host.len() > 253 {
+        return Err("Invalid hostname length".to_string());
+    }
+
+    // Check for valid characters in hostname
+    for c in host.chars() {
+        if !c.is_ascii_alphanumeric() && c != '.' && c != '-' {
+            return Err("Invalid characters in hostname".to_string());
+        }
+    }
+
+    Ok(())
+}
+
+/// Validate port number
+fn validate_port(port: u16) -> Result<(), String> {
+    // Allow standard email ports only
+    const ALLOWED_PORTS: [u16; 8] = [25, 143, 465, 587, 993, 995, 110, 2525];
+
+    if ALLOWED_PORTS.contains(&port) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Port {} is not allowed. Use standard email ports: {:?}",
+            port, ALLOWED_PORTS
+        ))
+    }
+}
+
+/// Validate email format (RFC 5321 basic compliance)
+fn validate_email(email: &str) -> Result<(), String> {
+    if email.is_empty() {
+        return Err("Email address cannot be empty".to_string());
+    }
+    if email.len() > 254 {
+        return Err("Email address too long".to_string());
+    }
+    if !email.contains('@') {
+        return Err("Invalid email format".to_string());
+    }
+    let parts: Vec<&str> = email.split('@').collect();
+    if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
+        return Err("Invalid email format".to_string());
+    }
+    // SECURITY: Check local part length (max 64)
+    if parts[0].len() > 64 {
+        return Err("Email local part too long".to_string());
+    }
+    // SECURITY: Check domain has at least one dot
+    if !parts[1].contains('.') {
+        return Err("Invalid email domain".to_string());
+    }
+    // SECURITY: Check for dangerous characters that could cause injection
+    if email.contains('\r') || email.contains('\n') || email.contains('\0') {
+        return Err("Invalid characters in email".to_string());
+    }
+    Ok(())
+}
+
+// SECURITY: Maximum recipients per email
+const MAX_RECIPIENTS: usize = 100;
+
+// SECURITY: Maximum pagination size
+const MAX_PAGE_SIZE: u32 = 100;
+
+/// SECURITY: Helper to safely get current folder from potentially poisoned mutex
+/// Returns the folder for the account, or INBOX as default
+fn get_current_folder_safe(
+    current_folder: &Mutex<HashMap<String, String>>,
+    account_id: &str,
+) -> String {
+    current_folder
+        .lock()
+        .unwrap_or_else(|poisoned| {
+            log::warn!("Current folder mutex was poisoned, recovering");
+            poisoned.into_inner()
+        })
+        .get(account_id)
+        .cloned()
+        .unwrap_or_else(|| "INBOX".to_string())
+}
+
 // ============================================================================
 // Tauri Commands
 // ============================================================================
@@ -97,6 +247,7 @@ async fn autoconfig_detect(email: String) -> Result<AutoConfig, String> {
 }
 
 /// Test IMAP connection
+/// SECURITY: Input validation to prevent SSRF
 #[tauri::command]
 async fn account_test_imap(
     host: String,
@@ -105,6 +256,12 @@ async fn account_test_imap(
     email: String,
     password: String,
 ) -> Result<(), String> {
+    // SECURITY: Validate all inputs
+    validate_host(&host)?;
+    validate_port(port)?;
+    validate_email(&email)?;
+    validate_security_type(&security)?;
+
     log::info!("Testing IMAP connection to {}:{} with security: {}", host, port, security);
     log::info!("Username: {}", email);
 
@@ -145,6 +302,7 @@ async fn account_test_imap(
 }
 
 /// Test SMTP connection
+/// SECURITY: Input validation to prevent SSRF
 #[tauri::command]
 async fn account_test_smtp(
     host: String,
@@ -153,11 +311,17 @@ async fn account_test_smtp(
     email: String,
     password: String,
 ) -> Result<(), String> {
+    // SECURITY: Validate all inputs
+    validate_host(&host)?;
+    validate_port(port)?;
+    validate_email(&email)?;
+    validate_security_type(&security)?;
+
     log::info!("Testing SMTP connection to {}:{}", host, port);
 
     use lettre::{
         transport::smtp::authentication::Credentials,
-        AsyncSmtpTransport, AsyncTransport,
+        AsyncSmtpTransport,
     };
 
     if host.is_empty() || email.is_empty() || password.is_empty() {
@@ -196,6 +360,7 @@ async fn account_test_smtp(
 }
 
 /// Send a test email to verify SMTP configuration
+/// SECURITY: Validates all inputs including recipient
 #[tauri::command]
 async fn send_test_email(
     host: String,
@@ -205,6 +370,12 @@ async fn send_test_email(
     password: String,
     to_email: String,
 ) -> Result<(), String> {
+    // SECURITY: Validate inputs
+    validate_host(&host)?;
+    validate_port(port)?;
+    validate_email(&email)?;
+    validate_email(&to_email)?;
+
     log::info!("Sending test email from {} to {}", email, to_email);
 
     use lettre::{
@@ -386,6 +557,7 @@ async fn folder_list(
 }
 
 /// Fetch emails with pagination
+/// SECURITY: Enforces pagination limits to prevent DoS
 #[tauri::command]
 async fn email_list(
     state: State<'_, AppState>,
@@ -394,12 +566,17 @@ async fn email_list(
     page: u32,
     page_size: u32,
 ) -> Result<mail::FetchResult, String> {
-    log::info!("Fetching emails for account {} folder {:?} page {} size {}", account_id, folder, page, page_size);
+    // SECURITY: Enforce pagination limits
+    let safe_page_size = page_size.min(MAX_PAGE_SIZE).max(1);
+
+    log::info!("Fetching emails for account {} folder {:?} page {} size {}", account_id, folder, page, safe_page_size);
     let folder_path = folder.unwrap_or_else(|| "INBOX".to_string());
 
     // Update current folder
+    // SECURITY: Handle lock poisoning gracefully instead of propagating panic
     {
-        let mut current = state.current_folder.lock().map_err(|e| e.to_string())?;
+        let mut current = state.current_folder.lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         current.insert(account_id.clone(), folder_path.clone());
     }
 
@@ -410,7 +587,7 @@ async fn email_list(
         .ok_or_else(|| "Account not connected".to_string())?;
 
     let result = client
-        .fetch_emails(&folder_path, page, page_size)
+        .fetch_emails(&folder_path, page, safe_page_size)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -428,13 +605,10 @@ async fn email_get(
 ) -> Result<mail::ParsedEmail, String> {
     log::info!("email_get: account={}, uid={}, folder={:?}", account_id, uid, folder);
 
-    let folder_path = folder.or_else(|| {
-        state
-            .current_folder
-            .lock()
-            .ok()
-            .and_then(|f| f.get(&account_id).cloned())
-    }).unwrap_or_else(|| "INBOX".to_string());
+    // SECURITY: Use safe folder lookup that handles mutex poisoning
+    let folder_path = folder.unwrap_or_else(|| {
+        get_current_folder_safe(&state.current_folder, &account_id)
+    });
 
     // Get account details from database for fresh connection
     let account_id_num: i64 = account_id.parse().map_err(|_| "Invalid account ID")?;
@@ -493,13 +667,10 @@ async fn email_search(
     query: String,
     folder: Option<String>,
 ) -> Result<Vec<u32>, String> {
-    let folder_path = folder.or_else(|| {
-        state
-            .current_folder
-            .lock()
-            .ok()
-            .and_then(|f| f.get(&account_id).cloned())
-    }).unwrap_or_else(|| "INBOX".to_string());
+    // SECURITY: Use safe folder lookup that handles mutex poisoning
+    let folder_path = folder.unwrap_or_else(|| {
+        get_current_folder_safe(&state.current_folder, &account_id)
+    });
 
     let mut async_clients = state.async_imap_clients.lock().await;
     let client = async_clients
@@ -520,13 +691,10 @@ async fn email_mark_read(
     read: bool,
     folder: Option<String>,
 ) -> Result<(), String> {
-    let folder_path = folder.or_else(|| {
-        state
-            .current_folder
-            .lock()
-            .ok()
-            .and_then(|f| f.get(&account_id).cloned())
-    }).unwrap_or_else(|| "INBOX".to_string());
+    // SECURITY: Use safe folder lookup that handles mutex poisoning
+    let folder_path = folder.unwrap_or_else(|| {
+        get_current_folder_safe(&state.current_folder, &account_id)
+    });
 
     let mut async_clients = state.async_imap_clients.lock().await;
     let client = async_clients
@@ -548,13 +716,10 @@ async fn email_mark_starred(
     starred: bool,
     folder: Option<String>,
 ) -> Result<(), String> {
-    let folder_path = folder.or_else(|| {
-        state
-            .current_folder
-            .lock()
-            .ok()
-            .and_then(|f| f.get(&account_id).cloned())
-    }).unwrap_or_else(|| "INBOX".to_string());
+    // SECURITY: Use safe folder lookup that handles mutex poisoning
+    let folder_path = folder.unwrap_or_else(|| {
+        get_current_folder_safe(&state.current_folder, &account_id)
+    });
 
     let mut async_clients = state.async_imap_clients.lock().await;
     let client = async_clients
@@ -576,13 +741,10 @@ async fn email_move(
     target_folder: String,
     folder: Option<String>,
 ) -> Result<(), String> {
-    let folder_path = folder.or_else(|| {
-        state
-            .current_folder
-            .lock()
-            .ok()
-            .and_then(|f| f.get(&account_id).cloned())
-    }).unwrap_or_else(|| "INBOX".to_string());
+    // SECURITY: Use safe folder lookup that handles mutex poisoning
+    let folder_path = folder.unwrap_or_else(|| {
+        get_current_folder_safe(&state.current_folder, &account_id)
+    });
 
     let mut async_clients = state.async_imap_clients.lock().await;
     let client = async_clients
@@ -604,13 +766,10 @@ async fn email_delete(
     permanent: bool,
     folder: Option<String>,
 ) -> Result<(), String> {
-    let folder_path = folder.or_else(|| {
-        state
-            .current_folder
-            .lock()
-            .ok()
-            .and_then(|f| f.get(&account_id).cloned())
-    }).unwrap_or_else(|| "INBOX".to_string());
+    // SECURITY: Use safe folder lookup that handles mutex poisoning
+    let folder_path = folder.unwrap_or_else(|| {
+        get_current_folder_safe(&state.current_folder, &account_id)
+    });
 
     let mut async_clients = state.async_imap_clients.lock().await;
     let client = async_clients
@@ -624,6 +783,7 @@ async fn email_delete(
 }
 
 /// Send an email
+/// SECURITY: Validates all recipients and enforces limits
 #[tauri::command]
 async fn email_send(
     state: State<'_, AppState>,
@@ -635,7 +795,35 @@ async fn email_send(
     text_body: Option<String>,
     html_body: Option<String>,
 ) -> Result<(), String> {
+    // SECURITY: Validate account ID
     let id: i64 = account_id.parse().map_err(|_| "Invalid account ID")?;
+    if id <= 0 {
+        return Err("Invalid account ID".to_string());
+    }
+
+    // SECURITY: Validate recipient counts
+    let total_recipients = to.len() + cc.len() + bcc.len();
+    if total_recipients == 0 {
+        return Err("At least one recipient is required".to_string());
+    }
+    if total_recipients > MAX_RECIPIENTS {
+        return Err(format!("Too many recipients (max {})", MAX_RECIPIENTS));
+    }
+
+    // SECURITY: Validate all email addresses
+    for email in to.iter().chain(cc.iter()).chain(bcc.iter()) {
+        validate_email(email)?;
+    }
+
+    // SECURITY: Validate subject length
+    if subject.len() > 998 {
+        return Err("Subject too long (max 998 characters)".to_string());
+    }
+
+    // SECURITY: Check for header injection in subject
+    if subject.contains('\r') || subject.contains('\n') {
+        return Err("Invalid characters in subject".to_string());
+    }
 
     let account = state.db.get_account(id)
         .map_err(|e| format!("Database error: {}", e))?;
@@ -756,27 +944,44 @@ pub fn run() {
     // Initialize logger
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    // Initialize database
-    let app_dir = directories::ProjectDirs::from("com", "owlivion", "owlivion-mail")
-        .expect("Failed to get app directories");
-    let data_dir = app_dir.data_dir();
-    std::fs::create_dir_all(data_dir).expect("Failed to create data directory");
-    let db_path = data_dir.join("owlivion.db");
+    // SECURITY: Graceful error handling instead of panics at startup
+    // Get app directories with proper error handling
+    let app_dir = match directories::ProjectDirs::from("com", "owlivion", "owlivion-mail") {
+        Some(dirs) => dirs,
+        None => {
+            log::error!("Failed to get app directories - cannot determine data location");
+            eprintln!("FATAL: Failed to get app directories. Please ensure HOME environment variable is set.");
+            std::process::exit(1);
+        }
+    };
 
+    let data_dir = app_dir.data_dir();
+
+    // Create data directory with proper error handling
+    if let Err(e) = std::fs::create_dir_all(data_dir) {
+        log::error!("Failed to create data directory: {}", e);
+        eprintln!("FATAL: Failed to create data directory at {:?}: {}", data_dir, e);
+        std::process::exit(1);
+    }
+
+    let db_path = data_dir.join("owlivion.db");
     log::info!("Database path: {:?}", db_path);
 
+    // Initialize database with proper error handling
     let db = match Database::new(db_path) {
         Ok(db) => db,
         Err(e) => {
             log::error!("Failed to initialize database: {}", e);
-            panic!("Database initialization failed: {}", e);
+            eprintln!("FATAL: Database initialization failed: {}", e);
+            std::process::exit(1);
         }
     };
     log::info!("Database initialized successfully");
 
     let app_state = AppState::new(db);
 
-    tauri::Builder::default()
+    // Run Tauri application with proper error handling
+    if let Err(e) = tauri::Builder::default()
         .manage(app_state)
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
@@ -800,5 +1005,9 @@ pub fn run() {
             email_send,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+    {
+        log::error!("Tauri application error: {}", e);
+        eprintln!("FATAL: Tauri application error: {}", e);
+        std::process::exit(1);
+    }
 }

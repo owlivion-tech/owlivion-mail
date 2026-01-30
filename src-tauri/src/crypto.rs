@@ -1,87 +1,221 @@
 //! Crypto module for password encryption/decryption
 //!
-//! Uses AES-256-GCM for secure password storage.
+//! Uses AES-256-GCM with HKDF key derivation for secure password storage.
+//! Security improvements:
+//! - HKDF for proper key derivation (instead of simple SHA256)
+//! - Installation-specific salt stored in file
+//! - No hardcoded fallback keys
+//! - Zeroize sensitive data
 
 use base64::Engine;
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
+use ring::hkdf;
 use ring::rand::{SecureRandom, SystemRandom};
-use std::env;
+use std::fs;
+use std::path::PathBuf;
+use zeroize::Zeroize;
 
 const NONCE_LEN: usize = 12;
+const SALT_LEN: usize = 32;
 
-/// Get encryption key derived from machine-specific data
-/// Uses a combination of machine ID and application secret
-fn get_encryption_key() -> [u8; 32] {
-    // Base secret (should be unique per installation)
-    let machine_id = get_machine_id();
-    let app_secret = "owlivion-mail-v1";
+/// Wrapper for sensitive data that zeroizes on drop
+#[allow(dead_code)]
+struct SecureString(String);
 
-    // Derive key using simple hashing (in production, use proper KDF like HKDF)
-    let combined = format!("{}:{}", machine_id, app_secret);
-    let mut key = [0u8; 32];
-
-    // Simple key derivation by hashing combined string
-    // Using ring's digest for proper hashing
-    let digest = ring::digest::digest(&ring::digest::SHA256, combined.as_bytes());
-    key.copy_from_slice(digest.as_ref());
-
-    key
+impl Drop for SecureString {
+    fn drop(&mut self) {
+        self.0.zeroize();
+    }
 }
 
-/// Get a unique machine identifier
-fn get_machine_id() -> String {
-    // Try to get machine ID from various sources
-    // 1. Environment variable (for testing/override)
-    if let Ok(id) = env::var("OWLIVION_MACHINE_ID") {
-        return id;
+#[allow(dead_code)]
+impl std::ops::Deref for SecureString {
+    type Target = String;
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
+}
 
-    // 2. Try to read machine-id (Linux)
-    #[cfg(target_os = "linux")]
-    if let Ok(id) = std::fs::read_to_string("/etc/machine-id") {
-        return id.trim().to_string();
-    }
+/// Get the salt file path in app data directory
+fn get_salt_file_path() -> Result<PathBuf, String> {
+    let app_dir = directories::ProjectDirs::from("com", "owlivion", "owlivion-mail")
+        .ok_or_else(|| "Failed to get app directories".to_string())?;
+    let data_dir = app_dir.data_dir();
+    fs::create_dir_all(data_dir).map_err(|e| format!("Failed to create data directory: {}", e))?;
+    Ok(data_dir.join(".encryption_salt"))
+}
 
-    // 3. Try to get hostname as fallback
-    if let Ok(hostname) = hostname::get() {
-        if let Some(h) = hostname.to_str() {
-            return h.to_string();
+/// Get or create installation-specific salt
+fn get_or_create_salt() -> Result<[u8; SALT_LEN], String> {
+    let salt_path = get_salt_file_path()?;
+
+    // Try to read existing salt
+    if salt_path.exists() {
+        let salt_data = fs::read(&salt_path)
+            .map_err(|e| format!("Failed to read salt file: {}", e))?;
+
+        if salt_data.len() == SALT_LEN {
+            let mut salt = [0u8; SALT_LEN];
+            salt.copy_from_slice(&salt_data);
+            return Ok(salt);
         }
     }
 
-    // 4. Fallback to a fixed string (least secure but functional)
-    "owlivion-default-key".to_string()
+    // Generate new salt
+    let rng = SystemRandom::new();
+    let mut salt = [0u8; SALT_LEN];
+    rng.fill(&mut salt)
+        .map_err(|e| format!("Failed to generate salt: {:?}", e))?;
+
+    // Save salt to file with restricted permissions
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&salt_path)
+            .map_err(|e| format!("Failed to create salt file: {}", e))?;
+        use std::io::Write;
+        file.write_all(&salt)
+            .map_err(|e| format!("Failed to write salt: {}", e))?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        fs::write(&salt_path, &salt)
+            .map_err(|e| format!("Failed to write salt: {}", e))?;
+    }
+
+    Ok(salt)
+}
+
+/// Get a unique machine identifier
+/// SECURITY: Combines multiple entropy sources for better key uniqueness
+fn get_machine_id() -> Result<String, String> {
+    let mut id_parts: Vec<String> = Vec::new();
+
+    // 1. Try to read machine-id (Linux)
+    #[cfg(target_os = "linux")]
+    if let Ok(id) = fs::read_to_string("/etc/machine-id") {
+        let trimmed = id.trim().to_string();
+        if !trimmed.is_empty() {
+            id_parts.push(trimmed);
+        }
+    }
+
+    // 2. Try to get hostname
+    if let Ok(hostname) = hostname::get() {
+        if let Some(h) = hostname.to_str() {
+            if !h.is_empty() {
+                id_parts.push(h.to_string());
+            }
+        }
+    }
+
+    // 3. Get username for per-user key isolation
+    #[cfg(unix)]
+    if let Ok(user) = std::env::var("USER") {
+        if !user.is_empty() {
+            id_parts.push(user);
+        }
+    }
+    #[cfg(windows)]
+    if let Ok(user) = std::env::var("USERNAME") {
+        if !user.is_empty() {
+            id_parts.push(user);
+        }
+    }
+
+    // 4. Get home directory path as additional entropy
+    if let Some(home) = directories::BaseDirs::new() {
+        id_parts.push(home.home_dir().to_string_lossy().to_string());
+    }
+
+    // SECURITY: Require at least 2 entropy sources
+    if id_parts.len() < 2 {
+        return Err("Insufficient entropy sources for key derivation. Cannot safely generate encryption key.".to_string());
+    }
+
+    // Combine all parts with separator
+    Ok(id_parts.join("|"))
+}
+
+/// Derive encryption key using HKDF
+/// SECURITY: Uses machine ID + user + installation-specific salt for key material
+fn get_encryption_key() -> Result<[u8; 32], String> {
+    let salt = get_or_create_salt()?;
+    let machine_id = get_machine_id()?;
+
+    // Create HKDF salt from installation salt
+    let hkdf_salt = hkdf::Salt::new(hkdf::HKDF_SHA256, &salt);
+
+    // Input key material: machine ID (now includes user info)
+    let ikm = machine_id.as_bytes();
+
+    // Extract
+    let prk = hkdf_salt.extract(ikm);
+
+    // Expand with context info
+    let info: &[&[u8]] = &[b"owlivion-mail-password-encryption-v3"];
+    let okm = prk.expand(info, MyKeyType(32))
+        .map_err(|_| "HKDF expansion failed".to_string())?;
+
+    let mut key = [0u8; 32];
+    okm.fill(&mut key)
+        .map_err(|_| "Failed to fill key bytes".to_string())?;
+
+    Ok(key)
+}
+
+/// Custom key type for HKDF output
+struct MyKeyType(usize);
+
+impl hkdf::KeyType for MyKeyType {
+    fn len(&self) -> usize {
+        self.0
+    }
 }
 
 /// Encrypt a password
 /// Returns base64-encoded ciphertext with prepended nonce
 pub fn encrypt_password(password: &str) -> Result<String, String> {
-    let key_bytes = get_encryption_key();
-    let unbound_key =
-        UnboundKey::new(&AES_256_GCM, &key_bytes).map_err(|e| format!("Key error: {:?}", e))?;
-    let key = LessSafeKey::new(unbound_key);
+    let mut key_bytes = get_encryption_key()?;
 
-    // Generate random nonce
-    let rng = SystemRandom::new();
-    let mut nonce_bytes = [0u8; NONCE_LEN];
-    rng.fill(&mut nonce_bytes)
-        .map_err(|e| format!("RNG error: {:?}", e))?;
+    let result = (|| {
+        let unbound_key = UnboundKey::new(&AES_256_GCM, &key_bytes)
+            .map_err(|e| format!("Key error: {:?}", e))?;
+        let key = LessSafeKey::new(unbound_key);
 
-    // Prepare plaintext with space for tag
-    let mut in_out = password.as_bytes().to_vec();
+        // Generate random nonce
+        let rng = SystemRandom::new();
+        let mut nonce_bytes = [0u8; NONCE_LEN];
+        rng.fill(&mut nonce_bytes)
+            .map_err(|e| format!("RNG error: {:?}", e))?;
 
-    // Encrypt in place
-    let nonce = Nonce::assume_unique_for_key(nonce_bytes);
-    key.seal_in_place_append_tag(nonce, Aad::empty(), &mut in_out)
-        .map_err(|e| format!("Encryption error: {:?}", e))?;
+        // Prepare plaintext with space for tag
+        let mut in_out = password.as_bytes().to_vec();
 
-    // Prepend nonce to ciphertext
-    let mut result = Vec::with_capacity(NONCE_LEN + in_out.len());
-    result.extend_from_slice(&nonce_bytes);
-    result.extend_from_slice(&in_out);
+        // Encrypt in place
+        let nonce = Nonce::assume_unique_for_key(nonce_bytes);
+        key.seal_in_place_append_tag(nonce, Aad::empty(), &mut in_out)
+            .map_err(|e| format!("Encryption error: {:?}", e))?;
 
-    // Base64 encode
-    Ok(base64::engine::general_purpose::STANDARD.encode(&result))
+        // Prepend nonce to ciphertext
+        let mut result = Vec::with_capacity(NONCE_LEN + in_out.len());
+        result.extend_from_slice(&nonce_bytes);
+        result.extend_from_slice(&in_out);
+
+        // Base64 encode
+        Ok(base64::engine::general_purpose::STANDARD.encode(&result))
+    })();
+
+    // Zeroize key after use
+    key_bytes.zeroize();
+
+    result
 }
 
 /// Decrypt a password
@@ -97,23 +231,32 @@ pub fn decrypt_password(encrypted: &str) -> Result<String, String> {
         return Err("Encrypted data too short".to_string());
     }
 
-    let key_bytes = get_encryption_key();
-    let unbound_key =
-        UnboundKey::new(&AES_256_GCM, &key_bytes).map_err(|e| format!("Key error: {:?}", e))?;
-    let key = LessSafeKey::new(unbound_key);
+    let mut key_bytes = get_encryption_key()?;
 
-    // Extract nonce and ciphertext
-    let (nonce_bytes, ciphertext) = data.split_at(NONCE_LEN);
-    let nonce = Nonce::try_assume_unique_for_key(nonce_bytes)
-        .map_err(|_| "Invalid nonce".to_string())?;
+    let result = (|| {
+        let unbound_key = UnboundKey::new(&AES_256_GCM, &key_bytes)
+            .map_err(|e| format!("Key error: {:?}", e))?;
+        let key = LessSafeKey::new(unbound_key);
 
-    // Decrypt in place
-    let mut in_out = ciphertext.to_vec();
-    let plaintext = key
-        .open_in_place(nonce, Aad::empty(), &mut in_out)
-        .map_err(|_| "Decryption failed - invalid key or corrupted data".to_string())?;
+        // Extract nonce and ciphertext
+        let (nonce_bytes, ciphertext) = data.split_at(NONCE_LEN);
+        let nonce = Nonce::try_assume_unique_for_key(nonce_bytes)
+            .map_err(|_| "Invalid nonce".to_string())?;
 
-    String::from_utf8(plaintext.to_vec()).map_err(|e| format!("UTF-8 decode error: {}", e))
+        // Decrypt in place
+        let mut in_out = ciphertext.to_vec();
+        let plaintext = key
+            .open_in_place(nonce, Aad::empty(), &mut in_out)
+            .map_err(|_| "Decryption failed - invalid key or corrupted data".to_string())?;
+
+        String::from_utf8(plaintext.to_vec())
+            .map_err(|e| format!("UTF-8 decode error: {}", e))
+    })();
+
+    // Zeroize key after use
+    key_bytes.zeroize();
+
+    result
 }
 
 #[cfg(test)]
@@ -164,5 +307,17 @@ mod tests {
         let encrypted = encrypt_password(password).expect("Encryption failed");
         let decrypted = decrypt_password(&encrypted).expect("Decryption failed");
         assert_eq!(decrypted, password);
+    }
+
+    #[test]
+    fn test_salt_persistence() {
+        // First call creates salt
+        let key1 = get_encryption_key().expect("First key generation failed");
+
+        // Second call should use same salt
+        let key2 = get_encryption_key().expect("Second key generation failed");
+
+        // Keys should be identical (same salt, same machine)
+        assert_eq!(key1, key2);
     }
 }

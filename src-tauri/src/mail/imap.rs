@@ -464,15 +464,27 @@ impl ImapClient {
     }
 
     /// Search emails
+    /// SECURITY: Query is sanitized to prevent IMAP command injection
     pub fn search(&mut self, folder: &str, query: &str) -> MailResult<Vec<u32>> {
         let session = self.session()?;
 
+        // Validate folder name
+        let safe_folder = sanitize_imap_string(folder);
+
         session
-            .select(folder)
+            .select(&safe_folder)
             .map_err(|e| MailError::Imap(e.to_string()))?;
 
+        // Sanitize search query to prevent IMAP injection
+        let safe_query = sanitize_imap_string(query);
+
+        // Limit query length to prevent DoS
+        if safe_query.len() > 200 {
+            return Err(MailError::Imap("Search query too long".to_string()));
+        }
+
         // Search in subject, from, and body
-        let search_query = format!("OR OR SUBJECT \"{}\" FROM \"{}\" BODY \"{}\"", query, query, query);
+        let search_query = format!("OR OR SUBJECT \"{}\" FROM \"{}\" BODY \"{}\"", safe_query, safe_query, safe_query);
 
         let uids = session
             .uid_search(&search_query)
@@ -650,6 +662,36 @@ fn decode_quoted_printable(input: &str) -> String {
     }
 
     result
+}
+
+/// Sanitize string for IMAP commands to prevent injection attacks
+/// Removes/escapes characters that could be used for IMAP command injection
+fn sanitize_imap_string(input: &str) -> String {
+    input
+        .chars()
+        .filter(|c| {
+            // Allow alphanumeric, common punctuation, and Unicode letters
+            c.is_alphanumeric()
+                || *c == ' '
+                || *c == '.'
+                || *c == '-'
+                || *c == '_'
+                || *c == '@'
+                || *c == '+'
+                || *c == ','
+                || *c == ':'
+                || *c == '/'
+                || *c == '['
+                || *c == ']'
+                || c.is_alphabetic() // Unicode letters (Turkish, etc.)
+        })
+        .collect::<String>()
+        // Double any remaining quotes (shouldn't be any, but safe)
+        .replace('"', "")
+        .replace('\\', "")
+        .replace('\r', "")
+        .replace('\n', "")
+        .replace('\0', "")
 }
 
 /// Parse email body using mail-parser
