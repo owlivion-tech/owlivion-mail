@@ -25,13 +25,22 @@ const purifyConfig = {
 
 // Sanitize HTML with optional image blocking
 function sanitizeEmailHtml(html: string, blockImages: boolean = true): string {
-  // First pass: DOMPurify for XSS protection
-  let sanitized = DOMPurify.sanitize(html, purifyConfig) as string;
-
-  // Second pass: Block images if requested
+  // First: Block images if requested (before DOMPurify strips them)
+  let processed = html;
   if (blockImages) {
-    sanitized = sanitized.replace(/<img[^>]*>/gi, '<div style="background: #1a1a24; padding: 20px; text-align: center; color: #71717a; border-radius: 8px; margin: 10px 0;">[Resim gizlendi]</div>');
+    processed = processed.replace(/<img[^>]*>/gi, '<div style="background: #1a1a24; padding: 20px; text-align: center; color: #71717a; border-radius: 8px; margin: 10px 0;">[Resim gizlendi]</div>');
   }
+
+  // Config that allows images when not blocked
+  const config = blockImages ? purifyConfig : {
+    ...purifyConfig,
+    ALLOWED_TAGS: [...purifyConfig.ALLOWED_TAGS, 'img'],
+    ALLOWED_ATTR: [...purifyConfig.ALLOWED_ATTR, 'src', 'alt', 'style'],
+    FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur', 'srcset', 'data-src'],
+  };
+
+  // DOMPurify for XSS protection
+  let sanitized = DOMPurify.sanitize(processed, config) as string;
 
   // Force external links to open in new tab with noopener
   sanitized = sanitized.replace(/<a\s+([^>]*href=)/gi, '<a target="_blank" rel="noopener noreferrer" $1');
@@ -104,6 +113,65 @@ function formatDate(date: Date): string {
 
 function getInitials(name: string): string {
   return name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
+}
+
+// Extract domain from email address
+function getEmailDomain(email: string): string {
+  const match = email.match(/@([^@]+)$/);
+  return match ? match[1].toLowerCase() : '';
+}
+
+// Get company logo URL from domain
+function getCompanyLogoUrl(email: string): string | null {
+  const domain = getEmailDomain(email);
+  if (!domain) return null;
+
+  // Skip personal email providers - show initials instead
+  const personalDomains = ['gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com', 'yahoo.com', 'icloud.com', 'me.com', 'protonmail.com', 'proton.me', 'yandex.com', 'mail.ru'];
+  if (personalDomains.includes(domain)) return null;
+
+  // Use Google Favicon API (reliable and free)
+  return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+}
+
+// Company Avatar Component with logo fallback
+function CompanyAvatar({ email, name, size = 'md', unread = false }: {
+  email: string;
+  name: string;
+  size?: 'sm' | 'md' | 'lg';
+  unread?: boolean;
+}) {
+  const [logoError, setLogoError] = useState(false);
+  const logoUrl = getCompanyLogoUrl(email);
+
+  const sizeClasses = {
+    sm: 'w-8 h-8 text-xs',
+    md: 'w-10 h-10 text-sm',
+    lg: 'w-12 h-12 text-base'
+  };
+
+  const baseClasses = `${sizeClasses[size]} rounded-full flex items-center justify-center font-medium shrink-0`;
+
+  // Show logo if available and not errored
+  if (logoUrl && !logoError) {
+    return (
+      <div className={`${baseClasses} bg-white p-1 border border-owl-border`}>
+        <img
+          src={logoUrl}
+          alt={name}
+          className="w-full h-full object-contain rounded-full"
+          onError={() => setLogoError(true)}
+        />
+      </div>
+    );
+  }
+
+  // Fallback to initials
+  return (
+    <div className={`${baseClasses} ${unread ? "bg-owl-accent text-white" : "bg-owl-bg text-owl-text-secondary"}`}>
+      {getInitials(name)}
+    </div>
+  );
 }
 
 // Helper to get icon for folder type
@@ -562,11 +630,12 @@ function MailPanel({
               } ${!email.read ? "bg-owl-bg/50" : ""}`}
             >
               <div className="flex items-start gap-3">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium shrink-0 ${
-                  !email.read ? "bg-owl-accent text-white" : "bg-owl-bg text-owl-text-secondary"
-                }`}>
-                  {getInitials(email.from.name)}
-                </div>
+                <CompanyAvatar
+                  email={email.from.email}
+                  name={email.from.name}
+                  size="md"
+                  unread={!email.read}
+                />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-1">
                     <span className={`text-sm truncate ${!email.read ? "font-semibold text-owl-text" : "text-owl-text"}`}>
@@ -704,9 +773,11 @@ function EmailView({
       <div className="p-4 border-b border-owl-border">
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-start gap-4">
-            <div className="w-12 h-12 bg-owl-accent rounded-full flex items-center justify-center text-white font-medium">
-              {getInitials(email.from.name)}
-            </div>
+            <CompanyAvatar
+              email={email.from.email}
+              name={email.from.name}
+              size="lg"
+            />
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-owl-text">{email.from.name}</span>
@@ -1069,18 +1140,17 @@ function App() {
   // Settings state for API keys
   const [geminiApiKey, setGeminiApiKey] = useState<string | undefined>(undefined);
 
-  // Load API key from settings on mount
+  // Load API key from localStorage on mount
   useEffect(() => {
-    const loadSettings = async () => {
-      try {
-        const { getSettings } = await import('./services/mailService');
-        const settings = await getSettings();
+    try {
+      const saved = localStorage.getItem('owlivion-settings');
+      if (saved) {
+        const settings = JSON.parse(saved);
         setGeminiApiKey(settings.geminiApiKey);
-      } catch (err) {
-        console.error('Failed to load settings:', err);
       }
-    };
-    loadSettings();
+    } catch (err) {
+      console.error('Failed to load settings:', err);
+    }
   }, []);
 
   // Fetch folders for an account
@@ -1096,6 +1166,37 @@ function App() {
       setImapFolders([]);
     } finally {
       setIsLoadingFolders(false);
+    }
+  }, []);
+
+  // Function to reload accounts from database (used after settings changes)
+  const reloadAccounts = useCallback(async () => {
+    try {
+      const { listAccounts } = await import('./services/mailService');
+      const dbAccounts = await listAccounts();
+      if (dbAccounts && dbAccounts.length > 0) {
+        const frontendAccounts: Account[] = dbAccounts.map((acc: any) => ({
+          id: acc.id,
+          email: acc.email,
+          displayName: acc.display_name || acc.displayName,
+          imapHost: acc.imap_host || acc.imapHost,
+          imapPort: acc.imap_port || acc.imapPort,
+          imapSecurity: acc.imap_security || acc.imapSecurity,
+          smtpHost: acc.smtp_host || acc.smtpHost,
+          smtpPort: acc.smtp_port || acc.smtpPort,
+          smtpSecurity: acc.smtp_security || acc.smtpSecurity,
+          isActive: acc.is_active ?? true,
+          isDefault: acc.is_default ?? true,
+          signature: acc.signature || '',
+          syncDays: acc.sync_days || 30,
+          createdAt: acc.created_at || new Date().toISOString(),
+          updatedAt: acc.updated_at || new Date().toISOString(),
+        }));
+        setAccounts(frontendAccounts);
+        console.log('Accounts reloaded from DB');
+      }
+    } catch (err) {
+      console.error('Failed to reload accounts:', err);
     }
   }, []);
 
@@ -1150,7 +1251,7 @@ function App() {
 
             // Load emails (page is 0-indexed)
             try {
-              const result = await listEmails(firstAccount.id.toString(), 0, 50, 'INBOX');
+              const result = await listEmails(firstAccount.id.toString(), 0, 500, 'INBOX');
               console.log('listEmails result:', result);
               console.log('Result keys:', result ? Object.keys(result) : 'null');
 
@@ -1227,7 +1328,7 @@ function App() {
 
     try {
       const { listEmails } = await import('./services/mailService');
-      const result = await listEmails(selectedAccountId.toString(), 0, 50, 'INBOX');
+      const result = await listEmails(selectedAccountId.toString(), 0, 500, 'INBOX');
 
       if (result && result.emails) {
         const newEmails: Email[] = [];
@@ -1309,7 +1410,7 @@ function App() {
 
       // Fetch emails from current folder (activeFolder is now the IMAP path)
       const folderToSync = activeFolder === '__starred__' ? 'INBOX' : activeFolder;
-      const result = await listEmails(account.id.toString(), 0, 50, folderToSync);
+      const result = await listEmails(account.id.toString(), 0, 500, folderToSync);
       console.log('Sync result for folder', folderToSync, ':', result);
 
       if (result && result.emails) {
@@ -1406,7 +1507,7 @@ function App() {
         console.error('Failed to fetch folders:', folderErr);
       }
 
-      const result = await listEmails(accountId.toString(), 0, 50, 'INBOX');
+      const result = await listEmails(accountId.toString(), 0, 500, 'INBOX');
       console.log('Account switch - listEmails result:', result);
 
       if (result && result.emails) {
@@ -1467,7 +1568,7 @@ function App() {
       setIsSyncing(true);
       const { listEmails } = await import('./services/mailService');
 
-      const result = await listEmails(selectedAccountId.toString(), 0, 50, folderPath);
+      const result = await listEmails(selectedAccountId.toString(), 0, 500, folderPath);
       console.log('Folder switch - listEmails result:', result);
 
       if (result && result.emails) {
@@ -1521,6 +1622,9 @@ function App() {
 
   // Check if user has any accounts configured
   const hasAccounts = accounts.length > 0;
+
+  // Get current account (for Compose signature)
+  const currentAccount = accounts.find(a => a.id === selectedAccountId) || accounts[0] || null;
 
   const currentEmail = emails.find((e) => e.id === selectedEmail) || null;
   const isTrustedSender = currentEmail ? trustedSenders.includes(currentEmail.from.email) : false;
@@ -1916,7 +2020,7 @@ function App() {
       console.log('Connected to new account:', account.email);
 
       // Load emails (page is 0-indexed)
-      const result = await listEmails(account.id.toString(), 0, 50, 'INBOX');
+      const result = await listEmails(account.id.toString(), 0, 500, 'INBOX');
       console.log('listEmails result after add:', result);
       if (result && result.emails) {
         console.log('Raw emails from backend:', result.emails);
@@ -1962,7 +2066,7 @@ function App() {
 
   // Show Settings page
   if (currentPage === 'settings') {
-    return <Settings onBack={() => setCurrentPage('mail')} />;
+    return <Settings onBack={() => { reloadAccounts(); setCurrentPage('mail'); }} />;
   }
 
   return (
@@ -2059,6 +2163,7 @@ function App() {
             }}
             onSend={handleSend}
             onSaveDraft={handleSaveDraft}
+            defaultAccount={currentAccount}
           />
         </>
       )}
@@ -2071,6 +2176,7 @@ function App() {
           mode="new"
           onSend={handleSend}
           onSaveDraft={handleSaveDraft}
+          defaultAccount={currentAccount}
         />
       )}
 

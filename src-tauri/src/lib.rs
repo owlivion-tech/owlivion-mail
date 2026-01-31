@@ -666,6 +666,73 @@ async fn account_update(
     Ok(())
 }
 
+/// Update account signature only
+#[tauri::command(rename_all = "camelCase")]
+async fn account_update_signature(
+    state: State<'_, AppState>,
+    account_id: String,
+    signature: String,
+) -> Result<(), String> {
+    let id: i64 = account_id.parse().map_err(|_| "Invalid account ID")?;
+    log::info!("Updating signature for account: {}", id);
+
+    state.db.update_account_signature(id, &signature)
+        .map_err(|e| format!("Database error: {}", e))?;
+
+    log::info!("Signature updated for account: {}", id);
+    Ok(())
+}
+
+/// Fetch content from a URL (for signatures)
+/// SECURITY: Only allows HTTPS URLs from trusted domains
+#[tauri::command]
+async fn fetch_url_content(url: String) -> Result<String, String> {
+    log::info!("Fetching URL content: {}", url);
+
+    // SECURITY: Validate URL
+    let parsed_url = url::Url::parse(&url)
+        .map_err(|_| "Invalid URL format".to_string())?;
+
+    // Only allow HTTPS
+    if parsed_url.scheme() != "https" {
+        return Err("Only HTTPS URLs are allowed".to_string());
+    }
+
+    // SECURITY: Only allow trusted domains for signature fetching
+    let host = parsed_url.host_str().ok_or("Invalid URL host")?;
+    let allowed_domains = ["owlivion.com", "www.owlivion.com"];
+    let is_allowed = allowed_domains.iter().any(|d| host == *d || host.ends_with(&format!(".{}", d)));
+
+    if !is_allowed {
+        return Err(format!("Domain '{}' is not allowed. Only owlivion.com is permitted.", host));
+    }
+
+    // Fetch with timeout
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))?;
+
+    let response = client
+        .get(&url)
+        .header("Cache-Control", "no-cache")
+        .send()
+        .await
+        .map_err(|e| format!("Fetch error: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("HTTP error: {}", response.status()));
+    }
+
+    let content = response
+        .text()
+        .await
+        .map_err(|e| format!("Read error: {}", e))?;
+
+    log::info!("URL content fetched successfully ({} bytes)", content.len());
+    Ok(content)
+}
+
 /// List all configured accounts
 #[tauri::command]
 async fn account_list(state: State<'_, AppState>) -> Result<Vec<db::Account>, String> {
@@ -1179,6 +1246,8 @@ pub fn run() {
             send_test_email,
             account_add,
             account_update,
+            account_update_signature,
+            fetch_url_content,
             account_list,
             account_connect,
             folder_list,

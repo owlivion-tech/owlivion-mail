@@ -2,7 +2,7 @@
 // Owlivion Mail - Settings Page
 // ============================================================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useShortcut } from '../hooks/useKeyboardShortcuts';
 import { AccountSettings } from '../components/settings/AccountSettings';
 import { GeneralSettings } from '../components/settings/GeneralSettings';
@@ -133,6 +133,30 @@ export function Settings({ onBack }: SettingsProps) {
     loadAccounts();
   }, []);
 
+  // Load settings from localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('owlivion-settings');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setSettings({ ...defaultSettings, ...parsed });
+      }
+    } catch (err) {
+      console.error('Failed to load settings:', err);
+    }
+  }, []);
+
+  // Handle settings change with auto-save to localStorage
+  const handleSettingsChange = useCallback((newSettings: SettingsType) => {
+    setSettings(newSettings);
+    try {
+      localStorage.setItem('owlivion-settings', JSON.stringify(newSettings));
+      console.log('Settings saved to localStorage');
+    } catch (err) {
+      console.error('Failed to save settings:', err);
+    }
+  }, []);
+
   // Close on Escape
   useShortcut('Escape', onBack, { enabled: true });
 
@@ -193,13 +217,13 @@ export function Settings({ onBack }: SettingsProps) {
           {activeTab === 'general' && (
             <GeneralSettings
               settings={settings}
-              onSettingsChange={setSettings}
+              onSettingsChange={handleSettingsChange}
             />
           )}
           {activeTab === 'ai' && (
             <AISettings
               settings={settings}
-              onSettingsChange={setSettings}
+              onSettingsChange={handleSettingsChange}
             />
           )}
           {activeTab === 'shortcuts' && <ShortcutsSettings />}

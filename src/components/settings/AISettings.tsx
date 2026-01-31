@@ -24,6 +24,52 @@ export function AISettings({ settings, onSettingsChange }: AISettingsProps) {
         </p>
       </div>
 
+      {/* API Key */}
+      <section className="bg-owl-surface border border-owl-border rounded-xl p-6">
+        <h3 className="text-lg font-medium text-owl-text mb-4">Gemini API Anahtarı</h3>
+
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm font-medium text-owl-text">API Anahtarı</label>
+            <p className="text-xs text-owl-text-secondary mt-0.5 mb-2">
+              Google AI Studio'dan ücretsiz API anahtarı alabilirsiniz
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="password"
+                value={settings.geminiApiKey || ''}
+                onChange={(e) => updateSetting('geminiApiKey', e.target.value)}
+                placeholder="AIzaSy..."
+                className="flex-1 px-4 py-2 bg-owl-bg border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm text-owl-text"
+              />
+              <a
+                href="https://aistudio.google.com/apikey"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-4 py-2 bg-owl-accent hover:bg-owl-accent-hover text-white text-sm rounded-lg transition-colors whitespace-nowrap"
+              >
+                API Key Al
+              </a>
+            </div>
+          </div>
+
+          {/* Status */}
+          <div className="flex items-center gap-2">
+            {settings.geminiApiKey ? (
+              <>
+                <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                <span className="text-sm text-green-500">API anahtarı tanımlı</span>
+              </>
+            ) : (
+              <>
+                <div className="w-2 h-2 rounded-full bg-yellow-500"></div>
+                <span className="text-sm text-yellow-500">API anahtarı tanımlı değil</span>
+              </>
+            )}
+          </div>
+        </div>
+      </section>
+
       {/* AI Features */}
       <section className="bg-owl-surface border border-owl-border rounded-xl p-6">
         <h3 className="text-lg font-medium text-owl-text mb-4">AI Özellikleri</h3>

@@ -19,14 +19,14 @@ const log = {
   },
 };
 
-// SECURITY: Strict sanitization for compose - NO style or img allowed
+// SECURITY: Sanitization for compose - allows img/style for signatures
 const sanitizeForCompose = (html: string): string => {
   return DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: ['p', 'br', 'b', 'i', 'u', 'strong', 'em', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'code', 'span', 'div', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'hr'],
-    ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'align', 'valign', 'width', 'height', 'colspan', 'rowspan'],
+    ALLOWED_TAGS: ['p', 'br', 'b', 'i', 'u', 'strong', 'em', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'code', 'span', 'div', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'img', 'style', 'meta'],
+    ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'align', 'valign', 'width', 'height', 'colspan', 'rowspan', 'src', 'alt', 'style', 'cellpadding', 'cellspacing', 'border', 'charset'],
     ALLOW_DATA_ATTR: false,
-    FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select', 'style', 'link', 'meta', 'base', 'img'],
-    FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur', 'style', 'srcset', 'src'],
+    FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select', 'link', 'base'],
+    FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur'],
   });
 };
 
@@ -100,7 +100,13 @@ export function Compose({
       setCc([]);
       setBcc([]);
       setSubject('');
-      setBodyHtml('');
+      // Add signature if account has one
+      const signature = defaultAccount?.signature;
+      if (signature) {
+        setBodyHtml(`<br><br><div class="email-signature">${signature}</div>`);
+      } else {
+        setBodyHtml('');
+      }
       setAttachments([]);
       setShowCc(false);
       setShowBcc(false);
@@ -125,16 +131,23 @@ export function Compose({
 
   // Set initial body content in contentEditable (only on open/mode change)
   const initializedRef = useRef(false);
+  const lastModeRef = useRef<string | null>(null);
   useEffect(() => {
     if (bodyRef.current && isOpen) {
-      // SECURITY: Sanitize content before inserting into DOM
-      bodyRef.current.innerHTML = sanitizeForCompose(bodyHtml);
-      initializedRef.current = true;
+      // Only update DOM when mode changes or first open (not on every bodyHtml change)
+      const shouldUpdate = !initializedRef.current || lastModeRef.current !== mode;
+      if (shouldUpdate && bodyHtml) {
+        // SECURITY: Sanitize content before inserting into DOM
+        bodyRef.current.innerHTML = sanitizeForCompose(bodyHtml);
+        initializedRef.current = true;
+        lastModeRef.current = mode;
+      }
     }
     if (!isOpen) {
       initializedRef.current = false;
+      lastModeRef.current = null;
     }
-  }, [isOpen, mode]); // Don't depend on bodyHtml to avoid resetting on blur
+  }, [isOpen, mode, bodyHtml]); // Include bodyHtml but only update on mode change
 
   // Keyboard shortcuts
   useShortcut('Escape', onClose, { enabled: isOpen && !isSending });

@@ -117,6 +117,21 @@ export async function listAccounts(): Promise<Account[]> {
 }
 
 /**
+ * Update account signature
+ */
+export async function updateAccountSignature(accountId: number, signature: string): Promise<void> {
+  return invoke('account_update_signature', { accountId: accountId.toString(), signature });
+}
+
+/**
+ * Fetch content from a URL (for signatures)
+ * Uses Rust backend to bypass CSP restrictions
+ */
+export async function fetchUrlContent(url: string): Promise<string> {
+  return invoke<string>('fetch_url_content', { url });
+}
+
+/**
  * Delete an account
  */
 export async function deleteAccount(accountId: number): Promise<void> {

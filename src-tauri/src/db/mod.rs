@@ -132,6 +132,9 @@ impl Database {
         let schema = include_str!("schema.sql");
         conn.execute_batch(schema)?;
 
+        // Run migrations for existing databases
+        Self::run_migrations(&conn)?;
+
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -148,6 +151,29 @@ impl Database {
         Ok(Self {
             conn: Mutex::new(conn),
         })
+    }
+
+    // =========================================================================
+    // MIGRATIONS
+    // =========================================================================
+
+    /// Run migrations for existing databases
+    fn run_migrations(conn: &Connection) -> DbResult<()> {
+        // Migration 1: Add signature column to accounts table if not exists
+        let has_signature: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('accounts') WHERE name = 'signature'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_signature {
+            log::info!("Running migration: Adding signature column to accounts");
+            conn.execute("ALTER TABLE accounts ADD COLUMN signature TEXT DEFAULT ''", [])?;
+        }
+
+        Ok(())
     }
 
     // =========================================================================
@@ -374,6 +400,21 @@ impl Database {
                 account.is_default,
                 id,
             ],
+        )?;
+
+        Ok(())
+    }
+
+    /// Update account signature only
+    pub fn update_account_signature(&self, id: i64, signature: &str) -> DbResult<()> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        conn.execute(
+            "UPDATE accounts SET signature = ?1, updated_at = datetime('now') WHERE id = ?2",
+            params![signature, id],
         )?;
 
         Ok(())
