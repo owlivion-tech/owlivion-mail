@@ -9,6 +9,7 @@ import { GeneralSettings } from '../components/settings/GeneralSettings';
 import { AISettings } from '../components/settings/AISettings';
 import { ShortcutsSettings } from '../components/settings/ShortcutsSettings';
 import { SignatureSettings } from '../components/settings/SignatureSettings';
+import { SyncSettings } from '../components/settings/SyncSettings';
 import { listAccounts } from '../services/mailService';
 import type { SettingsTab, Settings as SettingsType, Account } from '../types';
 
@@ -60,6 +61,15 @@ const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'sync',
+    label: 'Senkronizasyon',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
       </svg>
     ),
   },
@@ -233,6 +243,7 @@ export function Settings({ onBack }: SettingsProps) {
               onAccountsChange={setAccounts}
             />
           )}
+          {activeTab === 'sync' && <SyncSettings />}
         </div>
       </div>
     </div>

@@ -262,7 +262,7 @@ export interface ComposeProps {
 }
 
 // Settings page tab
-export type SettingsTab = 'accounts' | 'general' | 'ai' | 'shortcuts' | 'signatures';
+export type SettingsTab = 'accounts' | 'general' | 'ai' | 'shortcuts' | 'signatures' | 'sync';
 
 // AI Reply request
 export interface AIReplyRequest {
@@ -323,4 +323,47 @@ export interface ApiResponse<T> {
   success: boolean;
   data?: T;
   error?: string;
+}
+
+// ============================================================================
+// Sync Types
+// ============================================================================
+
+/// Sync configuration
+export interface SyncConfig {
+  enabled: boolean;
+  userId?: string;
+  deviceId: string;
+  deviceName: string;
+  platform: 'windows' | 'macos' | 'linux';
+  lastSyncAt?: string; // ISO 8601
+  syncAccounts: boolean;
+  syncContacts: boolean;
+  syncPreferences: boolean;
+  syncSignatures: boolean;
+}
+
+/// Sync status for a data type
+export interface SyncStatusItem {
+  dataType: 'accounts' | 'contacts' | 'preferences' | 'signatures';
+  version: number;
+  lastSyncAt?: string; // ISO 8601
+  status: 'idle' | 'syncing' | 'error';
+}
+
+/// Device information
+export interface DeviceInfo {
+  deviceId: string;
+  deviceName: string;
+  platform: string;
+  lastSeenAt: string; // ISO 8601
+}
+
+/// Sync result
+export interface SyncResult {
+  accountsSynced: boolean;
+  contactsSynced: boolean;
+  preferencesSynced: boolean;
+  signaturesSynced: boolean;
+  errors: string[];
 }

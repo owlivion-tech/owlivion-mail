@@ -5,6 +5,7 @@
 pub mod crypto;
 pub mod db;
 pub mod mail;
+pub mod sync;
 
 use db::{Database, NewAccount as DbNewAccount};
 use mail::{fetch_autoconfig, AsyncImapClient, AutoConfig, ImapClient, ImapConfig, SecurityType};
@@ -1189,6 +1190,213 @@ async fn email_send(
 }
 
 // ============================================================================
+// Sync Commands
+// ============================================================================
+
+use sync::{SyncManager, SyncConfig};
+use std::sync::Mutex as StdMutex;
+
+// Global sync manager instance
+lazy_static::lazy_static! {
+    static ref SYNC_MANAGER: Arc<StdMutex<Option<SyncManager>>> = Arc::new(StdMutex::new(None));
+}
+
+/// Get or create sync manager instance
+fn get_sync_manager() -> Result<SyncManager, String> {
+    let mut guard = SYNC_MANAGER.lock().map_err(|e| format!("Lock error: {}", e))?;
+
+    if guard.is_none() {
+        // Initialize with default config
+        // TODO: Load config from database/storage
+        *guard = Some(SyncManager::new());
+    }
+
+    // Clone the manager (cheap because it uses Arc internally)
+    guard.as_ref()
+        .cloned()
+        .ok_or_else(|| "Failed to get sync manager".to_string())
+}
+
+/// Register new Owlivion Account
+#[tauri::command]
+async fn sync_register(
+    email: String,
+    password: String,
+    master_password: String,
+) -> Result<(), String> {
+    let manager = get_sync_manager()?;
+    manager.register(email, password, master_password).await
+        .map_err(|e| format!("Registration failed: {}", e))
+}
+
+/// Login to Owlivion Account
+#[tauri::command]
+async fn sync_login(
+    email: String,
+    password: String,
+) -> Result<(), String> {
+    let manager = get_sync_manager()?;
+    manager.login(email, password).await
+        .map_err(|e| format!("Login failed: {}", e))
+}
+
+/// Logout from Owlivion Account
+#[tauri::command]
+async fn sync_logout() -> Result<(), String> {
+    let manager = get_sync_manager()?;
+    manager.logout().await
+        .map_err(|e| format!("Logout failed: {}", e))
+}
+
+/// Start manual sync
+#[tauri::command]
+async fn sync_start(master_password: String) -> Result<SyncResultDto, String> {
+    let manager = get_sync_manager()?;
+    let result = manager.sync_all(&master_password).await
+        .map_err(|e| format!("Sync failed: {}", e))?;
+
+    Ok(SyncResultDto {
+        accounts_synced: result.accounts_synced,
+        contacts_synced: result.contacts_synced,
+        preferences_synced: result.preferences_synced,
+        signatures_synced: result.signatures_synced,
+        errors: result.errors,
+    })
+}
+
+/// Get sync configuration
+#[tauri::command]
+async fn sync_get_config() -> Result<SyncConfigDto, String> {
+    let manager = get_sync_manager()?;
+    let config = manager.get_config().await;
+
+    Ok(SyncConfigDto {
+        enabled: config.enabled,
+        user_id: config.user_id,
+        device_id: config.device_id,
+        device_name: config.device_name,
+        platform: config.platform.as_str().to_string(),
+        last_sync_at: config.last_sync_at.map(|t| t.to_rfc3339()),
+        sync_accounts: config.sync_accounts,
+        sync_contacts: config.sync_contacts,
+        sync_preferences: config.sync_preferences,
+        sync_signatures: config.sync_signatures,
+    })
+}
+
+/// Update sync configuration
+#[tauri::command]
+async fn sync_update_config(config: SyncConfigDto) -> Result<(), String> {
+    let manager = get_sync_manager()?;
+
+    use sync::Platform;
+
+    let platform = match config.platform.as_str() {
+        "windows" => Platform::Windows,
+        "macos" => Platform::MacOS,
+        "linux" => Platform::Linux,
+        _ => return Err("Invalid platform".to_string()),
+    };
+
+    let sync_config = SyncConfig {
+        enabled: config.enabled,
+        user_id: config.user_id,
+        device_id: config.device_id,
+        device_name: config.device_name,
+        platform,
+        last_sync_at: config.last_sync_at.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok().map(|dt| dt.with_timezone(&chrono::Utc))),
+        sync_interval_minutes: 30, // TODO: Add to DTO
+        sync_on_startup: true, // TODO: Add to DTO
+        sync_accounts: config.sync_accounts,
+        sync_contacts: config.sync_contacts,
+        sync_preferences: config.sync_preferences,
+        sync_signatures: config.sync_signatures,
+        master_key_salt: None, // Managed internally
+    };
+
+    manager.update_config(sync_config).await;
+    Ok(())
+}
+
+/// Get sync status for all data types
+#[tauri::command]
+async fn sync_get_status() -> Result<Vec<SyncStatusDto>, String> {
+    let manager = get_sync_manager()?;
+    let statuses = manager.get_status().await
+        .map_err(|e| format!("Failed to get status: {}", e))?;
+
+    Ok(statuses.into_iter().map(|s| SyncStatusDto {
+        data_type: s.data_type,
+        version: s.version,
+        last_sync_at: s.last_sync_at.map(|t| t.to_rfc3339()),
+        status: s.status.as_str().to_string(),
+    }).collect())
+}
+
+/// List all devices for this account
+#[tauri::command]
+async fn sync_list_devices() -> Result<Vec<DeviceInfoDto>, String> {
+    let manager = get_sync_manager()?;
+    let devices = manager.list_devices().await
+        .map_err(|e| format!("Failed to list devices: {}", e))?;
+
+    Ok(devices.into_iter().map(|d| DeviceInfoDto {
+        device_id: d.device_id,
+        device_name: d.device_name,
+        platform: d.platform,
+        last_seen_at: d.last_seen_at,
+    }).collect())
+}
+
+/// Revoke device access
+#[tauri::command]
+async fn sync_revoke_device(device_id: String) -> Result<(), String> {
+    let manager = get_sync_manager()?;
+    manager.revoke_device(&device_id).await
+        .map_err(|e| format!("Failed to revoke device: {}", e))
+}
+
+// DTO Types for Tauri Commands
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SyncConfigDto {
+    enabled: bool,
+    user_id: Option<String>,
+    device_id: String,
+    device_name: String,
+    platform: String,
+    last_sync_at: Option<String>,
+    sync_accounts: bool,
+    sync_contacts: bool,
+    sync_preferences: bool,
+    sync_signatures: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SyncStatusDto {
+    data_type: String,
+    version: i32,
+    last_sync_at: Option<String>,
+    status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DeviceInfoDto {
+    device_id: String,
+    device_name: String,
+    platform: String,
+    last_seen_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SyncResultDto {
+    accounts_synced: bool,
+    contacts_synced: bool,
+    preferences_synced: bool,
+    signatures_synced: bool,
+    errors: Vec<String>,
+}
+
+// ============================================================================
 // Application Entry Point
 // ============================================================================
 
@@ -1259,6 +1467,15 @@ pub fn run() {
             email_move,
             email_delete,
             email_send,
+            sync_register,
+            sync_login,
+            sync_logout,
+            sync_start,
+            sync_get_config,
+            sync_update_config,
+            sync_get_status,
+            sync_list_devices,
+            sync_revoke_device,
         ])
         .run(tauri::generate_context!())
     {
