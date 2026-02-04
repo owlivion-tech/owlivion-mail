@@ -5,6 +5,8 @@
 import { useState } from 'react';
 import { useShortcut } from '../../hooks/useKeyboardShortcuts';
 import { useSyncTrigger } from '../../hooks/useSync';
+import { ConflictResolutionModal } from './ConflictResolutionModal';
+import type { ConflictInfo } from '../../types';
 
 interface ManualSyncModalProps {
   isOpen: boolean;
@@ -19,6 +21,8 @@ export function ManualSyncModal({
 }: ManualSyncModalProps) {
   const [masterPassword, setMasterPassword] = useState('');
   const { syncing, result, error, trigger, reset } = useSyncTrigger();
+  const [conflicts, setConflicts] = useState<ConflictInfo[]>([]);
+  const [showConflictModal, setShowConflictModal] = useState(false);
 
   useShortcut('Escape', () => {
     if (!syncing) {
@@ -33,7 +37,16 @@ export function ManualSyncModal({
     e.preventDefault();
 
     try {
-      await trigger(masterPassword);
+      const syncResult = await trigger(masterPassword);
+
+      // Check for conflicts
+      if (syncResult && syncResult.conflicts && syncResult.conflicts.length > 0) {
+        setConflicts(syncResult.conflicts);
+        setShowConflictModal(true);
+        return; // Don't close modal, show conflict resolution
+      }
+
+      // No conflicts - proceed with success
       onSuccess();
       setTimeout(() => {
         reset();
@@ -49,7 +62,33 @@ export function ManualSyncModal({
     if (!syncing) {
       reset();
       setMasterPassword('');
+      setConflicts([]);
       onClose();
+    }
+  };
+
+  const handleResolveComplete = async () => {
+    setShowConflictModal(false);
+    // Re-trigger sync after resolution
+    try {
+      const syncResult = await trigger(masterPassword);
+
+      // Check if there are still conflicts
+      if (syncResult && syncResult.conflicts && syncResult.conflicts.length > 0) {
+        setConflicts(syncResult.conflicts);
+        setShowConflictModal(true);
+        return;
+      }
+
+      onSuccess();
+      setTimeout(() => {
+        reset();
+        setMasterPassword('');
+        setConflicts([]);
+        onClose();
+      }, 2000);
+    } catch (err) {
+      // Error handled
     }
   };
 
@@ -208,6 +247,17 @@ export function ManualSyncModal({
           )}
         </div>
       </div>
+
+      {/* Conflict Resolution Modal */}
+      {showConflictModal && (
+        <ConflictResolutionModal
+          isOpen={showConflictModal}
+          onClose={() => setShowConflictModal(false)}
+          conflicts={conflicts}
+          masterPassword={masterPassword}
+          onResolveComplete={handleResolveComplete}
+        />
+      )}
     </div>
   );
 }

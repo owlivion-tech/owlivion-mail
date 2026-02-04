@@ -1,14 +1,19 @@
 {
   "name": "owlivion-mail",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tauri:dev": "WEBKIT_DISABLE_COMPOSITING_MODE=1 LIBGL_ALWAYS_SOFTWARE=1 tauri dev"
+    "tauri:dev": "WEBKIT_DISABLE_COMPOSITING_MODE=1 LIBGL_ALWAYS_SOFTWARE=1 tauri dev",
+    "tauri:build": "tauri build",
+    "build:linux": "./scripts/build-linux.sh",
+    "build:deb": "pnpm tauri build --bundles deb",
+    "build:appimage": "pnpm tauri build --bundles appimage",
+    "check:deps": "./scripts/check-build-deps.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

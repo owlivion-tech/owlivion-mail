@@ -57,7 +57,7 @@ module.exports = {
 
       // Monitoring
       pmx: true, // Enable PMX monitoring
-      automation: false, // Disable Keymetrics
+      automation: false, // PM2 Plus disabled (optional, see optional/pm2-plus/)
 
       // Error Handling
       exp_backoff_restart_delay: 100, // Exponential backoff on restart

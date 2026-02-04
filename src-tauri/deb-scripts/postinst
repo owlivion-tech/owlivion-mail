@@ -1,0 +1,29 @@
+#!/bin/bash
+
+# Post-installation script for Owlivion Mail
+
+set -e
+
+# Update desktop database
+if command -v update-desktop-database &> /dev/null; then
+    update-desktop-database -q /usr/share/applications || true
+fi
+
+# Update icon cache
+if command -v gtk-update-icon-cache &> /dev/null; then
+    gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
+fi
+
+# Update MIME database
+if command -v update-mime-database &> /dev/null; then
+    update-mime-database /usr/share/mime || true
+fi
+
+echo "✅ Owlivion Mail kurulumu tamamlandı!"
+echo ""
+echo "Uygulamayı başlatmak için:"
+echo "  - Uygulama menüsünden 'Owlivion Mail' arayın"
+echo "  - veya terminalde: owlivion-mail"
+echo ""
+
+exit 0

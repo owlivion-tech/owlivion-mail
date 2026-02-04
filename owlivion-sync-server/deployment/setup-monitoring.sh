@@ -97,7 +97,10 @@ echo ""
 echo -e "${BLUE}[3/5] Installing health check script...${NC}"
 
 if [ -f "$SCRIPT_DIR/healthcheck.sh" ]; then
-  cp "$SCRIPT_DIR/healthcheck.sh" "$APP_DIR/deployment/healthcheck.sh"
+  # Only copy if source and destination are different
+  if [ "$SCRIPT_DIR/healthcheck.sh" != "$APP_DIR/deployment/healthcheck.sh" ]; then
+    cp "$SCRIPT_DIR/healthcheck.sh" "$APP_DIR/deployment/healthcheck.sh"
+  fi
   chmod +x "$APP_DIR/deployment/healthcheck.sh"
   echo -e "${GREEN}✓ Health check script installed${NC}"
 
@@ -210,7 +213,18 @@ echo "  - View logs: sudo tail -f /var/log/owlivion-health.log"
 echo "  - List backups: sudo $APP_DIR/deployment/backup.sh list"
 echo ""
 echo "Next steps:"
-echo "  1. Setup external uptime monitoring (UptimeRobot)"
-echo "  2. Configure PM2 Plus dashboard"
-echo "  3. Test email alerts if configured"
+echo "  1. Verify monitoring is working:"
+echo "     - Check health log: sudo tail -f /var/log/owlivion-health.log"
+echo "     - Test backup: sudo $APP_DIR/deployment/backup.sh database"
+echo ""
+echo "  2. (Optional) Setup external uptime monitoring:"
+echo "     - UptimeRobot: https://uptimerobot.com/"
+echo "     - Monitor URL: http://31.97.216.36:3000/health"
+echo ""
+echo "  3. (Optional) Setup PM2 Plus dashboard:"
+echo "     - See: $APP_DIR/deployment/optional/pm2-plus/"
+echo ""
+echo "  4. Test email alerts if configured:"
+echo "     - Manually trigger health check failure"
+echo "     - Verify email delivery"
 echo ""

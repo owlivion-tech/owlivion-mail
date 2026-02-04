@@ -17,9 +17,10 @@ HEALTH_LOG="/var/log/owlivion-health.log"
 ALERT_EMAIL="${ALERT_EMAIL:-}"
 VERBOSE=false
 AUTO_RESTART=true
+APP_USER="owlivion"  # User running PM2 daemon
 
-# API endpoint
-API_URL="https://owlivion.com/api/v1/health"
+# API endpoint (local server)
+API_URL="http://localhost:3000/"
 
 # Thresholds
 DISK_THRESHOLD=80       # Alert if disk usage > 80%
@@ -91,7 +92,7 @@ restart_service() {
       sudo systemctl restart postgresql
       ;;
     pm2)
-      pm2 restart all
+      sudo -u "$APP_USER" pm2 restart all
       ;;
     nginx)
       sudo systemctl restart nginx
@@ -137,8 +138,8 @@ check_pm2() {
     return 1
   fi
 
-  # Check if owlivion-sync app is running
-  if ! pm2 list | grep -q "owlivion-sync.*online"; then
+  # Check if owlivion-sync app is running (run as APP_USER)
+  if ! sudo -u "$APP_USER" pm2 list | grep -q "owlivion-sync.*online"; then
     send_alert "PM2 App DOWN" "owlivion-sync application is not online"
     restart_service pm2
     return 1

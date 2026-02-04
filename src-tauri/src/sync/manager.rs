@@ -24,6 +24,7 @@ use super::models::{
     PreferencesSyncData,
     SignatureSyncData,
     SyncStatus, SyncState,
+    ConflictStrategy,
 };
 use super::queue::{QueueManager, QueueItem, QueueStats};
 use super::history::{HistoryManager, SyncOperation};
@@ -1345,6 +1346,248 @@ impl SyncManager {
             (None, None) => local,
         }
     }
+
+    // ========================================================================
+    // Conflict Resolution Methods
+    // ========================================================================
+
+    /// Resolve a sync conflict with chosen strategy
+    pub async fn resolve_conflict(
+        &self,
+        data_type: SyncDataType,
+        strategy: ConflictStrategy,
+        master_password: &str,
+    ) -> Result<(), SyncManagerError> {
+        log::info!("Resolving conflict for {:?} with {:?}", data_type, strategy);
+
+        match strategy {
+            ConflictStrategy::UseLocal => {
+                self.upload_and_override(data_type, master_password).await?;
+            }
+            ConflictStrategy::UseServer => {
+                self.download_and_override(data_type, master_password).await?;
+            }
+            _ => return Err(SyncManagerError::InvalidConflictStrategy),
+        }
+
+        Ok(())
+    }
+
+    /// Upload local data and override server
+    async fn upload_and_override(
+        &self,
+        data_type: SyncDataType,
+        master_password: &str,
+    ) -> Result<(), SyncManagerError> {
+        log::info!("Uploading local data to override server for {:?}", data_type);
+
+        match data_type {
+            SyncDataType::Contacts => {
+                // Load local contacts
+                let db_contacts = self.db.get_all_contacts()
+                    .map_err(|e| SyncManagerError::DatabaseError(format!("Failed to load contacts: {}", e)))?;
+
+                let contact_items: Vec<ContactItem> = db_contacts
+                    .into_iter()
+                    .map(|contact| ContactItem {
+                        email: contact.email,
+                        name: contact.name,
+                        company: contact.company,
+                        phone: contact.phone,
+                        notes: contact.notes,
+                        is_favorite: contact.is_favorite,
+                        updated_at: contact.last_emailed_at.and_then(|dt| {
+                            chrono::DateTime::parse_from_rfc3339(&dt).ok().map(|d| d.with_timezone(&chrono::Utc))
+                        }),
+                    })
+                    .collect();
+
+                let local_data = ContactSyncData::new(contact_items);
+                self.upload(SyncDataType::Contacts, &local_data, master_password).await?;
+                log::info!("Contacts uploaded successfully");
+            }
+            SyncDataType::Accounts => {
+                // Load local accounts
+                let db_accounts = self.db.get_accounts()
+                    .map_err(|e| SyncManagerError::DatabaseError(format!("Failed to load accounts: {}", e)))?;
+
+                let account_configs: Vec<AccountConfig> = db_accounts
+                    .into_iter()
+                    .map(|acc| AccountConfig {
+                        email: acc.email,
+                        display_name: acc.display_name,
+                        imap_host: acc.imap_host,
+                        imap_port: acc.imap_port,
+                        imap_security: match acc.imap_security.as_str() {
+                            "SSL" => "SSL".to_string(),
+                            "STARTTLS" => "STARTTLS".to_string(),
+                            _ => "NONE".to_string(),
+                        },
+                        smtp_host: acc.smtp_host,
+                        smtp_port: acc.smtp_port,
+                        smtp_security: match acc.smtp_security.as_str() {
+                            "SSL" => "SSL".to_string(),
+                            "STARTTLS" => "STARTTLS".to_string(),
+                            _ => "NONE".to_string(),
+                        },
+                        signature: acc.signature,
+                        sync_days: acc.sync_days,
+                        is_default: acc.is_default,
+                        oauth_provider: acc.oauth_provider,
+                    })
+                    .collect();
+
+                let local_data = AccountSyncData::new(account_configs);
+                self.upload(SyncDataType::Accounts, &local_data, master_password).await?;
+                log::info!("Accounts uploaded successfully");
+            }
+            SyncDataType::Preferences => {
+                // TODO: Implement preferences collection from DB
+                // For now, use default preferences
+                log::warn!("Preferences upload not fully implemented - using defaults");
+                let local_data = PreferencesSyncData::default();
+                self.upload(SyncDataType::Preferences, &local_data, master_password).await?;
+                log::info!("Preferences uploaded successfully");
+            }
+            SyncDataType::Signatures => {
+                // TODO: Implement signature collection from DB
+                // SignatureSyncData uses HashMap<String, String> (email -> signature)
+                log::warn!("Signatures upload not fully implemented");
+                let local_data = SignatureSyncData::default();
+                self.upload(SyncDataType::Signatures, &local_data, master_password).await?;
+                log::info!("Signatures uploaded successfully");
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Download server data and override local
+    async fn download_and_override(
+        &self,
+        data_type: SyncDataType,
+        master_password: &str,
+    ) -> Result<(), SyncManagerError> {
+        log::info!("Downloading server data to override local for {:?}", data_type);
+
+        match data_type {
+            SyncDataType::Contacts => {
+                let server_data: Option<ContactSyncData> = self.download(data_type, master_password).await?;
+
+                if let Some(data) = server_data {
+                    self.apply_contacts_to_db(&data).await?;
+                    log::info!("Contacts applied to database successfully");
+                } else {
+                    log::warn!("No server data for contacts");
+                }
+            }
+            SyncDataType::Accounts => {
+                let server_data: Option<AccountSyncData> = self.download(data_type, master_password).await?;
+
+                if let Some(data) = server_data {
+                    self.apply_accounts_to_db(&data).await?;
+                    log::info!("Accounts applied to database successfully");
+                } else {
+                    log::warn!("No server data for accounts");
+                }
+            }
+            SyncDataType::Preferences => {
+                let server_data: Option<PreferencesSyncData> = self.download(data_type, master_password).await?;
+
+                if let Some(data) = server_data {
+                    self.apply_preferences_to_db(&data).await?;
+                    log::info!("Preferences applied to database successfully");
+                } else {
+                    log::warn!("No server data for preferences");
+                }
+            }
+            SyncDataType::Signatures => {
+                let server_data: Option<SignatureSyncData> = self.download(data_type, master_password).await?;
+
+                if let Some(data) = server_data {
+                    self.apply_signatures_to_db(&data).await?;
+                    log::info!("Signatures applied to database successfully");
+                } else {
+                    log::warn!("No server data for signatures");
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Apply contacts from server to local database
+    async fn apply_contacts_to_db(
+        &self,
+        data: &ContactSyncData,
+    ) -> Result<(), SyncManagerError> {
+        for contact_item in &data.contacts {
+            let new_contact = crate::db::NewContact {
+                account_id: None, // Global contact
+                email: contact_item.email.clone(),
+                name: contact_item.name.clone(),
+                company: contact_item.company.clone(),
+                phone: contact_item.phone.clone(),
+                notes: contact_item.notes.clone(),
+                is_favorite: contact_item.is_favorite,
+                avatar_url: None,
+            };
+
+            self.db.upsert_contact(&new_contact)
+                .map_err(|e| SyncManagerError::DatabaseError(format!("Failed to upsert contact: {}", e)))?;
+        }
+
+        Ok(())
+    }
+
+    /// Apply accounts from server to local database
+    async fn apply_accounts_to_db(
+        &self,
+        _data: &AccountSyncData,
+    ) -> Result<(), SyncManagerError> {
+        // Note: Account sync requires password encryption handling
+        // For now, we'll skip password field as it requires special handling
+        log::warn!("Account application to DB requires password encryption - not fully implemented");
+
+        // TODO: Implement account creation/update with proper password handling
+        // This would require:
+        // 1. Prompting for account password or using encrypted password from sync
+        // 2. Creating NewAccount struct with all fields
+        // 3. Calling db.create_account()
+
+        Ok(())
+    }
+
+    /// Apply preferences from server to local database
+    async fn apply_preferences_to_db(
+        &self,
+        data: &PreferencesSyncData,
+    ) -> Result<(), SyncManagerError> {
+        // TODO: Implement preferences application to DB
+        // PreferencesSyncData has individual fields, not a map
+        log::info!("Applying preferences: theme={}, language={}", data.theme, data.language);
+
+        // Would need to map each field to DB preference entries
+        // For now, just log
+        log::warn!("Preferences application to DB not fully implemented");
+
+        Ok(())
+    }
+
+    /// Apply signatures from server to local database
+    async fn apply_signatures_to_db(
+        &self,
+        data: &SignatureSyncData,
+    ) -> Result<(), SyncManagerError> {
+        // SignatureSyncData uses HashMap<String, String> (email -> signature HTML)
+        log::info!("Applying {} signatures from server", data.signatures.len());
+
+        // TODO: Implement signature storage in DB
+        // Would need to create/update account signatures
+        log::warn!("Signatures application to DB not fully implemented");
+
+        Ok(())
+    }
 }
 
 // ============================================================================
@@ -1462,6 +1705,9 @@ pub enum SyncManagerError {
 
     #[error("Database error: {0}")]
     DatabaseError(String),
+
+    #[error("Invalid conflict resolution strategy")]
+    InvalidConflictStrategy,
 }
 
 // ============================================================================

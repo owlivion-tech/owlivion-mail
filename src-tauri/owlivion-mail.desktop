@@ -1,0 +1,21 @@
+[Desktop Entry]
+Name=Owlivion Mail
+Comment=Modern AI-powered email client
+Comment[tr]=Modern yapay zeka destekli e-posta istemcisi
+GenericName=Email Client
+GenericName[tr]=E-posta İstemcisi
+Exec=env LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 owlivion-mail %u
+Icon=owlivion-mail
+Terminal=false
+Type=Application
+Categories=Network;Email;Office;
+Keywords=email;mail;imap;smtp;gmail;outlook;
+MimeType=x-scheme-handler/mailto;
+StartupNotify=true
+StartupWMClass=Owlivion Mail
+Actions=Compose;
+
+[Desktop Action Compose]
+Name=Compose New Email
+Name[tr]=Yeni E-posta Yaz
+Exec=env LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 owlivion-mail --compose

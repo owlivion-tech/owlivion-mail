@@ -43,6 +43,27 @@
     ],
     "shortDescription": "Modern AI-powered email client",
     "longDescription": "Owlivion Mail - Hızlı, modern ve yapay zeka destekli e-posta istemcisi. Gmail, Outlook, Yahoo ve tüm IMAP e-posta sağlayıcılarıyla çalışır.",
-    "category": "Utility"
+    "homepage": "https://owlivion.com",
+    "license": "MIT",
+    "licenseFile": "../LICENSE",
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0",
+          "libayatana-appindicator3-1"
+        ],
+        "desktopTemplate": "owlivion-mail.desktop",
+        "section": "mail",
+        "priority": "optional",
+        "files": {
+          "/usr/share/applications/owlivion-mail.desktop": "owlivion-mail.desktop"
+        }
+      },
+      "appimage": {
+        "bundleMediaFramework": true,
+        "files": {}
+      }
+    }
   }
 }

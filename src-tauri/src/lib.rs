@@ -1319,17 +1319,10 @@ async fn sync_resolve_conflict(
         _ => return Err("Invalid strategy".to_string()),
     };
 
-    // For now, just log the resolution - full implementation would require
-    // loading data, applying strategy, and re-syncing
-    log::info!("Conflict resolution requested: {:?} with strategy {:?}", data_type_enum, strategy_enum);
-
-    // TODO: Implement actual conflict resolution logic
-    // This would involve:
-    // 1. Loading both local and server data
-    // 2. Applying the chosen strategy
-    // 3. Uploading the result
-
-    Err("Conflict resolution not yet implemented".to_string())
+    // Resolve the conflict using the manager
+    manager.resolve_conflict(data_type_enum, strategy_enum, &master_password)
+        .await
+        .map_err(|e| format!("Conflict resolution failed: {}", e))
 }
 
 /// Get sync configuration

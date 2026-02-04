@@ -1,0 +1,9 @@
+#!/bin/bash
+
+# Pre-removal script for Owlivion Mail
+
+set -e
+
+echo "Owlivion Mail kaldırılıyor..."
+
+exit 0

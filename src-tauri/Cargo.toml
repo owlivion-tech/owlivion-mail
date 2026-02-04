@@ -1,6 +1,6 @@
 [package]
 name = "owlivion-mail"
-version = "0.1.0"
+version = "1.0.0"
 description = "Owlivion Mail - Modern Email Client"
 authors = ["Berkan Cetinel <babafpv@gmail.com>"]
 edition = "2021"
