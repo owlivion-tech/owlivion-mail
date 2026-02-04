@@ -167,8 +167,9 @@ pub fn derive_data_key(
     let context = data_type.key_context();
 
     let prk = salt.extract(context);
+    let context_slice = [context];
     let okm = prk
-        .expand(&[context], KeyType(DATA_KEY_LEN))
+        .expand(&context_slice, KeyType(DATA_KEY_LEN))
         .map_err(|_| "HKDF expansion failed".to_string())?;
 
     let mut key = [0u8; DATA_KEY_LEN];

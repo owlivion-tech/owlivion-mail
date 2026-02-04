@@ -14,11 +14,11 @@ use super::api::{
     UploadRequest, DeviceResponse,
 };
 use super::crypto::{
-    SyncDataType, derive_sync_master_key, derive_data_key,
-    encrypt_sync_data, decrypt_sync_data, generate_random_salt,
+    SyncDataType, derive_sync_master_key,
+    encrypt_sync_data, generate_random_salt,
 };
 use super::models::{
-    SyncConfig, Platform,
+    SyncConfig,
     AccountSyncData, AccountConfig,
     ContactSyncData, ContactItem,
     PreferencesSyncData,
@@ -65,7 +65,7 @@ impl SyncManager {
         &self,
         email: String,
         password: String,
-        master_password: String,
+        _master_password: String,
     ) -> Result<(), SyncManagerError> {
         let config = self.config.read().await;
 
@@ -85,7 +85,8 @@ impl SyncManager {
         self.api_client.set_token(auth.access_token.clone()).await;
 
         // Generate and store master key salt
-        let salt = generate_random_salt();
+        let salt = generate_random_salt()
+            .map_err(|e| SyncManagerError::CryptoError(e))?;
 
         // Update config
         let mut config = self.config.write().await;
@@ -462,7 +463,7 @@ impl SyncManager {
             .try_into()
             .map_err(|_| SyncManagerError::InvalidSalt)?;
 
-        let device_id = config.device_id.clone();
+        let _device_id = config.device_id.clone();
 
         drop(config);
 
@@ -476,18 +477,16 @@ impl SyncManager {
         }
 
         // Decode base64
-        let encrypted_bytes = base64::Engine::decode(
+        let _encrypted_bytes = base64::Engine::decode(
             &base64::engine::general_purpose::STANDARD,
             &response.encrypted_data,
         ).map_err(|_| SyncManagerError::DecryptionFailed)?;
 
         // Derive master key
-        let master_key = derive_sync_master_key(master_password, &salt_bytes)
+        let _master_key = derive_sync_master_key(master_password, &salt_bytes)
             .map_err(|_| SyncManagerError::DecryptionFailed)?;
 
-        // Build payload for decryption
-        use super::crypto::SyncPayload;
-
+        // TODO: Implement proper payload reconstruction
         // Note: Server response doesn't include all SyncPayload fields
         // For now, we'll need to adjust the API or extract nonce from encrypted data
         // Placeholder implementation - needs proper nonce handling
@@ -498,7 +497,6 @@ impl SyncManager {
 
         // Ok(Some(decrypted))
 
-        // TODO: Implement proper payload reconstruction
         Err(SyncManagerError::DecryptionFailed)
     }
 

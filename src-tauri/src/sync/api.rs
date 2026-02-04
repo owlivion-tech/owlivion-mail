@@ -68,7 +68,7 @@ impl SyncApiClient {
             .send()
             .await?;
 
-        let auth = handle_response(response).await?;
+        let auth: AuthResponse = handle_response(response).await?;
 
         // Cache token
         self.set_token(auth.access_token.clone()).await;
@@ -88,7 +88,7 @@ impl SyncApiClient {
             .send()
             .await?;
 
-        let auth = handle_response(response).await?;
+        let auth: AuthResponse = handle_response(response).await?;
 
         // Update cached token
         self.set_token(auth.access_token.clone()).await;
