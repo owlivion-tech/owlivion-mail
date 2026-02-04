@@ -112,15 +112,28 @@ pub struct AppState {
     db: Arc<Database>,
     async_imap_clients: tokio::sync::Mutex<HashMap<String, AsyncImapClient>>,
     current_folder: Mutex<HashMap<String, String>>,
+    sync_manager: Arc<StdMutex<Option<sync::SyncManager>>>,
 }
 
 impl AppState {
     pub fn new(db: Database) -> Self {
+        let db_arc = Arc::new(db);
         Self {
-            db: Arc::new(db),
+            db: db_arc.clone(),
             async_imap_clients: tokio::sync::Mutex::new(HashMap::new()),
             current_folder: Mutex::new(HashMap::new()),
+            sync_manager: Arc::new(StdMutex::new(Some(sync::SyncManager::new(db_arc)))),
         }
+    }
+
+    /// Get or create sync manager instance
+    fn get_sync_manager(&self) -> Result<sync::SyncManager, String> {
+        let guard = self.sync_manager.lock()
+            .map_err(|e| format!("Lock error: {}", e))?;
+
+        guard.as_ref()
+            .cloned()
+            .ok_or_else(|| "Sync manager not initialized".to_string())
     }
 }
 
@@ -1193,38 +1206,18 @@ async fn email_send(
 // Sync Commands
 // ============================================================================
 
-use sync::{SyncManager, SyncConfig};
+use sync::SyncConfig;
 use std::sync::Mutex as StdMutex;
-
-// Global sync manager instance
-lazy_static::lazy_static! {
-    static ref SYNC_MANAGER: Arc<StdMutex<Option<SyncManager>>> = Arc::new(StdMutex::new(None));
-}
-
-/// Get or create sync manager instance
-fn get_sync_manager() -> Result<SyncManager, String> {
-    let mut guard = SYNC_MANAGER.lock().map_err(|e| format!("Lock error: {}", e))?;
-
-    if guard.is_none() {
-        // Initialize with default config
-        // TODO: Load config from database/storage
-        *guard = Some(SyncManager::new());
-    }
-
-    // Clone the manager (cheap because it uses Arc internally)
-    guard.as_ref()
-        .cloned()
-        .ok_or_else(|| "Failed to get sync manager".to_string())
-}
 
 /// Register new Owlivion Account
 #[tauri::command]
 async fn sync_register(
+    state: State<'_, AppState>,
     email: String,
     password: String,
     master_password: String,
 ) -> Result<(), String> {
-    let manager = get_sync_manager()?;
+    let manager = state.get_sync_manager()?;
     manager.register(email, password, master_password).await
         .map_err(|e| format!("Registration failed: {}", e))
 }
@@ -1232,26 +1225,27 @@ async fn sync_register(
 /// Login to Owlivion Account
 #[tauri::command]
 async fn sync_login(
+    state: State<'_, AppState>,
     email: String,
     password: String,
 ) -> Result<(), String> {
-    let manager = get_sync_manager()?;
+    let manager = state.get_sync_manager()?;
     manager.login(email, password).await
         .map_err(|e| format!("Login failed: {}", e))
 }
 
 /// Logout from Owlivion Account
 #[tauri::command]
-async fn sync_logout() -> Result<(), String> {
-    let manager = get_sync_manager()?;
+async fn sync_logout(state: State<'_, AppState>) -> Result<(), String> {
+    let manager = state.get_sync_manager()?;
     manager.logout().await
         .map_err(|e| format!("Logout failed: {}", e))
 }
 
 /// Start manual sync
 #[tauri::command]
-async fn sync_start(master_password: String) -> Result<SyncResultDto, String> {
-    let manager = get_sync_manager()?;
+async fn sync_start(state: State<'_, AppState>, master_password: String) -> Result<SyncResultDto, String> {
+    let manager = state.get_sync_manager()?;
     let result = manager.sync_all(&master_password).await
         .map_err(|e| format!("Sync failed: {}", e))?;
 
@@ -1266,8 +1260,8 @@ async fn sync_start(master_password: String) -> Result<SyncResultDto, String> {
 
 /// Get sync configuration
 #[tauri::command]
-async fn sync_get_config() -> Result<SyncConfigDto, String> {
-    let manager = get_sync_manager()?;
+async fn sync_get_config(state: State<'_, AppState>) -> Result<SyncConfigDto, String> {
+    let manager = state.get_sync_manager()?;
     let config = manager.get_config().await;
 
     Ok(SyncConfigDto {
@@ -1286,8 +1280,8 @@ async fn sync_get_config() -> Result<SyncConfigDto, String> {
 
 /// Update sync configuration
 #[tauri::command]
-async fn sync_update_config(config: SyncConfigDto) -> Result<(), String> {
-    let manager = get_sync_manager()?;
+async fn sync_update_config(state: State<'_, AppState>, config: SyncConfigDto) -> Result<(), String> {
+    let manager = state.get_sync_manager()?;
 
     use sync::Platform;
 
@@ -1320,8 +1314,8 @@ async fn sync_update_config(config: SyncConfigDto) -> Result<(), String> {
 
 /// Get sync status for all data types
 #[tauri::command]
-async fn sync_get_status() -> Result<Vec<SyncStatusDto>, String> {
-    let manager = get_sync_manager()?;
+async fn sync_get_status(state: State<'_, AppState>) -> Result<Vec<SyncStatusDto>, String> {
+    let manager = state.get_sync_manager()?;
     let statuses = manager.get_status().await
         .map_err(|e| format!("Failed to get status: {}", e))?;
 
@@ -1335,8 +1329,8 @@ async fn sync_get_status() -> Result<Vec<SyncStatusDto>, String> {
 
 /// List all devices for this account
 #[tauri::command]
-async fn sync_list_devices() -> Result<Vec<DeviceInfoDto>, String> {
-    let manager = get_sync_manager()?;
+async fn sync_list_devices(state: State<'_, AppState>) -> Result<Vec<DeviceInfoDto>, String> {
+    let manager = state.get_sync_manager()?;
     let devices = manager.list_devices().await
         .map_err(|e| format!("Failed to list devices: {}", e))?;
 
@@ -1345,13 +1339,14 @@ async fn sync_list_devices() -> Result<Vec<DeviceInfoDto>, String> {
         device_name: d.device_name,
         platform: d.platform,
         last_seen_at: d.last_seen_at,
+        created_at: d.created_at,
     }).collect())
 }
 
 /// Revoke device access
 #[tauri::command]
-async fn sync_revoke_device(device_id: String) -> Result<(), String> {
-    let manager = get_sync_manager()?;
+async fn sync_revoke_device(state: State<'_, AppState>, device_id: String) -> Result<(), String> {
+    let manager = state.get_sync_manager()?;
     manager.revoke_device(&device_id).await
         .map_err(|e| format!("Failed to revoke device: {}", e))
 }
@@ -1385,6 +1380,7 @@ struct DeviceInfoDto {
     device_name: String,
     platform: String,
     last_seen_at: String,
+    created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

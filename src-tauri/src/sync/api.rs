@@ -11,7 +11,7 @@ use reqwest::{Client, StatusCode};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-const API_BASE_URL: &str = "http://31.97.216.36:3000/api";
+const API_BASE_URL: &str = "https://owlivion.com/api/v1";
 
 /// API client for Owlivion Sync Server
 pub struct SyncApiClient {

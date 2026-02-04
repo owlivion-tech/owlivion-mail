@@ -25,29 +25,34 @@ use super::models::{
     SignatureSyncData,
     SyncStatus, SyncState,
 };
+use crate::db::Database;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 /// Sync manager - main orchestrator
+#[derive(Clone)]
 pub struct SyncManager {
     api_client: Arc<SyncApiClient>,
     config: Arc<RwLock<SyncConfig>>,
+    db: Arc<Database>,
 }
 
 impl SyncManager {
     /// Create new sync manager with default config
-    pub fn new() -> Self {
+    pub fn new(db: Arc<Database>) -> Self {
         Self {
             api_client: Arc::new(SyncApiClient::new()),
             config: Arc::new(RwLock::new(SyncConfig::default())),
+            db,
         }
     }
 
     /// Initialize with existing config
-    pub fn with_config(config: SyncConfig) -> Self {
+    pub fn with_config(config: SyncConfig, db: Arc<Database>) -> Self {
         Self {
             api_client: Arc::new(SyncApiClient::new()),
             config: Arc::new(RwLock::new(config)),
+            db,
         }
     }
 
@@ -191,15 +196,41 @@ impl SyncManager {
         &self,
         master_password: &str,
     ) -> Result<(), SyncManagerError> {
-        // In real implementation, this would:
-        // 1. Load accounts from local DB (without passwords)
-        // 2. Serialize to AccountSyncData
-        // 3. Encrypt with derived key
-        // 4. Upload to server
-        // 5. Download from server
-        // 6. Decrypt and merge with local data
+        log::info!("Starting accounts sync");
 
-        // Placeholder for now
+        // 1. Load accounts from local DB (without passwords)
+        let db_accounts = self.db.get_accounts()
+            .map_err(|e| SyncManagerError::CryptoError(format!("Failed to load accounts: {}", e)))?;
+
+        log::info!("Loaded {} accounts from database", db_accounts.len());
+
+        // 2. Convert to AccountConfig format (excluding passwords)
+        let account_configs: Vec<AccountConfig> = db_accounts
+            .into_iter()
+            .map(|acc| AccountConfig {
+                email: acc.email,
+                display_name: acc.display_name,
+                imap_host: acc.imap_host,
+                imap_port: acc.imap_port,
+                imap_security: acc.imap_security,
+                smtp_host: acc.smtp_host,
+                smtp_port: acc.smtp_port,
+                smtp_security: acc.smtp_security,
+                signature: acc.signature,
+                sync_days: acc.sync_days,
+                is_default: acc.is_default,
+                oauth_provider: acc.oauth_provider,
+            })
+            .collect();
+
+        // 3. Create AccountSyncData
+        let sync_data = AccountSyncData::new(account_configs);
+
+        // 4. Encrypt and upload to server
+        let version = self.upload(SyncDataType::Accounts, &sync_data, master_password).await?;
+
+        log::info!("Accounts synced successfully (version: {})", version);
+
         Ok(())
     }
 
@@ -208,6 +239,38 @@ impl SyncManager {
         &self,
         master_password: &str,
     ) -> Result<(), SyncManagerError> {
+        log::info!("Starting contacts sync");
+
+        // 1. Load all contacts from local DB
+        let db_contacts = self.db.get_all_contacts()
+            .map_err(|e| SyncManagerError::CryptoError(format!("Failed to load contacts: {}", e)))?;
+
+        log::info!("Loaded {} contacts from database", db_contacts.len());
+
+        // 2. Convert to ContactItem format
+        let contact_items: Vec<ContactItem> = db_contacts
+            .into_iter()
+            .map(|contact| ContactItem {
+                email: contact.email,
+                name: contact.name,
+                company: contact.company,
+                phone: contact.phone,
+                notes: contact.notes,
+                is_favorite: contact.is_favorite,
+                updated_at: contact.last_emailed_at.and_then(|dt| {
+                    chrono::DateTime::parse_from_rfc3339(&dt).ok().map(|d| d.with_timezone(&chrono::Utc))
+                }),
+            })
+            .collect();
+
+        // 3. Create ContactSyncData
+        let sync_data = ContactSyncData::new(contact_items);
+
+        // 4. Encrypt and upload to server
+        let version = self.upload(SyncDataType::Contacts, &sync_data, master_password).await?;
+
+        log::info!("Contacts synced successfully (version: {})", version);
+
         Ok(())
     }
 
@@ -216,6 +279,91 @@ impl SyncManager {
         &self,
         master_password: &str,
     ) -> Result<(), SyncManagerError> {
+        log::info!("Starting preferences sync");
+
+        // 1. Load preferences from database settings
+        // Using get_setting with default fallback for each preference
+        let theme: String = self.db.get_setting("theme")
+            .ok().flatten().unwrap_or_else(|| "dark".to_string());
+
+        let language: String = self.db.get_setting("language")
+            .ok().flatten().unwrap_or_else(|| "tr".to_string());
+
+        let notifications_enabled: bool = self.db.get_setting("notifications_enabled")
+            .ok().flatten().unwrap_or(true);
+
+        let notification_sound: bool = self.db.get_setting("notification_sound")
+            .ok().flatten().unwrap_or(true);
+
+        let notification_badge: bool = self.db.get_setting("notification_badge")
+            .ok().flatten().unwrap_or(true);
+
+        let auto_mark_read: bool = self.db.get_setting("auto_mark_read")
+            .ok().flatten().unwrap_or(true);
+
+        let auto_mark_read_delay: i32 = self.db.get_setting("auto_mark_read_delay")
+            .ok().flatten().unwrap_or(3);
+
+        let confirm_delete: bool = self.db.get_setting("confirm_delete")
+            .ok().flatten().unwrap_or(true);
+
+        let confirm_send: bool = self.db.get_setting("confirm_send")
+            .ok().flatten().unwrap_or(false);
+
+        let signature_position: String = self.db.get_setting("signature_position")
+            .ok().flatten().unwrap_or_else(|| "bottom".to_string());
+
+        let reply_position: String = self.db.get_setting("reply_position")
+            .ok().flatten().unwrap_or_else(|| "top".to_string());
+
+        let gemini_api_key: Option<String> = self.db.get_setting("gemini_api_key")
+            .ok().flatten();
+
+        let ai_auto_summarize: bool = self.db.get_setting("ai_auto_summarize")
+            .ok().flatten().unwrap_or(false);
+
+        let ai_reply_tone: String = self.db.get_setting("ai_reply_tone")
+            .ok().flatten().unwrap_or_else(|| "professional".to_string());
+
+        let keyboard_shortcuts_enabled: bool = self.db.get_setting("keyboard_shortcuts_enabled")
+            .ok().flatten().unwrap_or(true);
+
+        let compact_list_view: bool = self.db.get_setting("compact_list_view")
+            .ok().flatten().unwrap_or(false);
+
+        let show_avatars: bool = self.db.get_setting("show_avatars")
+            .ok().flatten().unwrap_or(true);
+
+        let conversation_view: bool = self.db.get_setting("conversation_view")
+            .ok().flatten().unwrap_or(true);
+
+        // 2. Create PreferencesSyncData
+        let mut sync_data = PreferencesSyncData::default();
+        sync_data.theme = theme;
+        sync_data.language = language;
+        sync_data.notifications_enabled = notifications_enabled;
+        sync_data.notification_sound = notification_sound;
+        sync_data.notification_badge = notification_badge;
+        sync_data.auto_mark_read = auto_mark_read;
+        sync_data.auto_mark_read_delay = auto_mark_read_delay;
+        sync_data.confirm_delete = confirm_delete;
+        sync_data.confirm_send = confirm_send;
+        sync_data.signature_position = signature_position;
+        sync_data.reply_position = reply_position;
+        sync_data.gemini_api_key = gemini_api_key;
+        sync_data.ai_auto_summarize = ai_auto_summarize;
+        sync_data.ai_reply_tone = ai_reply_tone;
+        sync_data.keyboard_shortcuts_enabled = keyboard_shortcuts_enabled;
+        sync_data.compact_list_view = compact_list_view;
+        sync_data.show_avatars = show_avatars;
+        sync_data.conversation_view = conversation_view;
+        sync_data.synced_at = Some(chrono::Utc::now());
+
+        // 3. Encrypt and upload to server
+        let version = self.upload(SyncDataType::Preferences, &sync_data, master_password).await?;
+
+        log::info!("Preferences synced successfully (version: {})", version);
+
         Ok(())
     }
 
@@ -224,6 +372,30 @@ impl SyncManager {
         &self,
         master_password: &str,
     ) -> Result<(), SyncManagerError> {
+        log::info!("Starting signatures sync");
+
+        // 1. Load accounts to get signatures
+        let db_accounts = self.db.get_accounts()
+            .map_err(|e| SyncManagerError::CryptoError(format!("Failed to load accounts: {}", e)))?;
+
+        log::info!("Loaded {} accounts for signature sync", db_accounts.len());
+
+        // 2. Extract signatures (email -> signature mapping)
+        let mut signatures = std::collections::HashMap::new();
+        for account in db_accounts {
+            if !account.signature.is_empty() {
+                signatures.insert(account.email, account.signature);
+            }
+        }
+
+        // 3. Create SignatureSyncData
+        let sync_data = SignatureSyncData::from_map(signatures);
+
+        // 4. Encrypt and upload to server
+        let version = self.upload(SyncDataType::Signatures, &sync_data, master_password).await?;
+
+        log::info!("Signatures synced successfully (version: {})", version);
+
         Ok(())
     }
 
@@ -462,17 +634,20 @@ pub enum SyncManagerError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::Database;
 
     #[tokio::test]
     async fn test_manager_creation() {
-        let manager = SyncManager::new();
+        let db = Arc::new(Database::in_memory().expect("Failed to create test database"));
+        let manager = SyncManager::new(db);
         let config = manager.get_config().await;
         assert!(!config.enabled);
     }
 
     #[tokio::test]
     async fn test_config_update() {
-        let manager = SyncManager::new();
+        let db = Arc::new(Database::in_memory().expect("Failed to create test database"));
+        let manager = SyncManager::new(db);
 
         let mut config = manager.get_config().await;
         config.enabled = true;
@@ -487,7 +662,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_logout_disables_sync() {
-        let manager = SyncManager::new();
+        let db = Arc::new(Database::in_memory().expect("Failed to create test database"));
+        let manager = SyncManager::new(db);
 
         let mut config = manager.get_config().await;
         config.enabled = true;

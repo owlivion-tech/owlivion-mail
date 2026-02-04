@@ -970,6 +970,43 @@ impl Database {
         Ok(conn.last_insert_rowid())
     }
 
+    /// Get all contacts (for sync purposes)
+    pub fn get_all_contacts(&self) -> DbResult<Vec<Contact>> {
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id, account_id, email, name, avatar_url, company, phone, notes,
+                   is_favorite, email_count, last_emailed_at
+            FROM contacts
+            ORDER BY email_count DESC, email ASC
+            "#,
+        )?;
+
+        let contacts = stmt.query_map([], |row| {
+            Ok(Contact {
+                id: row.get(0)?,
+                account_id: row.get(1)?,
+                email: row.get(2)?,
+                name: row.get(3)?,
+                avatar_url: row.get(4)?,
+                company: row.get(5)?,
+                phone: row.get(6)?,
+                notes: row.get(7)?,
+                is_favorite: row.get(8)?,
+                email_count: row.get(9)?,
+                last_emailed_at: row.get(10)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(contacts)
+    }
+
     /// Search contacts
     /// SECURITY: Requires account_id, escapes LIKE wildcards, enforces limits
     pub fn search_contacts(&self, account_id: i64, query: &str, limit: i32) -> DbResult<Vec<Contact>> {
