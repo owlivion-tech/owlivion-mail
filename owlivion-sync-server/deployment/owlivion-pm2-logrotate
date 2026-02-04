@@ -1,0 +1,53 @@
+# Logrotate configuration for PM2 logs
+# Copy to: /etc/logrotate.d/owlivion-pm2
+#
+# Test: sudo logrotate -d /etc/logrotate.d/owlivion-pm2
+# Force rotation: sudo logrotate -f /etc/logrotate.d/owlivion-pm2
+
+/root/.pm2/logs/*.log {
+    daily                   # Rotate logs daily
+    rotate 30               # Keep 30 days of logs
+    missingok               # Don't error if log file is missing
+    notifempty              # Don't rotate empty files
+    compress                # Compress old logs
+    delaycompress           # Delay compression by one cycle
+    dateext                 # Add date extension to rotated files
+    dateformat -%Y%m%d      # Date format: -20260204
+    copytruncate            # Truncate original log file instead of moving
+    create 0640 root root   # Create new log files with these permissions
+    sharedscripts           # Run postrotate script only once
+
+    # Optional: Send PM2 reload signal after rotation
+    # Uncomment if PM2 needs to be notified
+    # postrotate
+    #     /usr/bin/pm2 reloadLogs > /dev/null 2>&1 || true
+    # endscript
+}
+
+# PM2 error logs
+/root/.pm2/logs/*error*.log {
+    daily
+    rotate 30
+    missingok
+    notifempty
+    compress
+    delaycompress
+    dateext
+    dateformat -%Y%m%d
+    copytruncate
+    create 0640 root root
+}
+
+# PM2 out logs
+/root/.pm2/logs/*out*.log {
+    daily
+    rotate 30
+    missingok
+    notifempty
+    compress
+    delaycompress
+    dateext
+    dateformat -%Y%m%d
+    copytruncate
+    create 0640 root root
+}
