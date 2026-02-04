@@ -459,6 +459,15 @@ pub struct ConflictInfo {
     pub local_updated_at: Option<DateTime<Utc>>,
     pub server_updated_at: Option<DateTime<Utc>>,
     pub strategy: ConflictStrategy,
+
+    /// Human-readable conflict description
+    pub conflict_details: String,
+
+    /// JSON representation of local data
+    pub local_data: serde_json::Value,
+
+    /// JSON representation of server data
+    pub server_data: serde_json::Value,
 }
 
 // ============================================================================
@@ -630,9 +639,13 @@ mod tests {
             local_updated_at: Some(Utc::now()),
             server_updated_at: Some(Utc::now()),
             strategy: ConflictStrategy::Manual,
+            conflict_details: "Test conflict".to_string(),
+            local_data: serde_json::json!({"test": "local"}),
+            server_data: serde_json::json!({"test": "server"}),
         };
 
         assert_eq!(conflict.data_type, "contacts");
         assert_eq!(conflict.strategy, ConflictStrategy::Manual);
+        assert_eq!(conflict.conflict_details, "Test conflict");
     }
 }

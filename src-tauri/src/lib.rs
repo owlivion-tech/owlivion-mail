@@ -8,12 +8,12 @@ pub mod mail;
 pub mod sync;
 
 use db::{Database, NewAccount as DbNewAccount};
-use mail::{fetch_autoconfig, AsyncImapClient, AutoConfig, ImapClient, ImapConfig, SecurityType};
+use mail::{fetch_autoconfig, fetch_autoconfig_debug, AsyncImapClient, AutoConfig, AutoConfigDebug, ImapClient, ImapConfig, SecurityType};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::State;
+use tauri::{Manager, State};
 use zeroize::Zeroize;
 
 // ============================================================================
@@ -113,16 +113,21 @@ pub struct AppState {
     async_imap_clients: tokio::sync::Mutex<HashMap<String, AsyncImapClient>>,
     current_folder: Mutex<HashMap<String, String>>,
     sync_manager: Arc<StdMutex<Option<sync::SyncManager>>>,
+    background_scheduler: Arc<sync::BackgroundScheduler>,
 }
 
 impl AppState {
     pub fn new(db: Database) -> Self {
         let db_arc = Arc::new(db);
+        let sync_manager = Arc::new(StdMutex::new(Some(sync::SyncManager::new(db_arc.clone()))));
+        let background_scheduler = Arc::new(sync::BackgroundScheduler::new(db_arc.clone()));
+
         Self {
-            db: db_arc.clone(),
+            db: db_arc,
             async_imap_clients: tokio::sync::Mutex::new(HashMap::new()),
             current_folder: Mutex::new(HashMap::new()),
-            sync_manager: Arc::new(StdMutex::new(Some(sync::SyncManager::new(db_arc)))),
+            sync_manager,
+            background_scheduler,
         }
     }
 
@@ -374,6 +379,12 @@ async fn autoconfig_detect(email: String) -> Result<AutoConfig, String> {
     fetch_autoconfig(&email).await
 }
 
+/// Debug version of autoconfig with detailed step-by-step information
+#[tauri::command]
+async fn autoconfig_detect_debug(email: String) -> Result<AutoConfigDebug, String> {
+    fetch_autoconfig_debug(&email).await
+}
+
 /// Test IMAP connection
 /// SECURITY: Input validation, rate limiting, error sanitization
 #[tauri::command]
@@ -404,6 +415,7 @@ async fn account_test_imap(
         security: sec,
         username: email.clone(),
         password: password.clone(),
+        accept_invalid_certs: true, // Accept invalid certs during testing
     };
 
     // SECURITY: Zeroize password after creating config
@@ -594,6 +606,8 @@ async fn account_add(
     smtp_port: u16,
     smtp_security: String,
     is_default: bool,
+    #[allow(unused_variables)]
+    accept_invalid_certs: Option<bool>,
 ) -> Result<String, String> {
     log::info!("Adding account to database: {}", email);
 
@@ -620,6 +634,7 @@ async fn account_add(
         is_default,
         signature: String::new(),
         sync_days: 30,
+        accept_invalid_certs: accept_invalid_certs.unwrap_or(false),
     };
 
     let account_id = state.db.add_account(&new_account)
@@ -644,6 +659,8 @@ async fn account_update(
     smtp_port: u16,
     smtp_security: String,
     is_default: bool,
+    #[allow(unused_variables)]
+    accept_invalid_certs: Option<bool>,
 ) -> Result<(), String> {
     let id: i64 = account_id.parse().map_err(|_| "Invalid account ID")?;
     log::info!("Updating account in database: {} (ID: {})", email, id);
@@ -671,6 +688,7 @@ async fn account_update(
         is_default,
         signature: String::new(),
         sync_days: 30,
+        accept_invalid_certs: accept_invalid_certs.unwrap_or(false),
     };
 
     state.db.update_account(id, &updated_account)
@@ -786,6 +804,7 @@ async fn account_connect(state: State<'_, AppState>, account_id: String) -> Resu
         security: parse_security(&account.imap_security),
         username: account.imap_username.clone().unwrap_or(account.email.clone()),
         password: password.clone(),
+        accept_invalid_certs: account.accept_invalid_certs,
     };
 
     // SECURITY: Zeroize password after creating config
@@ -903,6 +922,7 @@ async fn email_get(
         security,
         username: account.email.clone(),
         password,
+        accept_invalid_certs: account.accept_invalid_certs,
     };
 
     // Create a fresh connection for this request to avoid session conflicts
@@ -1242,7 +1262,7 @@ async fn sync_logout(state: State<'_, AppState>) -> Result<(), String> {
         .map_err(|e| format!("Logout failed: {}", e))
 }
 
-/// Start manual sync
+/// Start manual sync (bidirectional with conflict detection)
 #[tauri::command]
 async fn sync_start(state: State<'_, AppState>, master_password: String) -> Result<SyncResultDto, String> {
     let manager = state.get_sync_manager()?;
@@ -1255,7 +1275,61 @@ async fn sync_start(state: State<'_, AppState>, master_password: String) -> Resu
         preferences_synced: result.preferences_synced,
         signatures_synced: result.signatures_synced,
         errors: result.errors,
+        conflicts: result.conflicts.map(|conflicts| {
+            conflicts.into_iter().map(|c| ConflictInfoDto {
+                data_type: c.data_type,
+                local_version: c.local_version,
+                server_version: c.server_version,
+                local_updated_at: c.local_updated_at.map(|t| t.to_rfc3339()),
+                server_updated_at: c.server_updated_at.map(|t| t.to_rfc3339()),
+                strategy: format!("{:?}", c.strategy),
+                conflict_details: c.conflict_details,
+                local_data: c.local_data,
+                server_data: c.server_data,
+            }).collect()
+        }),
     })
+}
+
+/// Resolve a sync conflict manually
+#[tauri::command]
+async fn sync_resolve_conflict(
+    state: State<'_, AppState>,
+    data_type: String,
+    strategy: String,
+    master_password: String,
+) -> Result<(), String> {
+    let manager = state.get_sync_manager()?;
+
+    // Parse data type
+    let data_type_enum = match data_type.as_str() {
+        "accounts" => crate::sync::SyncDataType::Accounts,
+        "contacts" => crate::sync::SyncDataType::Contacts,
+        "preferences" => crate::sync::SyncDataType::Preferences,
+        "signatures" => crate::sync::SyncDataType::Signatures,
+        _ => return Err("Invalid data type".to_string()),
+    };
+
+    // Parse strategy
+    let strategy_enum = match strategy.as_str() {
+        "use_local" => crate::sync::ConflictStrategy::UseLocal,
+        "use_server" => crate::sync::ConflictStrategy::UseServer,
+        "merge" => crate::sync::ConflictStrategy::Merge,
+        "manual" => crate::sync::ConflictStrategy::Manual,
+        _ => return Err("Invalid strategy".to_string()),
+    };
+
+    // For now, just log the resolution - full implementation would require
+    // loading data, applying strategy, and re-syncing
+    log::info!("Conflict resolution requested: {:?} with strategy {:?}", data_type_enum, strategy_enum);
+
+    // TODO: Implement actual conflict resolution logic
+    // This would involve:
+    // 1. Loading both local and server data
+    // 2. Applying the chosen strategy
+    // 3. Uploading the result
+
+    Err("Conflict resolution not yet implemented".to_string())
 }
 
 /// Get sync configuration
@@ -1351,6 +1425,190 @@ async fn sync_revoke_device(state: State<'_, AppState>, device_id: String) -> Re
         .map_err(|e| format!("Failed to revoke device: {}", e))
 }
 
+/// Get queue statistics
+#[tauri::command]
+fn sync_get_queue_stats(state: State<'_, AppState>) -> Result<QueueStatsDto, String> {
+    let manager = state.get_sync_manager()?;
+    let stats = manager.get_queue_stats()
+        .map_err(|e| format!("Failed to get queue stats: {}", e))?;
+
+    Ok(QueueStatsDto {
+        pending_count: stats.pending_count,
+        in_progress_count: stats.in_progress_count,
+        failed_count: stats.failed_count,
+        completed_count: stats.completed_count,
+        total_count: stats.total_count,
+    })
+}
+
+/// Process pending queue items (retry failed syncs)
+#[tauri::command]
+async fn sync_process_queue(
+    state: State<'_, AppState>,
+    master_password: String,
+) -> Result<ProcessQueueResultDto, String> {
+    let manager = state.get_sync_manager()?;
+    let result = manager.process_queue(&master_password).await
+        .map_err(|e| format!("Failed to process queue: {}", e))?;
+
+    Ok(ProcessQueueResultDto {
+        processed: result.processed,
+        succeeded: result.succeeded,
+        failed: result.failed,
+    })
+}
+
+/// Retry all failed queue items
+#[tauri::command]
+fn sync_retry_failed(state: State<'_, AppState>) -> Result<i32, String> {
+    let manager = state.get_sync_manager()?;
+    manager.retry_failed_syncs()
+        .map_err(|e| format!("Failed to retry failed syncs: {}", e))
+}
+
+/// Clear completed queue items older than N days
+#[tauri::command]
+fn sync_clear_completed_queue(state: State<'_, AppState>, older_than_days: i32) -> Result<i32, String> {
+    let manager = state.get_sync_manager()?;
+    manager.clear_completed_queue(older_than_days)
+        .map_err(|e| format!("Failed to clear completed queue: {}", e))
+}
+
+/// Clear permanently failed queue items
+#[tauri::command]
+fn sync_clear_failed_queue(state: State<'_, AppState>) -> Result<i32, String> {
+    let manager = state.get_sync_manager()?;
+    manager.clear_failed_queue()
+        .map_err(|e| format!("Failed to clear failed queue: {}", e))
+}
+
+// ============================================================================
+// Sync History & Rollback Commands
+// ============================================================================
+
+#[tauri::command]
+async fn get_sync_history(
+    data_type: String,
+    limit: i32,
+    state: State<'_, AppState>,
+) -> Result<Vec<SyncSnapshotDto>, String> {
+    let manager = state.get_sync_manager()?;
+    let data_type_enum = parse_sync_data_type(&data_type)?;
+
+    let snapshots = manager.get_sync_history(data_type_enum, limit)
+        .map_err(|e| format!("Failed to get history: {}", e))?;
+
+    Ok(snapshots.into_iter().map(|s| SyncSnapshotDto {
+        id: s.id.unwrap_or(0),
+        data_type: s.data_type,
+        version: s.version,
+        snapshot_hash: s.snapshot_hash,
+        device_id: s.device_id,
+        operation: format!("{:?}", s.operation).to_lowercase(),
+        items_count: s.items_count,
+        sync_status: format!("{:?}", s.sync_status).to_lowercase(),
+        error_message: s.error_message,
+        created_at: s.created_at.to_rfc3339(),
+    }).collect())
+}
+
+#[tauri::command]
+async fn rollback_sync(
+    data_type: String,
+    version: i64,
+    master_password: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let manager = state.get_sync_manager()?;
+    let data_type_enum = parse_sync_data_type(&data_type)?;
+
+    manager.rollback_to_version(data_type_enum, version, &master_password).await
+        .map_err(|e| format!("Rollback failed: {}", e))
+}
+
+#[tauri::command]
+async fn enforce_sync_retention(
+    retention_days: i64,
+    state: State<'_, AppState>,
+) -> Result<i32, String> {
+    let manager = state.get_sync_manager()?;
+    manager.enforce_history_retention(retention_days)
+        .map_err(|e| format!("Failed to enforce retention: {}", e))
+}
+
+// ============================================================================
+// Background Scheduler Commands
+// ============================================================================
+
+/// Start background scheduler
+#[tauri::command]
+async fn scheduler_start(state: State<'_, AppState>) -> Result<(), String> {
+    state.background_scheduler
+        .start(state.sync_manager.clone())
+        .await
+        .map_err(|e| format!("Failed to start scheduler: {}", e))
+}
+
+/// Stop background scheduler
+#[tauri::command]
+async fn scheduler_stop(state: State<'_, AppState>) -> Result<(), String> {
+    state.background_scheduler
+        .stop()
+        .await
+        .map_err(|e| format!("Failed to stop scheduler: {}", e))
+}
+
+/// Get scheduler status
+#[tauri::command]
+async fn scheduler_get_status(state: State<'_, AppState>) -> Result<SchedulerStatusDto, String> {
+    let config = state.background_scheduler.get_config().await;
+    let running = state.background_scheduler.is_running();
+
+    // Calculate next_run timestamp
+    let next_run = if let Some(ref last_run_str) = config.last_run {
+        if let Ok(last_run) = chrono::DateTime::parse_from_rfc3339(last_run_str) {
+            let next = last_run + chrono::Duration::minutes(config.interval_minutes as i64);
+            Some(next.to_rfc3339())
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    Ok(SchedulerStatusDto {
+        enabled: config.enabled,
+        running,
+        interval_minutes: config.interval_minutes,
+        last_run: config.last_run,
+        next_run,
+    })
+}
+
+/// Update scheduler configuration
+#[tauri::command]
+async fn scheduler_update_config(
+    state: State<'_, AppState>,
+    enabled: bool,
+    interval_minutes: u64,
+) -> Result<(), String> {
+    state.background_scheduler
+        .update_config(enabled, interval_minutes, state.sync_manager.clone())
+        .await
+        .map_err(|e| format!("Failed to update scheduler config: {}", e))
+}
+
+// Helper function to parse data type string
+fn parse_sync_data_type(data_type: &str) -> Result<sync::SyncDataType, String> {
+    match data_type {
+        "accounts" => Ok(sync::SyncDataType::Accounts),
+        "contacts" => Ok(sync::SyncDataType::Contacts),
+        "preferences" => Ok(sync::SyncDataType::Preferences),
+        "signatures" => Ok(sync::SyncDataType::Signatures),
+        _ => Err(format!("Invalid data type: {}", data_type)),
+    }
+}
+
 // DTO Types for Tauri Commands
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SyncConfigDto {
@@ -1390,6 +1648,59 @@ struct SyncResultDto {
     preferences_synced: bool,
     signatures_synced: bool,
     errors: Vec<String>,
+    conflicts: Option<Vec<ConflictInfoDto>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ConflictInfoDto {
+    data_type: String,
+    local_version: i32,
+    server_version: i32,
+    local_updated_at: Option<String>,
+    server_updated_at: Option<String>,
+    strategy: String,
+    conflict_details: String,
+    local_data: serde_json::Value,
+    server_data: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct QueueStatsDto {
+    pending_count: i32,
+    in_progress_count: i32,
+    failed_count: i32,
+    completed_count: i32,
+    total_count: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ProcessQueueResultDto {
+    processed: i32,
+    succeeded: i32,
+    failed: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SyncSnapshotDto {
+    id: i64,
+    data_type: String,
+    version: i64,
+    snapshot_hash: String,
+    device_id: String,
+    operation: String,
+    items_count: i32,
+    sync_status: String,
+    error_message: Option<String>,
+    created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SchedulerStatusDto {
+    enabled: bool,
+    running: bool,
+    interval_minutes: u64,
+    last_run: Option<String>,
+    next_run: Option<String>,
 }
 
 // ============================================================================
@@ -1445,6 +1756,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             autoconfig_detect,
+            autoconfig_detect_debug,
             account_test_imap,
             account_test_smtp,
             send_test_email,
@@ -1467,12 +1779,50 @@ pub fn run() {
             sync_login,
             sync_logout,
             sync_start,
+            sync_resolve_conflict,
             sync_get_config,
             sync_update_config,
             sync_get_status,
             sync_list_devices,
             sync_revoke_device,
+            sync_get_queue_stats,
+            sync_process_queue,
+            sync_retry_failed,
+            sync_clear_completed_queue,
+            sync_clear_failed_queue,
+            get_sync_history,
+            rollback_sync,
+            enforce_sync_retention,
+            scheduler_start,
+            scheduler_stop,
+            scheduler_get_status,
+            scheduler_update_config,
         ])
+        .setup(|app| {
+            // Auto-start background scheduler if enabled
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Some(state) = app_handle.try_state::<AppState>() {
+                    // Load scheduler config from database
+                    if let Err(e) = state.background_scheduler.load_config().await {
+                        log::error!("Failed to load scheduler config: {}", e);
+                        return;
+                    }
+
+                    let config = state.background_scheduler.get_config().await;
+                    if config.enabled {
+                        log::info!("Auto-starting background scheduler (interval: {} minutes)", config.interval_minutes);
+                        if let Err(e) = state.background_scheduler.start(state.sync_manager.clone()).await {
+                            log::error!("Failed to auto-start scheduler: {}", e);
+                        } else {
+                            log::info!("Background scheduler started successfully");
+                        }
+                    }
+                }
+            });
+
+            Ok(())
+        })
         .run(tauri::generate_context!())
     {
         log::error!("Tauri application error: {}", e);

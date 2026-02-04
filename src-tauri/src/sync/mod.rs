@@ -15,7 +15,9 @@ pub mod crypto;
 pub mod models;
 pub mod manager;
 pub mod api;
-// pub mod queue;
+pub mod queue;
+pub mod history;
+pub mod scheduler;
 // pub mod conflict;
 // pub mod adapters;
 
@@ -41,3 +43,6 @@ pub use models::{
 
 pub use manager::{SyncManager, SyncResult, SyncManagerError};
 pub use api::{SyncApiClient, SyncApiError, DeviceResponse};
+pub use queue::{QueueManager, QueueItem, QueueStatus, QueueStats, QueueError};
+pub use history::{HistoryManager, SyncSnapshot, SyncOperation, HistoryStats, HistoryError};
+pub use scheduler::{BackgroundScheduler, SchedulerConfig, SchedulerError};

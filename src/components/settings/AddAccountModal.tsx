@@ -8,6 +8,25 @@ import { useShortcut } from '../../hooks/useKeyboardShortcuts';
 import type { Account, AutoConfig, SecurityType } from '../../types';
 import { invoke } from '@tauri-apps/api/core';
 
+interface AutoConfigDebug {
+  email: string;
+  domain: string;
+  presetTried: boolean;
+  presetResult: string | null;
+  ispAutoconfigTried: boolean;
+  ispAutoconfigResult: string | null;
+  wellknownTried: boolean;
+  wellknownResult: string | null;
+  ispdbTried: boolean;
+  ispdbResult: string | null;
+  mxLookupTried: boolean;
+  mxLookupResult: string | null;
+  guessingTried: boolean;
+  guessingResult: string | null;
+  finalConfig: AutoConfig | null;
+  totalDurationMs: number;
+}
+
 // SECURITY: Logger wrapper - only log in development, never log sensitive data
 const log = {
   info: (message: string) => {
@@ -56,6 +75,9 @@ export function AddAccountModal({
   const [showManual, setShowManual] = useState(!!editAccount);
   const [error, setError] = useState('');
   const [testProgress, setTestProgress] = useState('');
+  const [showDebug, setShowDebug] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<AutoConfigDebug | null>(null);
+  const [acceptInvalidCerts, setAcceptInvalidCerts] = useState(editAccount?.acceptInvalidCerts || false);
 
   // Close on Escape
   useShortcut('Escape', onClose, { enabled: isOpen && step !== 'detecting' && step !== 'testing' });
@@ -77,34 +99,37 @@ export function AddAccountModal({
   const detectConfig = async () => {
     setStep('detecting');
     setError('');
+    setDebugInfo(null);
 
     try {
-      // Call Tauri backend to auto-detect email configuration
-      const result = await invoke<AutoConfig>('autoconfig_detect', { email });
+      // Call Tauri backend with debug mode
+      const debugResult = await invoke<AutoConfigDebug>('autoconfig_detect_debug', { email });
+      setDebugInfo(debugResult);
 
-      setConfig(result);
-      setImapHost(result.imapHost);
-      setImapPort(result.imapPort);
-      setImapSecurity(result.imapSecurity);
-      setSmtpHost(result.smtpHost);
-      setSmtpPort(result.smtpPort);
-      setSmtpSecurity(result.smtpSecurity);
+      if (debugResult.finalConfig) {
+        const result = debugResult.finalConfig;
+        setConfig(result);
+        setImapHost(result.imapHost);
+        setImapPort(result.imapPort);
+        setImapSecurity(result.imapSecurity);
+        setSmtpHost(result.smtpHost);
+        setSmtpPort(result.smtpPort);
+        setSmtpSecurity(result.smtpSecurity);
 
-      if (result.displayName && !displayName) {
-        setDisplayName(result.displayName);
+        if (result.displayName && !displayName) {
+          setDisplayName(result.displayName);
+        }
+
+        log.info('Autoconfig detected successfully');
+        setStep('configure');
+      } else {
+        throw new Error('No configuration found');
       }
-
-      // SECURITY: Don't log full config details with potential sensitive info
-      log.info('Autoconfig detected successfully');
-
-      setStep('configure');
     } catch (_err) {
-      // SECURITY: Don't expose error details
       log.error('Auto-detect failed');
-      // Fallback to manual configuration
       setShowManual(true);
       setStep('configure');
-      setError('Otomatik yapılandırma bulunamadı. Lütfen sunucu ayarlarını manuel girin.');
+      setError('Otomatik yapılandırma bulunamadı. Lütfen sunucu ayarlarını manuel girin veya Debug Detaylarını inceleyin.');
     }
   };
 
@@ -153,6 +178,7 @@ export function AddAccountModal({
           smtpPort,
           smtpSecurity,
           isDefault: editAccount.isDefault,
+          acceptInvalidCerts,
         });
 
         resultAccount = {
@@ -180,6 +206,7 @@ export function AddAccountModal({
           smtpPort,
           smtpSecurity,
           isDefault: true,
+          acceptInvalidCerts,
         });
 
         resultAccount = {
@@ -491,6 +518,7 @@ export function AddAccountModal({
                     >
                       <option value="SSL" className="bg-owl-bg text-owl-text">SSL/TLS (Önerilen)</option>
                       <option value="STARTTLS" className="bg-owl-bg text-owl-text">STARTTLS</option>
+                      <option value="NONE" className="bg-owl-bg text-owl-text">Şifreleme Yok (Güvensiz)</option>
                     </select>
                   </div>
                 </div>
@@ -529,9 +557,102 @@ export function AddAccountModal({
                     >
                       <option value="STARTTLS" className="bg-owl-bg text-owl-text">STARTTLS (Önerilen)</option>
                       <option value="SSL" className="bg-owl-bg text-owl-text">SSL/TLS</option>
+                      <option value="NONE" className="bg-owl-bg text-owl-text">Şifreleme Yok (Güvensiz)</option>
                     </select>
                   </div>
                 </div>
+
+                {/* SSL Certificate Settings */}
+                <div className="border-t border-owl-border pt-4">
+                  <div className="flex items-start gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setAcceptInvalidCerts(!acceptInvalidCerts)}
+                      className={`mt-0.5 w-5 h-5 rounded border flex items-center justify-center transition-colors ${
+                        acceptInvalidCerts
+                          ? 'bg-owl-warning border-owl-warning'
+                          : 'bg-owl-surface-2 border-owl-border hover:border-owl-text-secondary'
+                      }`}
+                    >
+                      {acceptInvalidCerts && (
+                        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </button>
+                    <div className="flex-1">
+                      <label
+                        onClick={() => setAcceptInvalidCerts(!acceptInvalidCerts)}
+                        className="text-sm font-medium text-owl-text cursor-pointer"
+                      >
+                        Geçersiz SSL sertifikalarını kabul et
+                      </label>
+                      <p className="text-xs text-owl-text-secondary mt-1">
+                        Self-signed veya süresi dolmuş sertifikalar için gerekli.
+                        <span className="text-owl-warning"> ⚠️ Güvenlik riski oluşturabilir.</span>
+                      </p>
+                      <div className="mt-2 text-xs text-owl-text-secondary bg-owl-surface-2 rounded p-2 border border-owl-border">
+                        <p className="font-medium mb-1">Ne zaman kullanılmalı?</p>
+                        <ul className="list-disc list-inside space-y-0.5 ml-1">
+                          <li>Paylaşımlı hosting (Hostinger, cPanel, vb.)</li>
+                          <li>Self-signed sertifikalar</li>
+                          <li>Yerel test sunucuları</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Debug Info Toggle */}
+                {debugInfo && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setShowDebug(!showDebug)}
+                      className="flex items-center gap-2 text-sm text-owl-text-secondary hover:text-owl-accent transition-colors"
+                    >
+                      <svg className={`w-4 h-4 transition-transform ${showDebug ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                      Debug Detayları ({debugInfo.totalDurationMs}ms)
+                    </button>
+
+                    {showDebug && (
+                      <div className="mt-3 space-y-2 text-xs">
+                        <DebugStep
+                          title="1. Built-in Presets"
+                          tried={debugInfo.presetTried}
+                          result={debugInfo.presetResult}
+                        />
+                        <DebugStep
+                          title="2. ISP Autoconfig"
+                          tried={debugInfo.ispAutoconfigTried}
+                          result={debugInfo.ispAutoconfigResult}
+                        />
+                        <DebugStep
+                          title="3. Well-known URL"
+                          tried={debugInfo.wellknownTried}
+                          result={debugInfo.wellknownResult}
+                        />
+                        <DebugStep
+                          title="4. Mozilla ISPDB"
+                          tried={debugInfo.ispdbTried}
+                          result={debugInfo.ispdbResult}
+                        />
+                        <DebugStep
+                          title="5. MX Lookup"
+                          tried={debugInfo.mxLookupTried}
+                          result={debugInfo.mxLookupResult}
+                        />
+                        <DebugStep
+                          title="6. Smart Guessing"
+                          tried={debugInfo.guessingTried}
+                          result={debugInfo.guessingResult}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -663,6 +784,45 @@ function StepDot({ active, completed }: { active: boolean; completed: boolean })
           : 'bg-owl-border'
       }`}
     />
+  );
+}
+
+// Debug step component
+function DebugStep({ title, tried, result }: { title: string; tried: boolean; result: string | null }) {
+  const getIcon = () => {
+    if (!tried) return '⏭';
+    if (result === 'SUCCESS') return '✅';
+    if (result === 'NOT_FOUND') return '⚠️';
+    return '❌';
+  };
+
+  const getColor = () => {
+    if (!tried) return 'text-owl-text-secondary opacity-50';
+    if (result === 'SUCCESS') return 'text-owl-success';
+    if (result === 'NOT_FOUND') return 'text-owl-warning';
+    return 'text-owl-error';
+  };
+
+  return (
+    <div className={`p-2 rounded border ${
+      !tried
+        ? 'bg-owl-bg border-owl-border opacity-50'
+        : result === 'SUCCESS'
+        ? 'bg-owl-success/5 border-owl-success/20'
+        : result === 'NOT_FOUND'
+        ? 'bg-owl-warning/5 border-owl-warning/20'
+        : 'bg-owl-error/5 border-owl-error/20'
+    }`}>
+      <div className="flex items-center gap-2">
+        <span>{getIcon()}</span>
+        <span className={`flex-1 ${getColor()} font-mono`}>{title}</span>
+      </div>
+      {result && result !== 'SUCCESS' && result !== 'NOT_FOUND' && (
+        <p className="text-[10px] text-owl-error mt-1 ml-6 font-mono truncate" title={result}>
+          {result}
+        </p>
+      )}
+    </div>
   );
 }
 

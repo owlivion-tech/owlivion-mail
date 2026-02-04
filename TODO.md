@@ -8,23 +8,33 @@
 - **Phase 5 - Task #1:** SyncManager Data Collection (100% ✅)
 - **Phase 5 - Task #2:** Rust-Tauri Integration (100% ✅)
 - **Phase 5 - Task #3:** React UI Integration (100% ✅)
+- **Phase 5 - Task #4:** Offline Queue & Retry Logic (100% ✅)
+- **Phase 5 - Task #5:** SSL/TLS Certificate Management (100% ✅)
+- **Phase 5 - Task #6:** Background Sync Scheduler (100% ✅)
+- **Phase 5 - Task #7:** Backend Conflict Detection & Bidirectional Sync (100% ✅)
 
 ### 🎯 In Progress
 - **Phase 5:** Advanced Sync Features (Next)
 - **Phase 4:** Monitoring & Alerting (Pending)
 
 ### 🔧 Technical Status
-- **Backend:** Fully functional (9 Tauri commands, E2E encryption, API client)
-- **Frontend:** Fully integrated (5 hooks, 4 UI components, all wired to Tauri)
+- **Backend:** Fully functional (20 Tauri commands, E2E encryption, API client, Queue system, SSL/TLS cert management, Background scheduler, Bidirectional sync with conflict detection)
+- **Frontend:** Fully integrated (6 hooks, 4 UI components, all wired to Tauri)
 - **VPS:** Production deployed (https://owlivion.com/api/v1)
-- **Tests:** 46 passing, 0 failing
+- **Tests:** 71+ passing (6 conflict detection tests, 5 scheduler tests, 14 queue tests, 46 previous), 0 failing
 - **Dev Environment:** GPU rendering issue resolved (software rendering enabled)
+- **Queue System:** SQLite-backed with exponential backoff (30s-1hr), max 5 retries
+- **Scheduler:** Tokio-based background task, configurable intervals (15-240 min), auto-start on launch
+- **Sync:** Bidirectional with LWW merge strategies, automatic conflict detection for contacts
+- **Security:** Account-level SSL/TLS certificate validation (supports self-signed & shared hosting)
 
 ### 🚀 Next Steps
-1. Implement offline queue and retry logic
-2. Add conflict resolution UI
-3. Implement sync history and rollback
-4. Complete Phase 4 monitoring setup
+1. **Conflict resolution UI** (frontend - ConflictResolutionModal.tsx)
+   - Display conflicting data side-by-side
+   - User choice buttons (Use Local / Use Server / Manual Merge)
+   - Integration with useSync hook
+2. Complete Phase 4 monitoring setup
+3. Performance optimization (delta sync, compression)
 
 ---
 
@@ -159,12 +169,98 @@
       - [x] CSP updated for dev mode (unsafe-inline, unsafe-eval, ws://localhost:1420)
       - [x] package.json script added: "tauri:dev"
       - [x] UI verified working in dev mode
-  - [ ] Implement offline queue and retry logic
+  - [x] Implement offline queue and retry logic (Task #4) ✅
+    - [x] Design queue data model (SQLite schema with indexes)
+    - [x] Implement QueueManager in Rust (queue.rs, 550+ lines)
+      - [x] add_to_queue() - Add failed sync operations
+      - [x] get_pending_items() - Fetch items ready for retry
+      - [x] mark_failed_and_retry() - Exponential backoff calculation
+      - [x] retry_failed_items() - Manual retry trigger
+      - [x] clear_completed() - Cleanup old items
+      - [x] get_stats() - Queue statistics (pending, failed, completed)
+    - [x] Integrate with SyncManager
+      - [x] Auto-queue on upload failure
+      - [x] process_queue() - Retry pending items
+      - [x] Error handling and logging
+    - [x] Add 5 Tauri commands
+      - [x] sync_get_queue_stats - Get queue status
+      - [x] sync_process_queue - Process pending items
+      - [x] sync_retry_failed - Manual retry trigger
+      - [x] sync_clear_completed_queue - Cleanup
+      - [x] sync_clear_failed_queue - Clear failed items
+    - [x] Write comprehensive tests
+      - [x] 8 QueueManager unit tests (all passing)
+      - [x] 3 SyncManager integration tests (all passing)
+      - [x] Exponential backoff verification
+      - [x] Max retry limit enforcement
+    - [x] Database helper methods (execute, query, query_row, execute_batch)
+  - [x] SSL/TLS Certificate Management (Task #5) ✅
+    - [x] Backend Implementation
+      - [x] Add `accept_invalid_certs` boolean field to ImapConfig and SmtpConfig
+      - [x] Database migration (ALTER TABLE accounts ADD accept_invalid_certs)
+      - [x] Conditional TLS connector in async_imap.rs
+        - [x] `danger_accept_invalid_certs(true)` when enabled
+        - [x] Secure by default (false)
+        - [x] Warning logs for invalid cert acceptance
+      - [x] Update Account and NewAccount structs
+      - [x] Update Tauri commands (account_add, account_update, test connections)
+      - [x] Query updates (SELECT statements include new field)
+    - [x] Frontend Implementation
+      - [x] TypeScript types updated (NewAccount, Account interfaces)
+      - [x] AddAccountModal UI enhancement
+        - [x] SSL Certificate Settings section
+        - [x] Checkbox with warning styling (amber colors)
+        - [x] Educational content (when to use)
+        - [x] Use cases listed (shared hosting, self-signed, local test servers)
+      - [x] mailService.ts updated to pass parameter
+    - [x] Security Considerations
+      - [x] Secure by default (checkbox unchecked)
+      - [x] Warning messages in UI and logs
+      - [x] Account-level setting (not global)
+      - [x] Test connections always accept invalid certs
+    - [x] Documentation
+      - [x] UI explains when to enable (Hostinger, cPanel, self-signed certs)
+      - [x] Turkish language support
 - [ ] Advanced Sync Features
+  - [x] Backend conflict detection & bidirectional sync (Task #7) ✅
+    - [x] ConflictResolution<T> enum and ConflictInfo struct
+    - [x] Bidirectional sync implementation (download + merge + upload)
+    - [x] Merge strategies per data type
+      - [x] Accounts: Last-Write-Wins (LWW) based on synced_at
+      - [x] Contacts: Field-level comparison + LWW based on updated_at
+      - [x] Preferences: LWW based on synced_at
+      - [x] Signatures: LWW based on synced_at
+    - [x] Conflict detection logic
+      - [x] detect_contacts_conflicts() - timestamp comparison
+      - [x] Auto-merge for non-conflicting changes
+      - [x] ConflictInfo collection for manual resolution
+    - [x] Tauri commands updated
+      - [x] sync_start returns conflicts array
+      - [x] sync_resolve_conflict command added (placeholder)
+      - [x] ConflictInfoDto struct for serialization
+    - [x] Frontend types updated
+      - [x] SyncResult interface with conflicts field
+      - [x] ConflictInfo interface
+      - [x] syncService.ts with resolveConflict() function
+    - [x] 6 comprehensive unit tests
+      - [x] Contact merge LWW test
+      - [x] Contact conflict detection test
+      - [x] Accounts merge test
+      - [x] Preferences merge test
+      - [x] Contact combination test
+      - [x] SyncResult.has_conflicts() test
   - [ ] Conflict resolution UI (manual merge)
-  - [ ] Sync history and rollback
-  - [ ] Selective sync (choose data types)
-  - [ ] Background sync scheduler
+  - [x] Background sync scheduler (Task #6) ✅
+    - [x] BackgroundScheduler module in Rust (scheduler.rs)
+    - [x] Tokio-based periodic task (configurable 15-240 minutes)
+    - [x] Settings persistence (SQLite key-value store)
+    - [x] 4 Tauri commands (start, stop, get_status, update_config)
+    - [x] Auto-start on app launch if enabled
+    - [x] TypeScript types (SchedulerConfig, SchedulerStatus)
+    - [x] useScheduler React hook
+    - [x] UI section in SyncSettings.tsx (enable/disable, interval selector, status display)
+    - [x] 5 unit tests passing
+    - [x] Security warning about encryption limitation
 - [ ] Performance Optimization
   - [ ] Delta sync (only changed data)
   - [ ] Compression for large payloads

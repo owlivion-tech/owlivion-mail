@@ -173,6 +173,20 @@ impl Database {
             conn.execute("ALTER TABLE accounts ADD COLUMN signature TEXT DEFAULT ''", [])?;
         }
 
+        // Migration 2: Add accept_invalid_certs column to accounts table if not exists
+        let has_accept_invalid_certs: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('accounts') WHERE name = 'accept_invalid_certs'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_accept_invalid_certs {
+            log::info!("Running migration: Adding accept_invalid_certs column to accounts");
+            conn.execute("ALTER TABLE accounts ADD COLUMN accept_invalid_certs INTEGER NOT NULL DEFAULT 0", [])?;
+        }
+
         Ok(())
     }
 
@@ -201,8 +215,8 @@ impl Database {
                 smtp_host, smtp_port, smtp_security, smtp_username,
                 password_encrypted,
                 oauth_provider, oauth_access_token, oauth_refresh_token, oauth_expires_at,
-                is_default, signature, sync_days
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+                is_default, signature, sync_days, accept_invalid_certs
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
             "#,
             params![
                 account.email,
@@ -223,6 +237,7 @@ impl Database {
                 account.is_default,
                 account.signature,
                 account.sync_days,
+                account.accept_invalid_certs,
             ],
         )?;
 
@@ -242,7 +257,7 @@ impl Database {
                    imap_host, imap_port, imap_security, imap_username,
                    smtp_host, smtp_port, smtp_security, smtp_username,
                    oauth_provider, is_active, is_default, signature, sync_days,
-                   created_at, updated_at
+                   accept_invalid_certs, created_at, updated_at
             FROM accounts
             ORDER BY is_default DESC, email ASC
             "#,
@@ -267,8 +282,9 @@ impl Database {
                     is_default: row.get(13)?,
                     signature: row.get(14)?,
                     sync_days: row.get(15)?,
-                    created_at: row.get(16)?,
-                    updated_at: row.get(17)?,
+                    accept_invalid_certs: row.get(16)?,
+                    created_at: row.get(17)?,
+                    updated_at: row.get(18)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -289,7 +305,7 @@ impl Database {
                    imap_host, imap_port, imap_security, imap_username,
                    smtp_host, smtp_port, smtp_security, smtp_username,
                    oauth_provider, is_active, is_default, signature, sync_days,
-                   created_at, updated_at
+                   accept_invalid_certs, created_at, updated_at
             FROM accounts WHERE id = ?1
             "#,
             [id],
@@ -311,8 +327,9 @@ impl Database {
                     is_default: row.get(13)?,
                     signature: row.get(14)?,
                     sync_days: row.get(15)?,
-                    created_at: row.get(16)?,
-                    updated_at: row.get(17)?,
+                    accept_invalid_certs: row.get(16)?,
+                    created_at: row.get(17)?,
+                    updated_at: row.get(18)?,
                 })
             },
         )?;
@@ -1137,6 +1154,66 @@ impl Database {
 
         Ok(())
     }
+
+    // =========================================================================
+    // HELPER METHODS (for queue module and other internal use)
+    // =========================================================================
+
+    /// Execute a SQL statement and return affected rows (for internal use)
+    pub fn execute<P>(&self, sql: &str, params: P) -> DbResult<i64>
+    where
+        P: rusqlite::Params,
+    {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        conn.execute(sql, params)?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Query database and map results (for internal use)
+    pub fn query<T, P, F>(&self, sql: &str, params: P, f: F) -> DbResult<Vec<T>>
+    where
+        P: rusqlite::Params,
+        F: FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
+    {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let mut stmt = conn.prepare(sql)?;
+        let rows = stmt.query_map(params, f)?;
+
+        rows.collect::<rusqlite::Result<Vec<T>>>()
+            .map_err(DbError::from)
+    }
+
+    /// Query single row (for internal use)
+    pub fn query_row<T, P, F>(&self, sql: &str, params: P, f: F) -> DbResult<T>
+    where
+        P: rusqlite::Params,
+        F: FnOnce(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
+    {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        conn.query_row(sql, params, f).map_err(DbError::from)
+    }
+
+    /// Execute batch SQL (for internal use)
+    pub fn execute_batch(&self, sql: &str) -> DbResult<()> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        conn.execute_batch(sql).map_err(DbError::from)
+    }
 }
 
 // ============================================================================
@@ -1163,6 +1240,8 @@ pub struct NewAccount {
     pub is_default: bool,
     pub signature: String,
     pub sync_days: i32,
+    #[serde(default)]
+    pub accept_invalid_certs: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1184,6 +1263,8 @@ pub struct Account {
     pub is_default: bool,
     pub signature: String,
     pub sync_days: i32,
+    #[serde(default)]
+    pub accept_invalid_certs: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -1375,6 +1456,7 @@ mod tests {
             is_default: true,
             signature: "Best regards".to_string(),
             sync_days: 30,
+            accept_invalid_certs: false,
         };
 
         let id = db.add_account(&account).expect("Failed to add account");

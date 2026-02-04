@@ -3,7 +3,14 @@
 // ============================================================================
 
 import { invoke } from '@tauri-apps/api/core';
-import type { SyncConfig, SyncStatusItem, DeviceInfo, SyncResult } from '../types';
+import type {
+  SyncConfig,
+  SyncStatusItem,
+  DeviceInfo,
+  SyncResult,
+  ConflictInfo,
+  SchedulerStatus
+} from '../types';
 
 // ============================================================================
 // Authentication
@@ -40,6 +47,7 @@ export async function logoutAccount(): Promise<void> {
 
 /**
  * Start manual sync (requires master password)
+ * Now supports bidirectional sync with conflict detection
  */
 export async function startSync(masterPassword: string): Promise<SyncResult> {
   const result = await invoke<{
@@ -48,6 +56,17 @@ export async function startSync(masterPassword: string): Promise<SyncResult> {
     preferences_synced: boolean;
     signatures_synced: boolean;
     errors: string[];
+    conflicts?: {
+      data_type: string;
+      local_version: number;
+      server_version: number;
+      local_updated_at?: string;
+      server_updated_at?: string;
+      strategy: string;
+      conflict_details: string;
+      local_data: any;
+      server_data: any;
+    }[];
   }>('sync_start', { masterPassword });
 
   return {
@@ -56,7 +75,29 @@ export async function startSync(masterPassword: string): Promise<SyncResult> {
     preferencesSynced: result.preferences_synced,
     signaturesSynced: result.signatures_synced,
     errors: result.errors,
+    conflicts: result.conflicts?.map(c => ({
+      dataType: c.data_type,
+      localVersion: c.local_version,
+      serverVersion: c.server_version,
+      localUpdatedAt: c.local_updated_at,
+      serverUpdatedAt: c.server_updated_at,
+      strategy: c.strategy as ConflictInfo['strategy'],
+      conflictDetails: c.conflict_details,
+      localData: c.local_data,
+      serverData: c.server_data,
+    })),
   };
+}
+
+/**
+ * Resolve a sync conflict manually
+ */
+export async function resolveConflict(
+  dataType: string,
+  strategy: 'use_local' | 'use_server' | 'merge',
+  masterPassword: string
+): Promise<void> {
+  return invoke('sync_resolve_conflict', { dataType, strategy, masterPassword });
 }
 
 // ============================================================================
@@ -172,6 +213,79 @@ export async function revokeDevice(deviceId: string): Promise<void> {
 }
 
 // ============================================================================
+// Queue Management
+// ============================================================================
+
+export interface QueueStats {
+  pendingCount: number;
+  inProgressCount: number;
+  failedCount: number;
+  completedCount: number;
+  totalCount: number;
+}
+
+export interface ProcessQueueResult {
+  processed: number;
+  succeeded: number;
+  failed: number;
+}
+
+/**
+ * Get queue statistics
+ */
+export async function getQueueStats(): Promise<QueueStats> {
+  const result = await invoke<{
+    pending_count: number;
+    in_progress_count: number;
+    failed_count: number;
+    completed_count: number;
+    total_count: number;
+  }>('sync_get_queue_stats');
+
+  return {
+    pendingCount: result.pending_count,
+    inProgressCount: result.in_progress_count,
+    failedCount: result.failed_count,
+    completedCount: result.completed_count,
+    totalCount: result.total_count,
+  };
+}
+
+/**
+ * Process pending queue items (retry failed syncs)
+ */
+export async function processQueue(masterPassword: string): Promise<ProcessQueueResult> {
+  const result = await invoke<{
+    processed: number;
+    succeeded: number;
+    failed: number;
+  }>('sync_process_queue', { masterPassword });
+
+  return result;
+}
+
+/**
+ * Retry all failed queue items
+ */
+export async function retryFailedSyncs(): Promise<number> {
+  return invoke('sync_retry_failed');
+}
+
+/**
+ * Clear completed queue items older than N days
+ */
+export async function clearCompletedQueue(olderThanDays: number): Promise<number> {
+  return invoke('sync_clear_completed_queue', { olderThanDays });
+}
+
+/**
+ * Clear permanently failed queue items
+ */
+export async function clearFailedQueue(): Promise<number> {
+  return invoke('sync_clear_failed_queue');
+}
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
 
@@ -225,4 +339,53 @@ export function getPlatformIcon(platform: string): string {
     default:
       return '💻';
   }
+}
+
+// ============================================================================
+// Background Scheduler
+// ============================================================================
+
+/**
+ * Get scheduler status
+ */
+export async function getSchedulerStatus(): Promise<SchedulerStatus> {
+  const status = await invoke<{
+    enabled: boolean;
+    running: boolean;
+    interval_minutes: number;
+    last_run?: string;
+    next_run?: string;
+  }>('scheduler_get_status');
+
+  return {
+    enabled: status.enabled,
+    running: status.running,
+    intervalMinutes: status.interval_minutes,
+    lastRun: status.last_run,
+    nextRun: status.next_run,
+  };
+}
+
+/**
+ * Start scheduler
+ */
+export async function startScheduler(): Promise<void> {
+  return invoke('scheduler_start');
+}
+
+/**
+ * Stop scheduler
+ */
+export async function stopScheduler(): Promise<void> {
+  return invoke('scheduler_stop');
+}
+
+/**
+ * Update scheduler configuration
+ */
+export async function updateSchedulerConfig(
+  enabled: boolean,
+  intervalMinutes: number
+): Promise<void> {
+  return invoke('scheduler_update_config', { enabled, intervalMinutes });
 }

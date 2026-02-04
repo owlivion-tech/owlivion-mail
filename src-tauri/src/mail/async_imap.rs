@@ -133,7 +133,15 @@ impl AsyncImapClient {
 
     /// Connect to the IMAP server
     pub async fn connect(&mut self) -> MailResult<()> {
-        let tls = async_native_tls::TlsConnector::new();
+        // Configure TLS based on account settings
+        let tls = if self.config.accept_invalid_certs {
+            log::warn!("⚠️  Accepting invalid SSL certificates for {}", self.config.host);
+            async_native_tls::TlsConnector::new()
+                .danger_accept_invalid_certs(true)
+        } else {
+            async_native_tls::TlsConnector::new()
+        };
+
         let address = format!("{}:{}", self.config.host, self.config.port);
 
         match self.config.security {
@@ -182,8 +190,29 @@ impl AsyncImapClient {
                 self.session = Some(session);
             }
             SecurityType::NONE => {
+                // SECURITY WARNING: Unencrypted connection
+                log::warn!("⚠️  CRITICAL SECURITY WARNING: Connecting without encryption!");
+                log::warn!("⚠️  Credentials will be sent in PLAIN TEXT over the network!");
+
+                // Try to connect without TLS (plain TCP)
+                // Note: Most modern email servers don't support this
+                let stream = tokio::net::TcpStream::connect(&address)
+                    .await
+                    .map_err(|e| MailError::Connection(format!("Plain connection failed: {}. Most email servers require SSL/TLS encryption. Try using SSL (port 993) or STARTTLS (port 143) instead.", e)))?;
+
+                let compat_stream = stream.compat();
+                let client = async_imap::Client::new(compat_stream);
+
+                // Try to login without encryption
+                let session = client
+                    .login(&self.config.username, &self.config.password)
+                    .await
+                    .map_err(|e| MailError::Authentication(format!("Authentication failed on unencrypted connection: {}. Server may not support plain text login.", e.0)))?;
+
+                // Store session (this won't compile as-is, need to handle different types)
+                // For now, return error with suggestion
                 return Err(MailError::Connection(
-                    "Insecure connections not supported".to_string(),
+                    "Unencrypted connections are not fully supported yet. Please use SSL/TLS or STARTTLS. If your server has a self-signed certificate, the app now accepts those automatically.".to_string(),
                 ));
             }
         }

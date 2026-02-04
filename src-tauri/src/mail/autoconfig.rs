@@ -31,6 +31,28 @@ pub struct AutoConfig {
     pub detection_method: Option<String>,
 }
 
+/// Detailed auto-detection debug info
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoConfigDebug {
+    pub email: String,
+    pub domain: String,
+    pub preset_tried: bool,
+    pub preset_result: Option<String>,
+    pub isp_autoconfig_tried: bool,
+    pub isp_autoconfig_result: Option<String>,
+    pub wellknown_tried: bool,
+    pub wellknown_result: Option<String>,
+    pub ispdb_tried: bool,
+    pub ispdb_result: Option<String>,
+    pub mx_lookup_tried: bool,
+    pub mx_lookup_result: Option<String>,
+    pub guessing_tried: bool,
+    pub guessing_result: Option<String>,
+    pub final_config: Option<AutoConfig>,
+    pub total_duration_ms: u128,
+}
+
 /// Fetch auto-configuration for an email address
 /// Tries multiple methods in order (like Thunderbird)
 pub async fn fetch_autoconfig(email: &str) -> Result<AutoConfig, String> {
@@ -45,47 +67,63 @@ pub async fn fetch_autoconfig(email: &str) -> Result<AutoConfig, String> {
     // 1. Try built-in presets first (fastest)
     if let Some(mut config) = get_preset(&domain) {
         config.detection_method = Some("preset".to_string());
-        log::info!("Found preset config for {}", domain);
+        log::info!("✓ Found preset config for {}", domain);
         return Ok(config);
     }
+    log::debug!("✗ No preset found for {}", domain);
 
     // 2. Try ISP's own autoconfig server
-    if let Ok(mut config) = fetch_isp_autoconfig(&domain).await {
-        config.detection_method = Some("isp-autoconfig".to_string());
-        log::info!("Found ISP autoconfig for {}", domain);
-        return Ok(config);
+    match fetch_isp_autoconfig(&domain).await {
+        Ok(mut config) => {
+            config.detection_method = Some("isp-autoconfig".to_string());
+            log::info!("✓ Found ISP autoconfig for {}", domain);
+            return Ok(config);
+        }
+        Err(e) => log::debug!("✗ ISP autoconfig failed: {}", e),
     }
 
     // 3. Try well-known autoconfig URL
-    if let Ok(mut config) = fetch_wellknown_autoconfig(&domain).await {
-        config.detection_method = Some("well-known".to_string());
-        log::info!("Found well-known autoconfig for {}", domain);
-        return Ok(config);
+    match fetch_wellknown_autoconfig(&domain).await {
+        Ok(mut config) => {
+            config.detection_method = Some("well-known".to_string());
+            log::info!("✓ Found well-known autoconfig for {}", domain);
+            return Ok(config);
+        }
+        Err(e) => log::debug!("✗ Well-known autoconfig failed: {}", e),
     }
 
     // 4. Try Mozilla ISPDB
-    if let Ok(mut config) = fetch_mozilla_ispdb(&domain).await {
-        config.detection_method = Some("ispdb".to_string());
-        log::info!("Found ISPDB config for {}", domain);
-        return Ok(config);
+    match fetch_mozilla_ispdb(&domain).await {
+        Ok(mut config) => {
+            config.detection_method = Some("ispdb".to_string());
+            log::info!("✓ Found ISPDB config for {}", domain);
+            return Ok(config);
+        }
+        Err(e) => log::debug!("✗ ISPDB lookup failed: {}", e),
     }
 
     // 5. Try MX record lookup
-    if let Ok(mut config) = fetch_via_mx_lookup(&domain).await {
-        config.detection_method = Some("mx-lookup".to_string());
-        log::info!("Found config via MX lookup for {}", domain);
-        return Ok(config);
+    match fetch_via_mx_lookup(&domain).await {
+        Ok(mut config) => {
+            config.detection_method = Some("mx-lookup".to_string());
+            log::info!("✓ Found config via MX lookup for {}", domain);
+            return Ok(config);
+        }
+        Err(e) => log::debug!("✗ MX lookup failed: {}", e),
     }
 
     // 6. Smart guessing with connection testing
-    if let Ok(mut config) = guess_and_test_config(&domain).await {
-        config.detection_method = Some("guessed".to_string());
-        log::info!("Guessed and verified config for {}", domain);
-        return Ok(config);
+    match guess_and_test_config(&domain).await {
+        Ok(mut config) => {
+            config.detection_method = Some("guessed".to_string());
+            log::info!("✓ Guessed and verified config for {}", domain);
+            return Ok(config);
+        }
+        Err(e) => log::debug!("✗ Smart guessing failed: {}", e),
     }
 
     // Last resort: return best guess without verification
-    log::warn!("No verified config found for {}, returning unverified guess", domain);
+    log::warn!("⚠ No verified config found for {}, returning unverified guess", domain);
     Ok(AutoConfig {
         provider: None,
         display_name: None,
@@ -97,6 +135,130 @@ pub async fn fetch_autoconfig(email: &str) -> Result<AutoConfig, String> {
         smtp_security: SecurityType::STARTTLS,
         detection_method: Some("unverified-guess".to_string()),
     })
+}
+
+/// Debug version with detailed step-by-step info
+pub async fn fetch_autoconfig_debug(email: &str) -> Result<AutoConfigDebug, String> {
+    use std::time::Instant;
+    let start_time = Instant::now();
+
+    let domain = email
+        .split('@')
+        .nth(1)
+        .ok_or("Invalid email address")?
+        .to_lowercase();
+
+    let mut debug = AutoConfigDebug {
+        email: email.to_string(),
+        domain: domain.clone(),
+        preset_tried: false,
+        preset_result: None,
+        isp_autoconfig_tried: false,
+        isp_autoconfig_result: None,
+        wellknown_tried: false,
+        wellknown_result: None,
+        ispdb_tried: false,
+        ispdb_result: None,
+        mx_lookup_tried: false,
+        mx_lookup_result: None,
+        guessing_tried: false,
+        guessing_result: None,
+        final_config: None,
+        total_duration_ms: 0,
+    };
+
+    // 1. Try built-in presets
+    debug.preset_tried = true;
+    if let Some(mut config) = get_preset(&domain) {
+        config.detection_method = Some("preset".to_string());
+        debug.preset_result = Some("SUCCESS".to_string());
+        debug.final_config = Some(config.clone());
+        debug.total_duration_ms = start_time.elapsed().as_millis();
+        return Ok(debug);
+    }
+    debug.preset_result = Some("NOT_FOUND".to_string());
+
+    // 2. Try ISP's own autoconfig server
+    debug.isp_autoconfig_tried = true;
+    match fetch_isp_autoconfig(&domain).await {
+        Ok(mut config) => {
+            config.detection_method = Some("isp-autoconfig".to_string());
+            debug.isp_autoconfig_result = Some("SUCCESS".to_string());
+            debug.final_config = Some(config);
+            debug.total_duration_ms = start_time.elapsed().as_millis();
+            return Ok(debug);
+        }
+        Err(e) => debug.isp_autoconfig_result = Some(format!("FAILED: {}", e)),
+    }
+
+    // 3. Try well-known autoconfig URL
+    debug.wellknown_tried = true;
+    match fetch_wellknown_autoconfig(&domain).await {
+        Ok(mut config) => {
+            config.detection_method = Some("well-known".to_string());
+            debug.wellknown_result = Some("SUCCESS".to_string());
+            debug.final_config = Some(config);
+            debug.total_duration_ms = start_time.elapsed().as_millis();
+            return Ok(debug);
+        }
+        Err(e) => debug.wellknown_result = Some(format!("FAILED: {}", e)),
+    }
+
+    // 4. Try Mozilla ISPDB
+    debug.ispdb_tried = true;
+    match fetch_mozilla_ispdb(&domain).await {
+        Ok(mut config) => {
+            config.detection_method = Some("ispdb".to_string());
+            debug.ispdb_result = Some("SUCCESS".to_string());
+            debug.final_config = Some(config);
+            debug.total_duration_ms = start_time.elapsed().as_millis();
+            return Ok(debug);
+        }
+        Err(e) => debug.ispdb_result = Some(format!("FAILED: {}", e)),
+    }
+
+    // 5. Try MX record lookup
+    debug.mx_lookup_tried = true;
+    match fetch_via_mx_lookup(&domain).await {
+        Ok(mut config) => {
+            config.detection_method = Some("mx-lookup".to_string());
+            debug.mx_lookup_result = Some("SUCCESS".to_string());
+            debug.final_config = Some(config);
+            debug.total_duration_ms = start_time.elapsed().as_millis();
+            return Ok(debug);
+        }
+        Err(e) => debug.mx_lookup_result = Some(format!("FAILED: {}", e)),
+    }
+
+    // 6. Smart guessing with connection testing
+    debug.guessing_tried = true;
+    match guess_and_test_config(&domain).await {
+        Ok(mut config) => {
+            config.detection_method = Some("guessed".to_string());
+            debug.guessing_result = Some("SUCCESS".to_string());
+            debug.final_config = Some(config);
+            debug.total_duration_ms = start_time.elapsed().as_millis();
+            return Ok(debug);
+        }
+        Err(e) => debug.guessing_result = Some(format!("FAILED: {}", e)),
+    }
+
+    // Return unverified guess as fallback
+    let fallback_config = AutoConfig {
+        provider: None,
+        display_name: None,
+        imap_host: format!("mail.{}", domain),
+        imap_port: 993,
+        imap_security: SecurityType::SSL,
+        smtp_host: format!("mail.{}", domain),
+        smtp_port: 587,
+        smtp_security: SecurityType::STARTTLS,
+        detection_method: Some("unverified-guess".to_string()),
+    };
+
+    debug.final_config = Some(fallback_config);
+    debug.total_duration_ms = start_time.elapsed().as_millis();
+    Ok(debug)
 }
 
 /// Get preset configuration for known providers

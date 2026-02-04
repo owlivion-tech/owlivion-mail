@@ -3,7 +3,13 @@
 // ============================================================================
 
 import { useState, useEffect, useCallback } from 'react';
-import type { SyncConfig, SyncStatusItem, DeviceInfo, SyncResult } from '../types';
+import type {
+  SyncConfig,
+  SyncStatusItem,
+  DeviceInfo,
+  SyncResult,
+  SchedulerStatus
+} from '../types';
 import {
   getSyncConfig,
   updateSyncConfig,
@@ -11,6 +17,8 @@ import {
   listDevices,
   startSync,
   isSyncEnabled,
+  getSchedulerStatus,
+  updateSchedulerConfig,
 } from '../services/syncService';
 
 // ============================================================================
@@ -198,4 +206,57 @@ export function useSyncEnabled() {
   }, []);
 
   return { enabled, loading };
+}
+
+// ============================================================================
+// useScheduler - Background Scheduler Hook
+// ============================================================================
+
+export function useScheduler() {
+  const [status, setStatus] = useState<SchedulerStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const newStatus = await getSchedulerStatus();
+      setStatus(newStatus);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to load scheduler status';
+      setError(errorMsg);
+      console.error('Failed to load scheduler:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const updateConfig = useCallback(async (enabled: boolean, intervalMinutes: number) => {
+    setLoading(true);
+    setError(null);
+    try {
+      await updateSchedulerConfig(enabled, intervalMinutes);
+      await reload();
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to update scheduler config';
+      setError(errorMsg);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [reload]);
+
+  // Load on mount
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  // Auto-reload every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(reload, 30000);
+    return () => clearInterval(interval);
+  }, [reload]);
+
+  return { status, loading, error, reload, updateConfig };
 }

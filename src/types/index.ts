@@ -101,6 +101,7 @@ export interface Account {
   isDefault: boolean;
   signature: string;
   syncDays: number;
+  acceptInvalidCerts?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -118,10 +119,11 @@ export interface NewAccount {
   smtpSecurity: SecurityType;
   oauthProvider?: 'gmail' | 'outlook';
   signature?: string;
+  acceptInvalidCerts?: boolean;
 }
 
 // Security type for connections
-export type SecurityType = 'SSL' | 'TLS' | 'STARTTLS' | 'NONE';
+export type SecurityType = 'SSL' | 'STARTTLS' | 'NONE';
 
 // Auto-detected email configuration (flat structure from Rust backend)
 export interface AutoConfig {
@@ -359,11 +361,87 @@ export interface DeviceInfo {
   lastSeenAt: string; // ISO 8601
 }
 
-/// Sync result
+/// Sync result (updated for conflict detection)
 export interface SyncResult {
   accountsSynced: boolean;
   contactsSynced: boolean;
   preferencesSynced: boolean;
   signaturesSynced: boolean;
   errors: string[];
+  conflicts?: ConflictInfo[]; // NEW: Detected conflicts
+}
+
+/// Conflict information for user resolution
+export interface ConflictInfo {
+  dataType: string;
+  localVersion: number;
+  serverVersion: number;
+  localUpdatedAt?: string; // ISO 8601
+  serverUpdatedAt?: string; // ISO 8601
+  strategy: 'UseLocal' | 'UseServer' | 'Merge' | 'Manual';
+  conflictDetails: string;
+  localData: any; // JSON representation of local data
+  serverData: any; // JSON representation of server data
+}
+
+/// Background scheduler configuration
+export interface SchedulerConfig {
+  enabled: boolean;
+  intervalMinutes: number;
+  lastRun?: string; // ISO 8601
+}
+
+/// Background scheduler status
+export interface SchedulerStatus {
+  enabled: boolean;
+  running: boolean;
+  intervalMinutes: number;
+  lastRun?: string; // ISO 8601
+  nextRun?: string; // ISO 8601 (calculated)
+}
+
+/// Sync snapshot (history entry)
+export interface SyncSnapshot {
+  id: number;
+  dataType: string;
+  version: number;
+  snapshotHash: string;
+  deviceId: string;
+  operation: 'push' | 'pull' | 'merge';
+  itemsCount: number;
+  syncStatus: 'success' | 'failed' | 'conflict';
+  errorMessage?: string;
+  createdAt: string; // ISO 8601
+}
+
+/// Conflict information
+export interface ConflictInfo {
+  dataType: string;
+  localVersion: number;
+  serverVersion: number;
+  localData: any;
+  serverData: any;
+  conflictDetails: string;
+}
+
+/// Sync impact estimation
+export interface SyncImpactEstimate {
+  accountsCount: number;
+  accountsSizeBytes: number;
+  contactsCount: number;
+  contactsSizeBytes: number;
+  preferencesCount: number;
+  preferencesSizeBytes: number;
+  signaturesCount: number;
+  signaturesSizeBytes: number;
+  totalSizeBytes: number;
+}
+
+/// Queue statistics
+export interface QueueStats {
+  pendingCount: number;
+  inProgressCount: number;
+  failedCount: number;
+  completedCount: number;
+  totalCount: number;
 }

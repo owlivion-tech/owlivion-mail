@@ -10,7 +10,7 @@ pub mod imap;
 use serde::{Deserialize, Serialize};
 
 // Re-export commonly used types
-pub use autoconfig::{fetch_autoconfig, AutoConfig};
+pub use autoconfig::{fetch_autoconfig, fetch_autoconfig_debug, AutoConfig, AutoConfigDebug};
 pub use async_imap::AsyncImapClient;
 pub use config::{AccountConfig, ImapConfig, SecurityType, SmtpConfig};
 pub use imap::ImapClient;

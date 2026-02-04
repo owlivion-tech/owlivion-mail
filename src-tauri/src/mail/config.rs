@@ -38,6 +38,8 @@ pub struct ImapConfig {
     pub security: SecurityType,
     pub username: String,
     pub password: String,
+    #[serde(default)]
+    pub accept_invalid_certs: bool,
 }
 
 impl Default for ImapConfig {
@@ -48,6 +50,7 @@ impl Default for ImapConfig {
             security: SecurityType::SSL,
             username: String::new(),
             password: String::new(),
+            accept_invalid_certs: false, // Secure by default
         }
     }
 }
@@ -60,6 +63,8 @@ pub struct SmtpConfig {
     pub security: SecurityType,
     pub username: String,
     pub password: String,
+    #[serde(default)]
+    pub accept_invalid_certs: bool,
 }
 
 impl Default for SmtpConfig {
@@ -70,6 +75,7 @@ impl Default for SmtpConfig {
             security: SecurityType::STARTTLS,
             username: String::new(),
             password: String::new(),
+            accept_invalid_certs: false, // Secure by default
         }
     }
 }

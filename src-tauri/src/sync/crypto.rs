@@ -244,12 +244,17 @@ pub fn encrypt_sync_data<T: Serialize>(
         key.seal_in_place_append_tag(nonce, Aad::empty(), &mut encrypted)
             .map_err(|e| format!("Encryption error: {:?}", e))?;
 
-        // 5. Compute SHA-256 checksum
-        let checksum = compute_sha256(&encrypted);
+        // 5. Prepend nonce to encrypted data (for server storage)
+        // This ensures nonce is available during decryption without separate field
+        let mut combined = nonce_bytes.to_vec();
+        combined.extend_from_slice(&encrypted);
+
+        // 6. Compute SHA-256 checksum of combined data
+        let checksum = compute_sha256(&combined);
 
         Ok(SyncPayload {
             data_type,
-            encrypted_data: encrypted,
+            encrypted_data: combined, // nonce (12 bytes) + ciphertext
             nonce: nonce_bytes,
             version: 1,
             device_id: device_id.to_string(),

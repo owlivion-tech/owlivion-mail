@@ -40,6 +40,7 @@ export async function addAccount(account: NewAccount): Promise<string> {
     smtpPort: account.smtpPort,
     smtpSecurity: account.smtpSecurity,
     isDefault: true,
+    acceptInvalidCerts: account.acceptInvalidCerts,
   });
 }
 

@@ -512,6 +512,42 @@ GROUP BY thread_id
 ORDER BY last_reply_at DESC;
 
 -- ============================================================================
+-- SYNC_HISTORY TABLE
+-- Track synchronization snapshots for rollback capability
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS sync_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    -- Sync metadata
+    data_type TEXT NOT NULL CHECK (data_type IN ('accounts', 'contacts', 'preferences', 'signatures')),
+    version INTEGER NOT NULL,              -- Server version number
+
+    -- Snapshot data (encrypted)
+    encrypted_snapshot BLOB NOT NULL,      -- Full encrypted data snapshot
+    snapshot_hash TEXT NOT NULL,           -- SHA-256 integrity check (hex)
+
+    -- Device and operation info
+    device_id TEXT NOT NULL,
+    operation TEXT NOT NULL CHECK (operation IN ('push', 'pull', 'merge')),
+
+    -- Statistics
+    items_count INTEGER DEFAULT 0,
+
+    -- Status tracking
+    sync_status TEXT DEFAULT 'success' CHECK (sync_status IN ('success', 'failed', 'conflict')),
+    error_message TEXT,
+
+    -- Timestamp
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+
+    UNIQUE(data_type, version)
+);
+
+-- Indexes for efficient queries
+CREATE INDEX IF NOT EXISTS idx_history_data_type ON sync_history(data_type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_history_version ON sync_history(data_type, version);
+
+-- ============================================================================
 -- ERD (ASCII Reference)
 -- ============================================================================
 /*
