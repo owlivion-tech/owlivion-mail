@@ -64,6 +64,10 @@ lazy_static = "1.4"
 hex = "0.4"
 sha2 = "0.10"
 
+# OAuth2 authentication
+oauth2 = "4.4"
+tiny_http = "0.12"
+
 # Test dependencies
 [dev-dependencies]
 mockito = "1.2"

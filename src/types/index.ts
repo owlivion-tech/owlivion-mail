@@ -200,6 +200,7 @@ export interface Settings {
   // Notifications
   notificationsEnabled: boolean;
   notificationSound: boolean;
+  notificationSoundType: 'gentle' | 'pop' | 'chime' | 'ding' | 'subtle' | 'system' | 'owlivion' | 'whisper' | 'call' | 'moonlight';
   notificationBadge: boolean;
 
   // Behavior
@@ -228,6 +229,7 @@ export const DEFAULT_SETTINGS: Settings = {
   conversationView: true,
   notificationsEnabled: true,
   notificationSound: true,
+  notificationSoundType: 'call',
   notificationBadge: true,
   autoMarkRead: true,
   autoMarkReadDelay: 3,

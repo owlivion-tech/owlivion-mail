@@ -5,6 +5,7 @@
 pub mod crypto;
 pub mod db;
 pub mod mail;
+pub mod oauth;
 pub mod sync;
 
 use db::{Database, NewAccount as DbNewAccount};
@@ -1697,6 +1698,127 @@ struct SchedulerStatusDto {
 }
 
 // ============================================================================
+// OAuth2 Authentication Commands
+// ============================================================================
+
+use crate::oauth::{gmail_config, microsoft_config, start_oauth_flow, handle_oauth_callback, start_callback_server};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OAuthStartResult {
+    auth_url: String,
+    csrf_token: String,
+}
+
+/// Start Gmail OAuth2 authentication flow
+#[tauri::command]
+async fn oauth_start_gmail() -> Result<OAuthStartResult, String> {
+    log::info!("Starting Gmail OAuth2 flow");
+
+    let config = gmail_config();
+    let (auth_url, csrf_token) = start_oauth_flow(&config)
+        .map_err(|e| format!("Failed to start OAuth flow: {}", e))?;
+
+    // Start callback server in background
+    let callback_result = Arc::new(Mutex::new(None));
+    let callback_result_clone = callback_result.clone();
+
+    std::thread::spawn(move || {
+        if let Err(e) = start_callback_server(callback_result_clone) {
+            log::error!("OAuth callback server error: {}", e);
+        }
+    });
+
+    Ok(OAuthStartResult {
+        auth_url,
+        csrf_token: csrf_token.secret().clone(),
+    })
+}
+
+/// Start Microsoft OAuth2 authentication flow
+#[tauri::command]
+async fn oauth_start_microsoft() -> Result<OAuthStartResult, String> {
+    log::info!("Starting Microsoft OAuth2 flow");
+
+    let config = microsoft_config();
+    let (auth_url, csrf_token) = start_oauth_flow(&config)
+        .map_err(|e| format!("Failed to start OAuth flow: {}", e))?;
+
+    // Start callback server in background
+    let callback_result = Arc::new(Mutex::new(None));
+    let callback_result_clone = callback_result.clone();
+
+    std::thread::spawn(move || {
+        if let Err(e) = start_callback_server(callback_result_clone) {
+            log::error!("OAuth callback server error: {}", e);
+        }
+    });
+
+    Ok(OAuthStartResult {
+        auth_url,
+        csrf_token: csrf_token.secret().clone(),
+    })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OAuthCompleteResult {
+    email: String,
+    display_name: Option<String>,
+    access_token: String,
+    refresh_token: Option<String>,
+    imap_host: String,
+    imap_port: u16,
+    smtp_host: String,
+    smtp_port: u16,
+}
+
+/// Complete OAuth2 authentication with authorization code
+#[tauri::command]
+async fn oauth_complete(
+    provider: String,
+    authorization_code: String,
+) -> Result<OAuthCompleteResult, String> {
+    log::info!("Completing OAuth2 flow for {}", provider);
+
+    let config = match provider.as_str() {
+        "gmail" => gmail_config(),
+        "microsoft" => microsoft_config(),
+        _ => return Err("Unknown OAuth provider".to_string()),
+    };
+
+    let result = handle_oauth_callback(&config, authorization_code)
+        .await
+        .map_err(|e| format!("OAuth callback failed: {}", e))?;
+
+    // Set provider-specific IMAP/SMTP settings
+    let (imap_host, imap_port, smtp_host, smtp_port) = match provider.as_str() {
+        "gmail" => (
+            "imap.gmail.com".to_string(),
+            993,
+            "smtp.gmail.com".to_string(),
+            587,
+        ),
+        "microsoft" => (
+            "outlook.office365.com".to_string(),
+            993,
+            "smtp.office365.com".to_string(),
+            587,
+        ),
+        _ => return Err("Unknown provider".to_string()),
+    };
+
+    Ok(OAuthCompleteResult {
+        email: result.email,
+        display_name: result.display_name,
+        access_token: result.access_token,
+        refresh_token: result.refresh_token,
+        imap_host,
+        imap_port,
+        smtp_host,
+        smtp_port,
+    })
+}
+
+// ============================================================================
 // Application Entry Point
 // ============================================================================
 
@@ -1768,6 +1890,9 @@ pub fn run() {
             email_move,
             email_delete,
             email_send,
+            oauth_start_gmail,
+            oauth_start_microsoft,
+            oauth_complete,
             sync_register,
             sync_login,
             sync_logout,

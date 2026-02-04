@@ -122,23 +122,23 @@ pnpm tauri build
 
 Owlivion Mail works with all email services that support IMAP/SMTP:
 
-| Service | IMAP | SMTP | Auto-configuration |
-|---------|------|------|-------------------|
-| Gmail | ✅ | ✅ | ✅ |
-| Outlook/Hotmail | ✅ | ✅ | ✅ |
-| Yahoo Mail | ✅ | ✅ | ✅ |
-| iCloud Mail | ✅ | ✅ | ✅ |
-| Yandex Mail | ✅ | ✅ | ✅ |
-| GMX | ✅ | ✅ | ✅ |
-| Zoho Mail | ✅ | ✅ | ✅ |
-| FastMail | ✅ | ✅ | ✅ |
-| Mailbox.org | ✅ | ✅ | ✅ |
-| Tutanota | ❌ | ❌ | - |
-| ProtonMail | ⚠️ | ⚠️ | Requires Bridge |
+| Service | IMAP | SMTP | Auto-config | OAuth2 |
+|---------|------|------|-------------|--------|
+| Gmail | ✅ | ✅ | ✅ | ✅ |
+| Outlook/Hotmail | ✅ | ✅ | ✅ | ✅ |
+| Yahoo Mail | ✅ | ✅ | ✅ | ⏳ |
+| iCloud Mail | ✅ | ✅ | ✅ | ❌ |
+| Yandex Mail | ✅ | ✅ | ✅ | ❌ |
+| GMX | ✅ | ✅ | ✅ | ❌ |
+| Zoho Mail | ✅ | ✅ | ✅ | ❌ |
+| FastMail | ✅ | ✅ | ✅ | ❌ |
+| Mailbox.org | ✅ | ✅ | ✅ | ❌ |
+| Tutanota | ❌ | ❌ | - | ❌ |
+| ProtonMail | ⚠️ | ⚠️ | Requires Bridge | ❌ |
 
 **+40 other services** are supported with auto-configuration.
 
-> **Note:** For Gmail and other Google accounts, you need to create an [App Password](https://myaccount.google.com/apppasswords).
+> **Note:** Gmail and Outlook support OAuth2 (one-click login). For other services, you can use app passwords or manual configuration.
 
 ## Configuration
 
@@ -158,6 +158,38 @@ You can select Turkish or English from Settings → General → Language.
 ### Theme
 
 You can select Dark or Light theme from Settings → Appearance → Theme.
+
+### OAuth2 Authentication (One-Click Login)
+
+Owlivion Mail supports OAuth2 for Gmail and Microsoft/Outlook accounts, allowing you to add accounts with just one click without needing app passwords.
+
+#### Quick Setup
+
+1. **Copy environment template:**
+   ```bash
+   cp .env.example .env
+   ```
+
+2. **Run setup script:**
+   ```bash
+   ./scripts/setup-oauth.sh
+   ```
+
+3. **Or manually configure:**
+   - Get Google OAuth2 credentials from [Google Cloud Console](https://console.cloud.google.com/)
+   - Get Microsoft OAuth2 credentials from [Azure Portal](https://portal.azure.com/)
+   - Add credentials to `.env` file
+
+📖 **For detailed step-by-step instructions, see [OAUTH_SETUP.md](OAUTH_SETUP.md)**
+
+#### Features
+- ✅ One-click account addition
+- ✅ No app passwords needed
+- ✅ Automatic token refresh
+- ✅ Secure OAuth2 flow
+- ✅ Works with Gmail and Microsoft/Outlook
+
+> **Note:** OAuth2 is optional. You can still use app passwords for manual configuration.
 
 ## Security
 

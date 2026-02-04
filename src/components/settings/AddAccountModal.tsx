@@ -95,6 +95,48 @@ export function AddAccountModal({
     }
   }, [isOpen, editAccount]);
 
+  // Handle Gmail OAuth
+  const handleGmailOAuth = async () => {
+    try {
+      setStep('detecting');
+      setError('');
+
+      // Start OAuth flow
+      const result = await invoke<{ auth_url: string; csrf_token: string }>('oauth_start_gmail');
+
+      // Open OAuth URL in browser
+      window.open(result.auth_url, '_blank');
+
+      // Wait for callback (this is a simplified version - you might want to use a proper callback mechanism)
+      setError('Please complete authentication in the browser window and then paste the authorization code.');
+      setStep('credentials');
+    } catch (err: any) {
+      setError(`OAuth failed: ${err}`);
+      setStep('credentials');
+    }
+  };
+
+  // Handle Microsoft OAuth
+  const handleMicrosoftOAuth = async () => {
+    try {
+      setStep('detecting');
+      setError('');
+
+      // Start OAuth flow
+      const result = await invoke<{ auth_url: string; csrf_token: string }>('oauth_start_microsoft');
+
+      // Open OAuth URL in browser
+      window.open(result.auth_url, '_blank');
+
+      // Wait for callback (this is a simplified version - you might want to use a proper callback mechanism)
+      setError('Please complete authentication in the browser window and then paste the authorization code.');
+      setStep('credentials');
+    } catch (err: any) {
+      setError(`OAuth failed: ${err}`);
+      setStep('credentials');
+    }
+  };
+
   // Auto-detect configuration
   const detectConfig = async () => {
     setStep('detecting');
@@ -398,8 +440,9 @@ export function AddAccountModal({
 
                   <button
                     type="button"
-                    className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-owl-surface-2 border border-owl-border rounded-lg text-owl-text hover:bg-owl-border/50 transition-colors"
-                    onClick={() => {/* TODO: Gmail OAuth */}}
+                    className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-owl-surface-2 border border-owl-border rounded-lg text-owl-text hover:bg-owl-border/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={handleGmailOAuth}
+                    disabled={step !== 'credentials'}
                   >
                     <svg className="w-5 h-5" viewBox="0 0 24 24">
                       <path fill="#EA4335" d="M5.266 9.765A7.077 7.077 0 0 1 12 4.909c1.69 0 3.218.6 4.418 1.582L19.91 3C17.782 1.145 15.055 0 12 0 7.27 0 3.198 2.698 1.24 6.65l4.026 3.115Z" />
@@ -412,11 +455,12 @@ export function AddAccountModal({
 
                   <button
                     type="button"
-                    className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-owl-surface-2 border border-owl-border rounded-lg text-owl-text hover:bg-owl-border/50 transition-colors"
-                    onClick={() => {/* TODO: Outlook OAuth */}}
+                    className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-owl-surface-2 border border-owl-border rounded-lg text-owl-text hover:bg-owl-border/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={handleMicrosoftOAuth}
+                    disabled={step !== 'credentials'}
                   >
                     <svg className="w-5 h-5" viewBox="0 0 24 24">
-                      <path fill="#0078D4" d="M24 12c0 6.627-5.373 12-12 12S0 18.627 0 12 5.373 0 12 0s12 5.373 12 12Z" />
+                      <path fill="#0078D4" d="M24 12c0 6.627-5.373 12-12 12S0 18.627 0 12 5.373 0 12 0s12 5.373 12 12 Z" />
                       <path fill="#fff" d="M7.5 7.5h9v9h-9z" />
                       <path fill="#0078D4" d="M8.25 8.25h3.75v3.75H8.25zm4.5 0h3.75v3.75h-3.75zm-4.5 4.5h3.75v3.75H8.25zm4.5 0h3.75v3.75h-3.75z" />
                     </svg>

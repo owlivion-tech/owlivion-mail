@@ -34,8 +34,13 @@
     "active": true,
     "targets": ["deb", "appimage"],
     "icon": [
+      "icons/16x16.png",
       "icons/32x32.png",
+      "icons/48x48.png",
+      "icons/64x64.png",
       "icons/128x128.png",
+      "icons/256x256.png",
+      "icons/512x512.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico",
@@ -57,7 +62,14 @@
         "section": "mail",
         "priority": "optional",
         "files": {
-          "/usr/share/applications/owlivion-mail.desktop": "owlivion-mail.desktop"
+          "/usr/share/applications/owlivion-mail.desktop": "owlivion-mail.desktop",
+          "/usr/share/icons/hicolor/16x16/apps/owlivion-mail.png": "icons/16x16.png",
+          "/usr/share/icons/hicolor/32x32/apps/owlivion-mail.png": "icons/32x32.png",
+          "/usr/share/icons/hicolor/48x48/apps/owlivion-mail.png": "icons/48x48.png",
+          "/usr/share/icons/hicolor/64x64/apps/owlivion-mail.png": "icons/64x64.png",
+          "/usr/share/icons/hicolor/128x128/apps/owlivion-mail.png": "icons/128x128.png",
+          "/usr/share/icons/hicolor/256x256/apps/owlivion-mail.png": "icons/256x256.png",
+          "/usr/share/icons/hicolor/512x512/apps/owlivion-mail.png": "icons/512x512.png"
         }
       },
       "appimage": {
