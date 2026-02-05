@@ -6,12 +6,58 @@ use crate::mail::{
     config::{ImapConfig, SecurityType},
     EmailSummary, FetchResult, Folder, FolderType, MailError, MailResult, ParsedEmail,
 };
-use async_imap::Session;
+use async_imap::{Authenticator, Session};
 use futures::{pin_mut, StreamExt};
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
+/// XOAUTH2 Authenticator for Gmail OAuth
+struct XOAuth2 {
+    user: String,
+    access_token: String,
+}
+
+impl Authenticator for XOAuth2 {
+    type Response = String;
+
+    fn process(&mut self, _challenge: &[u8]) -> Self::Response {
+        // Build XOAUTH2 string: user={email}\x01auth=Bearer {token}\x01\x01
+        // Note: async-imap will automatically base64-encode this response
+        format!(
+            "user={}\x01auth=Bearer {}\x01\x01",
+            self.user, self.access_token
+        )
+    }
+}
+
+/// Synchronous XOAUTH2 Authenticator for rust-imap (Gmail OAuth)
+struct SyncXOAuth2 {
+    user: String,
+    access_token: String,
+}
+
+impl imap::Authenticator for SyncXOAuth2 {
+    type Response = String;
+
+    fn process(&self, _data: &[u8]) -> Self::Response {
+        // Build XOAUTH2 string: user={email}\x01auth=Bearer {token}\x01\x01
+        format!(
+            "user={}\x01auth=Bearer {}\x01\x01",
+            self.user, self.access_token
+        )
+    }
+}
+
 // SECURITY: Maximum search query length to prevent injection attacks
 const MAX_SEARCH_QUERY_LENGTH: usize = 200;
+
+/// Helper macro for methods not yet implemented for OAuth
+macro_rules! oauth_not_implemented {
+    () => {
+        return Err(MailError::Imap(
+            "This operation is not yet implemented for OAuth accounts. Work in progress.".to_string()
+        ));
+    };
+}
 
 /// SECURITY: Sanitize IMAP string to prevent injection attacks
 /// Removes characters that could be used for IMAP command injection
@@ -116,9 +162,15 @@ fn decode_quoted_printable(input: &str) -> String {
 
 type TlsStream = async_native_tls::TlsStream<tokio_util::compat::Compat<tokio::net::TcpStream>>;
 
+/// Session type enum - supports both async and sync sessions
+enum ImapSession {
+    Async(Session<TlsStream>),
+    OAuth(()),  // OAuth uses fresh connections for each operation
+}
+
 /// Async IMAP Client wrapper
 pub struct AsyncImapClient {
-    session: Option<Session<TlsStream>>,
+    session: Option<ImapSession>,
     config: ImapConfig,
 }
 
@@ -129,6 +181,69 @@ impl AsyncImapClient {
             session: None,
             config,
         }
+    }
+
+    /// Helper: Get async session or return error for OAuth (not implemented yet)
+    fn get_async_session(&mut self) -> MailResult<&mut Session<TlsStream>> {
+        let session = self.session.as_mut().ok_or(MailError::NotConnected)?;
+
+        match session {
+            ImapSession::OAuth(_) => {
+                Err(MailError::Imap(
+                    "This operation is not yet implemented for OAuth accounts. Work in progress.".to_string()
+                ))
+            }
+            ImapSession::Async(s) => Ok(s),
+        }
+    }
+
+    /// Helper: Execute a function with an authenticated OAuth session (sync)
+    /// This creates a fresh sync IMAP connection, authenticates, runs the function, and logs out
+    async fn with_oauth_session<F, T>(&self, operation: F) -> MailResult<T>
+    where
+        F: FnOnce(&mut imap::Session<native_tls::TlsStream<std::net::TcpStream>>) -> Result<T, Box<dyn std::error::Error + Send + Sync>> + Send + 'static,
+        T: Send + 'static,
+    {
+        let host = self.config.host.clone();
+        let username = self.config.username.clone();
+        let access_token = self.config.password.clone();
+        let accept_invalid_certs = self.config.accept_invalid_certs;
+
+        tokio::task::spawn_blocking(move || {
+            // Create TLS connector
+            let mut tls_builder = native_tls::TlsConnector::builder();
+            if accept_invalid_certs {
+                tls_builder.danger_accept_invalid_certs(true);
+            }
+            let tls = tls_builder.build()
+                .map_err(|e| MailError::Connection(format!("TLS error: {}", e)))?;
+
+            // Connect
+            let client = imap::connect((host.as_str(), 993), host.as_str(), &tls)
+                .map_err(|e| MailError::Connection(format!("IMAP connection failed: {}", e)))?;
+
+            // Authenticate
+            let auth = SyncXOAuth2 {
+                user: username.clone(),
+                access_token: access_token.clone(),
+            };
+
+            let mut session = client.authenticate("XOAUTH2", &auth)
+                .map_err(|(err, _client)| {
+                    MailError::Authentication(format!("OAuth2 authentication failed: {}. Try removing and re-adding the account.", err))
+                })?;
+
+            // Execute the operation
+            let result = operation(&mut session)
+                .map_err(|e| MailError::Imap(e.to_string()))?;
+
+            // Logout
+            let _ = session.logout();
+
+            Ok(result)
+        })
+        .await
+        .map_err(|e| MailError::Connection(format!("Spawn blocking error: {}", e)))?
     }
 
     /// Connect to the IMAP server
@@ -160,12 +275,78 @@ impl AsyncImapClient {
                     .map_err(|e| MailError::Connection(e.to_string()))?;
 
                 let client = async_imap::Client::new(tls_stream);
-                let session = client
-                    .login(&self.config.username, &self.config.password)
-                    .await
-                    .map_err(|e| MailError::Authentication(e.0.to_string()))?;
 
-                self.session = Some(session);
+                // Use OAuth2 XOAUTH2 authentication for OAuth accounts
+                if self.config.oauth_provider.is_some() {
+                    log::info!("Using synchronous rust-imap for OAuth2 XOAUTH2 authentication: {}", self.config.username);
+
+                    // Use synchronous imap library in spawn_blocking for OAuth
+                    // This is proven to work with Gmail OAuth2
+                    let host = self.config.host.clone();
+                    let username = self.config.username.clone();
+                    let access_token = self.config.password.clone();
+                    let accept_invalid_certs = self.config.accept_invalid_certs;
+
+                    tokio::task::spawn_blocking(move || {
+                        log::info!("OAuth2: Connecting to {}:993...", host);
+
+                        // Create TLS connector
+                        let mut tls_builder = native_tls::TlsConnector::builder();
+                        if accept_invalid_certs {
+                            log::warn!("⚠️  Accepting invalid SSL certificates for OAuth connection");
+                            tls_builder.danger_accept_invalid_certs(true);
+                        }
+                        let tls = tls_builder.build()
+                            .map_err(|e| MailError::Connection(format!("TLS error: {}", e)))?;
+
+                        // Connect using synchronous imap
+                        let client = imap::connect((host.as_str(), 993), host.as_str(), &tls)
+                            .map_err(|e| MailError::Connection(format!("IMAP connection failed: {}", e)))?;
+
+                        log::info!("OAuth2: Connected, authenticating with XOAUTH2...");
+
+                        // Create OAuth2 authenticator
+                        let auth = SyncXOAuth2 {
+                            user: username.clone(),
+                            access_token: access_token.clone(),
+                        };
+
+                        // Authenticate
+                        let mut session = client.authenticate("XOAUTH2", &auth)
+                            .map_err(|(err, _client)| {
+                                log::error!("OAuth2 authentication failed: {:?}", err);
+                                MailError::Authentication(format!("OAuth2 authentication failed: {}. Try removing and re-adding the account.", err))
+                            })?;
+
+                        log::info!("✓ OAuth2 authentication successful for {}", username);
+
+                        // Test connection by selecting INBOX
+                        session.select("INBOX")
+                            .map_err(|e| MailError::Connection(format!("Failed to select INBOX: {}", e)))?;
+
+                        log::info!("✓ INBOX selected successfully");
+
+                        // Logout from sync session
+                        let _ = session.logout();
+
+                        Ok::<(), MailError>(())
+                    })
+                    .await
+                    .map_err(|e| MailError::Connection(format!("Spawn blocking error: {}", e)))??;
+
+                    // OAuth authenticated successfully - use special OAuth session type
+                    // Operations will use spawn_blocking with fresh sync connections
+                    log::info!("OAuth session established for {}", self.config.username);
+                    self.session = Some(ImapSession::OAuth(()));
+                } else {
+                    // Regular password authentication
+                    let session = client
+                        .login(&self.config.username, &self.config.password)
+                        .await
+                        .map_err(|e| MailError::Authentication(e.0.to_string()))?;
+
+                    self.session = Some(ImapSession::Async(session));
+                }
             }
             SecurityType::STARTTLS => {
                 // For STARTTLS, fallback to SSL on port 993
@@ -182,12 +363,78 @@ impl AsyncImapClient {
                     .map_err(|e| MailError::Connection(e.to_string()))?;
 
                 let client = async_imap::Client::new(tls_stream);
-                let session = client
-                    .login(&self.config.username, &self.config.password)
-                    .await
-                    .map_err(|e| MailError::Authentication(e.0.to_string()))?;
 
-                self.session = Some(session);
+                // Use OAuth2 XOAUTH2 authentication for OAuth accounts
+                if self.config.oauth_provider.is_some() {
+                    log::info!("Using synchronous rust-imap for OAuth2 XOAUTH2 authentication: {}", self.config.username);
+
+                    // Use synchronous imap library in spawn_blocking for OAuth
+                    // This is proven to work with Gmail OAuth2
+                    let host = self.config.host.clone();
+                    let username = self.config.username.clone();
+                    let access_token = self.config.password.clone();
+                    let accept_invalid_certs = self.config.accept_invalid_certs;
+
+                    tokio::task::spawn_blocking(move || {
+                        log::info!("OAuth2: Connecting to {}:993...", host);
+
+                        // Create TLS connector
+                        let mut tls_builder = native_tls::TlsConnector::builder();
+                        if accept_invalid_certs {
+                            log::warn!("⚠️  Accepting invalid SSL certificates for OAuth connection");
+                            tls_builder.danger_accept_invalid_certs(true);
+                        }
+                        let tls = tls_builder.build()
+                            .map_err(|e| MailError::Connection(format!("TLS error: {}", e)))?;
+
+                        // Connect using synchronous imap
+                        let client = imap::connect((host.as_str(), 993), host.as_str(), &tls)
+                            .map_err(|e| MailError::Connection(format!("IMAP connection failed: {}", e)))?;
+
+                        log::info!("OAuth2: Connected, authenticating with XOAUTH2...");
+
+                        // Create OAuth2 authenticator
+                        let auth = SyncXOAuth2 {
+                            user: username.clone(),
+                            access_token: access_token.clone(),
+                        };
+
+                        // Authenticate
+                        let mut session = client.authenticate("XOAUTH2", &auth)
+                            .map_err(|(err, _client)| {
+                                log::error!("OAuth2 authentication failed: {:?}", err);
+                                MailError::Authentication(format!("OAuth2 authentication failed: {}. Try removing and re-adding the account.", err))
+                            })?;
+
+                        log::info!("✓ OAuth2 authentication successful for {}", username);
+
+                        // Test connection by selecting INBOX
+                        session.select("INBOX")
+                            .map_err(|e| MailError::Connection(format!("Failed to select INBOX: {}", e)))?;
+
+                        log::info!("✓ INBOX selected successfully");
+
+                        // Logout from sync session
+                        let _ = session.logout();
+
+                        Ok::<(), MailError>(())
+                    })
+                    .await
+                    .map_err(|e| MailError::Connection(format!("Spawn blocking error: {}", e)))??;
+
+                    // OAuth authenticated successfully - use special OAuth session type
+                    // Operations will use spawn_blocking with fresh sync connections
+                    log::info!("OAuth session established for {}", self.config.username);
+                    self.session = Some(ImapSession::OAuth(()));
+                } else {
+                    // Regular password authentication
+                    let session = client
+                        .login(&self.config.username, &self.config.password)
+                        .await
+                        .map_err(|e| MailError::Authentication(e.0.to_string()))?;
+
+                    self.session = Some(ImapSession::Async(session));
+                }
             }
             SecurityType::NONE => {
                 // SECURITY WARNING: Unencrypted connection
@@ -223,18 +470,57 @@ impl AsyncImapClient {
 
     /// Disconnect from server
     pub async fn disconnect(&mut self) -> MailResult<()> {
-        if let Some(mut session) = self.session.take() {
-            session
-                .logout()
-                .await
-                .map_err(|e| MailError::Imap(e.to_string()))?;
+        if let Some(session) = self.session.take() {
+            match session {
+                ImapSession::Async(mut s) => {
+                    s.logout()
+                        .await
+                        .map_err(|e| MailError::Imap(e.to_string()))?;
+                }
+                ImapSession::OAuth(_) => {
+                    // OAuth sessions don't maintain persistent connections
+                    // Nothing to disconnect
+                }
+            }
         }
         Ok(())
     }
 
     /// List folders
     pub async fn list_folders(&mut self) -> MailResult<Vec<Folder>> {
-        let session = self.session.as_mut().ok_or(MailError::NotConnected)?;
+        // Check if OAuth session
+        if let Some(ImapSession::OAuth(_)) = &self.session {
+            log::info!("OAuth list_folders: using sync session");
+
+            return self.with_oauth_session(move |session| {
+                let mailboxes = session.list(Some(""), Some("*"))?;
+
+                let mut folders = Vec::new();
+                for mb in mailboxes.iter() {
+                    let name = mb.name().to_string();
+                    let delimiter = mb.delimiter()
+                        .map(|d| d.to_string())
+                        .unwrap_or("/".to_string());
+
+                    folders.push(Folder {
+                        name: name.split(&delimiter).last().unwrap_or(&name).to_string(),
+                        path: name.clone(),
+                        folder_type: FolderType::from_name(&name),
+                        delimiter,
+                        is_subscribed: true,
+                        is_selectable: true,
+                        unread_count: 0,
+                        total_count: 0,
+                    });
+                }
+
+                log::info!("OAuth: Listed {} folders", folders.len());
+                Ok(folders)
+            }).await;
+        }
+
+        // Regular async session flow
+        let session = self.get_async_session()?;
 
         let mut mailboxes_stream = session
             .list(Some(""), Some("*"))
@@ -280,7 +566,134 @@ impl AsyncImapClient {
             safe_folder, page, page_size
         );
 
-        let session = self.session.as_mut().ok_or(MailError::NotConnected)?;
+        // Check if OAuth session
+        if let Some(ImapSession::OAuth(_)) = &self.session {
+            log::info!("OAuth fetch_emails: using sync session");
+
+            // Use sync session for OAuth
+            let safe_folder_clone = safe_folder.clone();
+            return self.with_oauth_session(move |session| {
+                // Select the folder
+                log::info!("OAuth: Selecting folder: {}", safe_folder_clone);
+                let mailbox = session.select(&safe_folder_clone)?;
+
+                let total = mailbox.exists;
+                log::info!("OAuth: Folder selected, {} messages exist", total);
+
+                if total == 0 {
+                    return Ok(FetchResult {
+                        emails: vec![],
+                        total: 0,
+                        has_more: false,
+                    });
+                }
+
+                // Calculate sequence range
+                let start = total.saturating_sub((page + 1) * page_size) + 1;
+                let end = total.saturating_sub(page * page_size);
+
+                if start > end || end == 0 {
+                    return Ok(FetchResult {
+                        emails: vec![],
+                        total,
+                        has_more: false,
+                    });
+                }
+
+                let range = format!("{}:{}", start, end);
+                log::info!("OAuth: Fetching range: {}", range);
+
+                // Fetch emails
+                let messages = session.fetch(&range, "(UID FLAGS ENVELOPE)")?;
+
+                // Collect messages
+                let mut emails: Vec<EmailSummary> = Vec::new();
+
+                for message in messages.iter() {
+                    let uid = message.uid.unwrap_or(0);
+                    let flags = message.flags();
+
+                    let is_read = flags.iter().any(|f| matches!(f, imap::types::Flag::Seen));
+                    let is_starred = flags.iter().any(|f| matches!(f, imap::types::Flag::Flagged));
+
+                    if let Some(envelope) = message.envelope() {
+                        let from = envelope
+                            .from
+                            .as_ref()
+                            .and_then(|addrs| addrs.first())
+                            .map(|addr| {
+                                let mailbox = addr.mailbox.as_ref()
+                                    .map(|m| String::from_utf8_lossy(m).to_string())
+                                    .unwrap_or_default();
+                                let host = addr.host.as_ref()
+                                    .map(|h| String::from_utf8_lossy(h).to_string())
+                                    .unwrap_or_default();
+                                format!("{}@{}", mailbox, host)
+                            })
+                            .unwrap_or_else(|| "unknown".to_string());
+
+                        let from_name = envelope
+                            .from
+                            .as_ref()
+                            .and_then(|addrs| addrs.first())
+                            .and_then(|addr| addr.name.as_ref())
+                            .map(|n| {
+                                let raw = String::from_utf8_lossy(n).to_string();
+                                decode_mime_header(&raw)
+                            });
+
+                        let subject = envelope
+                            .subject
+                            .as_ref()
+                            .map(|s| {
+                                let raw = String::from_utf8_lossy(s).to_string();
+                                decode_mime_header(&raw)
+                            })
+                            .unwrap_or_else(|| "(No subject)".to_string());
+
+                        let message_id = envelope
+                            .message_id
+                            .as_ref()
+                            .map(|id| String::from_utf8_lossy(id).to_string());
+
+                        let date = envelope
+                            .date
+                            .as_ref()
+                            .map(|d| String::from_utf8_lossy(d).to_string())
+                            .unwrap_or_else(|| "Unknown".to_string());
+
+                        emails.push(EmailSummary {
+                            uid,
+                            message_id,
+                            from,
+                            from_name,
+                            subject,
+                            preview: String::new(),
+                            date,
+                            is_read,
+                            is_starred,
+                            has_attachments: false,
+                        });
+                    }
+                }
+
+                log::info!("OAuth: Processed {} messages", emails.len());
+
+                emails.reverse();
+                let has_more = start > 1;
+
+                log::info!("OAuth: Returning {} emails, total={}, has_more={}", emails.len(), total, has_more);
+
+                Ok(FetchResult {
+                    emails,
+                    total,
+                    has_more,
+                })
+            }).await;
+        }
+
+        // Regular async session flow
+        let session = self.get_async_session()?;
 
         // Select the folder
         log::info!("Selecting folder: {}", safe_folder);
@@ -422,7 +835,133 @@ impl AsyncImapClient {
 
         log::info!("fetch_email: folder={}, uid={}", safe_folder, uid);
 
-        let session = self.session.as_mut().ok_or(MailError::NotConnected)?;
+        // Check if OAuth session
+        if let Some(ImapSession::OAuth(_)) = &self.session {
+            log::info!("OAuth fetch_email: using sync session");
+
+            let safe_folder_clone = safe_folder.clone();
+            return self.with_oauth_session(move |session| {
+                // Select folder
+                log::info!("OAuth fetch_email: selecting folder...");
+                session.select(&safe_folder_clone)?;
+                log::info!("OAuth fetch_email: folder selected");
+
+                // Fetch the email with body
+                let uid_str = uid.to_string();
+                log::info!("OAuth fetch_email: fetching UID {}...", uid);
+                let messages = session.uid_fetch(&uid_str, "(UID FLAGS ENVELOPE RFC822)")?;
+                log::info!("OAuth fetch_email: got {} messages", messages.len());
+
+                if let Some(message) = messages.iter().next() {
+                    let flags = message.flags();
+                    let is_read = flags.iter().any(|f| matches!(f, imap::types::Flag::Seen));
+                    let is_starred = flags.iter().any(|f| matches!(f, imap::types::Flag::Flagged));
+
+                    // Get envelope for headers
+                    let envelope = message.envelope();
+
+                    let (from, from_name) = envelope
+                        .and_then(|e| e.from.as_ref())
+                        .and_then(|addrs| addrs.first())
+                        .map(|addr| {
+                            let mailbox = addr.mailbox.as_ref()
+                                .map(|m| String::from_utf8_lossy(m).to_string())
+                                .unwrap_or_default();
+                            let host = addr.host.as_ref()
+                                .map(|h| String::from_utf8_lossy(h).to_string())
+                                .unwrap_or_default();
+                            let email = format!("{}@{}", mailbox, host);
+                            let name = addr.name.as_ref()
+                                .map(|n| decode_mime_header(&String::from_utf8_lossy(n)));
+                            (email, name)
+                        })
+                        .unwrap_or_else(|| ("unknown".to_string(), None));
+
+                    let to: Vec<String> = envelope
+                        .and_then(|e| e.to.as_ref())
+                        .map(|addrs| {
+                            addrs.iter().map(|addr| {
+                                let mailbox = addr.mailbox.as_ref()
+                                    .map(|m| String::from_utf8_lossy(m).to_string())
+                                    .unwrap_or_default();
+                                let host = addr.host.as_ref()
+                                    .map(|h| String::from_utf8_lossy(h).to_string())
+                                    .unwrap_or_default();
+                                format!("{}@{}", mailbox, host)
+                            }).collect()
+                        })
+                        .unwrap_or_default();
+
+                    let cc: Vec<String> = envelope
+                        .and_then(|e| e.cc.as_ref())
+                        .map(|addrs| {
+                            addrs.iter().map(|addr| {
+                                let mailbox = addr.mailbox.as_ref()
+                                    .map(|m| String::from_utf8_lossy(m).to_string())
+                                    .unwrap_or_default();
+                                let host = addr.host.as_ref()
+                                    .map(|h| String::from_utf8_lossy(h).to_string())
+                                    .unwrap_or_default();
+                                format!("{}@{}", mailbox, host)
+                            }).collect()
+                        })
+                        .unwrap_or_default();
+
+                    let subject = envelope
+                        .and_then(|e| e.subject.as_ref())
+                        .map(|s| decode_mime_header(&String::from_utf8_lossy(s)))
+                        .unwrap_or_else(|| "(No subject)".to_string());
+
+                    let date = envelope
+                        .and_then(|e| e.date.as_ref())
+                        .map(|d| String::from_utf8_lossy(d).to_string())
+                        .unwrap_or_else(|| "Unknown".to_string());
+
+                    let message_id = envelope
+                        .and_then(|e| e.message_id.as_ref())
+                        .map(|id| String::from_utf8_lossy(id).to_string());
+
+                    // Parse body
+                    log::info!("OAuth fetch_email: parsing body...");
+                    let body = message.body();
+                    log::info!("OAuth fetch_email: body present={}", body.is_some());
+                    let (body_text, body_html) = if let Some(body_bytes) = body {
+                        log::info!("OAuth fetch_email: body size={} bytes", body_bytes.len());
+                        parse_email_body(body_bytes)
+                    } else {
+                        log::warn!("OAuth fetch_email: no body found");
+                        (None, None)
+                    };
+
+                    log::debug!("OAuth Email fetched: uid={}, body_text_len={:?}, body_html_len={:?}",
+                        uid, body_text.as_ref().map(|s| s.len()), body_html.as_ref().map(|s| s.len()));
+
+                    return Ok(ParsedEmail {
+                        uid,
+                        message_id,
+                        from,
+                        from_name,
+                        to,
+                        cc,
+                        subject,
+                        date,
+                        body_text,
+                        body_html,
+                        is_read,
+                        is_starred,
+                        attachments: vec![],
+                    });
+                }
+
+                Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "Email not found"
+                )) as Box<dyn std::error::Error + Send + Sync>)
+            }).await;
+        }
+
+        // Regular async session flow
+        let session = self.get_async_session()?;
 
         // Select folder
         log::info!("fetch_email: selecting folder...");
@@ -574,7 +1113,30 @@ impl AsyncImapClient {
         // SECURITY: Sanitize folder name
         let safe_folder = sanitize_folder_name(folder);
 
-        let session = self.session.as_mut().ok_or(MailError::NotConnected)?;
+        // Check if OAuth session
+        if let Some(ImapSession::OAuth(_)) = &self.session {
+            log::info!("OAuth search: using sync session");
+
+            let safe_folder_clone = safe_folder.clone();
+            let query_clone = query.to_string();
+            return self.with_oauth_session(move |session| {
+                session.select(&safe_folder_clone)?;
+
+                // SECURITY: Sanitize search query to prevent IMAP injection
+                let sanitized_query = sanitize_imap_string(&query_clone);
+                let search_query = format!(
+                    "OR OR SUBJECT \"{}\" FROM \"{}\" BODY \"{}\"",
+                    sanitized_query, sanitized_query, sanitized_query
+                );
+
+                let uids = session.uid_search(&search_query)?;
+
+                Ok(uids.into_iter().collect())
+            }).await;
+        }
+
+        // Regular async session flow
+        let session = self.get_async_session()?;
 
         session
             .select(&safe_folder)
@@ -602,7 +1164,25 @@ impl AsyncImapClient {
         // SECURITY: Sanitize folder name
         let safe_folder = sanitize_folder_name(folder);
 
-        let session = self.session.as_mut().ok_or(MailError::NotConnected)?;
+        // Check if OAuth session
+        if let Some(ImapSession::OAuth(_)) = &self.session {
+            log::info!("OAuth set_read: using sync session");
+
+            let safe_folder_clone = safe_folder.clone();
+            return self.with_oauth_session(move |session| {
+                session.select(&safe_folder_clone)?;
+
+                let uid_str = uid.to_string();
+                let flag_cmd = if read { "+FLAGS (\\Seen)" } else { "-FLAGS (\\Seen)" };
+
+                session.uid_store(&uid_str, flag_cmd)?;
+
+                Ok(())
+            }).await;
+        }
+
+        // Regular async session flow
+        let session = self.get_async_session()?;
 
         session
             .select(&safe_folder)
@@ -628,7 +1208,25 @@ impl AsyncImapClient {
         // SECURITY: Sanitize folder name
         let safe_folder = sanitize_folder_name(folder);
 
-        let session = self.session.as_mut().ok_or(MailError::NotConnected)?;
+        // Check if OAuth session
+        if let Some(ImapSession::OAuth(_)) = &self.session {
+            log::info!("OAuth set_starred: using sync session");
+
+            let safe_folder_clone = safe_folder.clone();
+            return self.with_oauth_session(move |session| {
+                session.select(&safe_folder_clone)?;
+
+                let uid_str = uid.to_string();
+                let flag_cmd = if starred { "+FLAGS (\\Flagged)" } else { "-FLAGS (\\Flagged)" };
+
+                session.uid_store(&uid_str, flag_cmd)?;
+
+                Ok(())
+            }).await;
+        }
+
+        // Regular async session flow
+        let session = self.get_async_session()?;
 
         session
             .select(&safe_folder)
@@ -655,7 +1253,32 @@ impl AsyncImapClient {
         let safe_folder = sanitize_folder_name(folder);
         let safe_target = sanitize_folder_name(target_folder);
 
-        let session = self.session.as_mut().ok_or(MailError::NotConnected)?;
+        // Check if OAuth session
+        if let Some(ImapSession::OAuth(_)) = &self.session {
+            log::info!("OAuth move_email: using sync session");
+
+            let safe_folder_clone = safe_folder.clone();
+            let safe_target_clone = safe_target.clone();
+            return self.with_oauth_session(move |session| {
+                session.select(&safe_folder_clone)?;
+
+                let uid_str = uid.to_string();
+
+                // Copy to target folder
+                session.uid_copy(&uid_str, &safe_target_clone)?;
+
+                // Mark original as deleted
+                session.uid_store(&uid_str, "+FLAGS (\\Deleted)")?;
+
+                // Expunge deleted messages
+                session.expunge()?;
+
+                Ok(())
+            }).await;
+        }
+
+        // Regular async session flow
+        let session = self.get_async_session()?;
 
         session
             .select(&safe_folder)
@@ -698,7 +1321,52 @@ impl AsyncImapClient {
         // SECURITY: Sanitize folder name
         let safe_folder = sanitize_folder_name(folder);
 
-        let session = self.session.as_mut().ok_or(MailError::NotConnected)?;
+        // Check if OAuth session
+        if let Some(ImapSession::OAuth(_)) = &self.session {
+            log::info!("OAuth delete_email: using sync session");
+
+            let safe_folder_clone = safe_folder.clone();
+            return self.with_oauth_session(move |session| {
+                session.select(&safe_folder_clone)?;
+
+                let uid_str = uid.to_string();
+
+                if permanent {
+                    // Mark as deleted
+                    session.uid_store(&uid_str, "+FLAGS (\\Deleted)")?;
+
+                    // Expunge
+                    session.expunge()?;
+                } else {
+                    // Move to Trash folder - try common trash folder names
+                    let trash_folders = ["Trash", "[Gmail]/Trash", "Deleted Items", "Deleted"];
+                    let mut moved = false;
+
+                    for trash in &trash_folders {
+                        if session.uid_copy(&uid_str, trash).is_ok() {
+                            // Mark as deleted
+                            session.uid_store(&uid_str, "+FLAGS (\\Deleted)")?;
+
+                            // Expunge
+                            session.expunge()?;
+
+                            moved = true;
+                            break;
+                        }
+                    }
+
+                    if !moved {
+                        // If no trash folder found, just mark as deleted
+                        session.uid_store(&uid_str, "+FLAGS (\\Deleted)")?;
+                    }
+                }
+
+                Ok(())
+            }).await;
+        }
+
+        // Regular async session flow
+        let session = self.get_async_session()?;
 
         session
             .select(&safe_folder)

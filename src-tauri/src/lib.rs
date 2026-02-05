@@ -7,6 +7,7 @@ pub mod db;
 pub mod mail;
 pub mod oauth;
 pub mod sync;
+pub mod tray;
 
 use db::{Database, NewAccount as DbNewAccount};
 use mail::{fetch_autoconfig, fetch_autoconfig_debug, AsyncImapClient, AutoConfig, AutoConfigDebug, ImapClient, ImapConfig, SecurityType};
@@ -417,6 +418,7 @@ async fn account_test_imap(
         username: email.clone(),
         password: password.clone(),
         accept_invalid_certs: true, // Accept invalid certs during testing
+        oauth_provider: None, // Test uses regular password auth
     };
 
     // SECURITY: Zeroize password after creating config
@@ -607,10 +609,10 @@ async fn account_add(
     smtp_port: u16,
     smtp_security: String,
     is_default: bool,
-    #[allow(unused_variables)]
     accept_invalid_certs: Option<bool>,
+    oauth_provider: Option<String>,
 ) -> Result<String, String> {
-    log::info!("Adding account to database: {}", email);
+    log::info!("Adding account to database: {} (OAuth: {})", email, oauth_provider.is_some());
 
     // Encrypt password before storage
     let encrypted_password = crypto::encrypt_password(&password)
@@ -628,8 +630,8 @@ async fn account_add(
         smtp_security,
         smtp_username: Some(email),
         password_encrypted: Some(encrypted_password),
-        oauth_provider: None,
-        oauth_access_token: None,
+        oauth_provider: oauth_provider.clone(),
+        oauth_access_token: if oauth_provider.is_some() { Some(password.clone()) } else { None },
         oauth_refresh_token: None,
         oauth_expires_at: None,
         is_default,
@@ -795,9 +797,71 @@ async fn account_connect(state: State<'_, AppState>, account_id: String) -> Resu
         .map_err(|_| "Database error".to_string())?
         .ok_or_else(|| "No password stored".to_string())?;
 
-    // Decrypt password
+    // Decrypt password (or access token for OAuth)
     let mut password = crypto::decrypt_password(&encrypted_password)
         .map_err(|_| "Password decryption failed".to_string())?;
+
+    // Check if OAuth token needs refresh
+    if account.oauth_provider.is_some() {
+        if let Some(expires_at) = account.oauth_expires_at {
+            let now = chrono::Utc::now().timestamp();
+            // Refresh if token expires in less than 5 minutes
+            if expires_at - now < 300 {
+                log::info!("OAuth token expired or expiring soon, refreshing...");
+
+                if let Some(refresh_token) = &account.oauth_refresh_token {
+                    // Decrypt refresh token
+                    let encrypted_refresh = state.db.get_account_password(id)
+                        .map_err(|_| "Database error".to_string())?
+                        .ok_or_else(|| "No refresh token stored".to_string())?;
+
+                    // Get OAuth config based on provider
+                    let oauth_config = match account.oauth_provider.as_deref() {
+                        Some("google") => oauth::gmail_config(),
+                        Some("microsoft") => oauth::microsoft_config(),
+                        _ => return Err("Unknown OAuth provider".to_string()),
+                    };
+
+                    // Refresh the token
+                    match oauth::refresh_access_token(&oauth_config, refresh_token).await {
+                        Ok(result) => {
+                            log::info!("✓ Token refreshed successfully");
+
+                            // Update password with new access token
+                            password.zeroize();
+                            password = result.access_token.clone();
+
+                            // Save new access token to database
+                            let encrypted_new_token = crypto::encrypt_password(&result.access_token)
+                                .map_err(|e| format!("Encryption failed: {}", e))?;
+
+                            state.db.update_oauth_access_token(id, &encrypted_new_token)
+                                .map_err(|e| format!("Database error: {}", e))?;
+
+                            // Update expiry time (1 hour from now)
+                            let new_expires_at = chrono::Utc::now().timestamp() + 3600;
+                            state.db.update_oauth_expires_at(id, new_expires_at)
+                                .map_err(|e| format!("Database error: {}", e))?;
+
+                            // Update refresh token if we got a new one
+                            if let Some(new_refresh) = result.refresh_token {
+                                state.db.update_oauth_refresh_token(id, &new_refresh)
+                                    .map_err(|e| format!("Database error: {}", e))?;
+                            }
+
+                            log::info!("✓ Tokens saved to database");
+                        }
+                        Err(e) => {
+                            log::error!("Token refresh failed: {}. Please re-authenticate.", e);
+                            return Err(format!("OAuth token expired. Please remove and re-add the account."));
+                        }
+                    }
+                } else {
+                    return Err("OAuth refresh token not found. Please remove and re-add the account.".to_string());
+                }
+            }
+        }
+    }
 
     let config = ImapConfig {
         host: account.imap_host.clone(),
@@ -806,6 +870,7 @@ async fn account_connect(state: State<'_, AppState>, account_id: String) -> Resu
         username: account.imap_username.clone().unwrap_or(account.email.clone()),
         password: password.clone(),
         accept_invalid_certs: account.accept_invalid_certs,
+        oauth_provider: account.oauth_provider.clone(),
     };
 
     // SECURITY: Zeroize password after creating config
@@ -820,6 +885,25 @@ async fn account_connect(state: State<'_, AppState>, account_id: String) -> Resu
     async_clients.insert(account_id.clone(), async_client);
 
     log::info!("Account connected successfully");
+    Ok(())
+}
+
+/// Delete an account
+#[tauri::command]
+async fn account_delete(state: State<'_, AppState>, account_id: String) -> Result<(), String> {
+    log::info!("Deleting account: {}", account_id);
+    let id: i64 = account_id.parse().map_err(|_| "Invalid account ID")?;
+
+    // Remove from async clients if connected
+    let mut async_clients = state.async_imap_clients.lock().await;
+    async_clients.remove(&account_id);
+    drop(async_clients);
+
+    // Delete from database
+    state.db.delete_account(id)
+        .map_err(|e| format!("Database error: {}", e))?;
+
+    log::info!("Account {} deleted successfully", account_id);
     Ok(())
 }
 
@@ -924,6 +1008,7 @@ async fn email_get(
         username: account.email.clone(),
         password,
         accept_invalid_certs: account.accept_invalid_certs,
+        oauth_provider: account.oauth_provider.clone(),
     };
 
     // Create a fresh connection for this request to avoid session conflicts
@@ -1120,11 +1205,43 @@ async fn email_send(
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or_else(|| "No password stored".to_string())?;
 
-    // Decrypt password
+    // Decrypt password (or access token for OAuth)
     let password = crypto::decrypt_password(&encrypted_password)
         .map_err(|e| format!("Password decryption failed: {}", e))?;
 
     log::info!("Sending email from {} to {:?}", account.email, to);
+
+    // Check if this is an OAuth account
+    if account.oauth_provider.is_some() {
+        log::info!("Using OAuth2 SMTP for account: {}", account.email);
+
+        // Determine email body format
+        let (body_str, is_html) = if let Some(html) = html_body {
+            (html, true)
+        } else {
+            (text_body.unwrap_or_default(), false)
+        };
+
+        // Use OAuth2 SMTP implementation
+        return mail::smtp_oauth::send_email_oauth(
+            &account.smtp_host,
+            account.smtp_port as u16,
+            &account.email,
+            &password, // This is the access token
+            &account.email,
+            &to,
+            &cc,
+            &bcc,
+            &subject,
+            &body_str,
+            is_html,
+        )
+        .await
+        .map_err(|e| {
+            log::error!("OAuth SMTP send failed: {}", e);
+            e.to_string()
+        });
+    }
 
     // Build and send email using lettre
     use lettre::{
@@ -1701,61 +1818,117 @@ struct SchedulerStatusDto {
 // OAuth2 Authentication Commands
 // ============================================================================
 
-use crate::oauth::{gmail_config, microsoft_config, start_oauth_flow, handle_oauth_callback, start_callback_server};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct OAuthStartResult {
-    auth_url: String,
-    csrf_token: String,
-}
+use crate::oauth::{gmail_config, start_oauth_flow, handle_oauth_callback, start_callback_server, shutdown_callback_server};
 
 /// Start Gmail OAuth2 authentication flow
+/// Returns complete account information automatically when user completes auth in browser
 #[tauri::command]
-async fn oauth_start_gmail() -> Result<OAuthStartResult, String> {
+async fn oauth_start_gmail() -> Result<OAuthCompleteResult, String> {
     log::info!("Starting Gmail OAuth2 flow");
-
-    let config = gmail_config();
-    let (auth_url, csrf_token) = start_oauth_flow(&config)
-        .map_err(|e| format!("Failed to start OAuth flow: {}", e))?;
-
-    // Start callback server in background
-    let callback_result = Arc::new(Mutex::new(None));
-    let callback_result_clone = callback_result.clone();
-
-    std::thread::spawn(move || {
-        if let Err(e) = start_callback_server(callback_result_clone) {
-            log::error!("OAuth callback server error: {}", e);
-        }
-    });
-
-    Ok(OAuthStartResult {
-        auth_url,
-        csrf_token: csrf_token.secret().clone(),
-    })
+    complete_oauth_flow("gmail").await
 }
 
-/// Start Microsoft OAuth2 authentication flow
-#[tauri::command]
-async fn oauth_start_microsoft() -> Result<OAuthStartResult, String> {
-    log::info!("Starting Microsoft OAuth2 flow");
+/// Complete OAuth flow automatically - waits for callback and returns account info
+async fn complete_oauth_flow(provider: &str) -> Result<OAuthCompleteResult, String> {
+    let config = match provider {
+        "gmail" => gmail_config(),
+        _ => return Err("Unknown OAuth provider".to_string()),
+    };
 
-    let config = microsoft_config();
-    let (auth_url, csrf_token) = start_oauth_flow(&config)
+    // Generate auth URL
+    let (auth_url, _csrf_token) = start_oauth_flow(&config)
         .map_err(|e| format!("Failed to start OAuth flow: {}", e))?;
 
-    // Start callback server in background
-    let callback_result = Arc::new(Mutex::new(None));
+    // Open browser automatically
+    log::info!("Opening browser for OAuth: {}", auth_url);
+    if let Err(e) = open::that(&auth_url) {
+        log::warn!("Failed to open browser automatically: {}", e);
+    }
+
+    // Start callback server and wait for result (authorization_code, state)
+    let callback_result: Arc<Mutex<Option<Result<(String, String), crate::oauth::OAuthError>>>> = Arc::new(Mutex::new(None));
     let callback_result_clone = callback_result.clone();
 
-    std::thread::spawn(move || {
+    // Start server in background thread with proper handle
+    let server_handle = std::thread::spawn(move || {
         if let Err(e) = start_callback_server(callback_result_clone) {
             log::error!("OAuth callback server error: {}", e);
         }
     });
 
-    Ok(OAuthStartResult {
-        auth_url,
-        csrf_token: csrf_token.secret().clone(),
+    // Wait for callback (with timeout)
+    let timeout = std::time::Duration::from_secs(120); // 2 minute timeout
+    let start = std::time::Instant::now();
+
+    let (authorization_code, csrf_state) = loop {
+        if start.elapsed() > timeout {
+            // Timeout reached - signal server to shut down
+            shutdown_callback_server();
+            // Give server a moment to clean up
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            return Err("OAuth timeout: Please try again and complete authentication within 2 minutes".to_string());
+        }
+
+        // Check if callback result is available (scope lock tightly)
+        let callback_value = {
+            if let Ok(mut guard) = callback_result.lock() {
+                guard.take()
+            } else {
+                None
+            }
+        }; // MutexGuard dropped here, before await
+
+        if let Some(result) = callback_value {
+            match result {
+                Ok((code, state)) => break (code, state),
+                Err(e) => {
+                    // Error in OAuth - shut down server
+                    shutdown_callback_server();
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    return Err(format!("OAuth failed: {}", e));
+                }
+            }
+        }
+
+        // Sleep briefly to avoid busy waiting
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    };
+
+    // Wait for server thread to finish cleanly (with timeout)
+    let join_timeout = std::time::Duration::from_secs(2);
+    tokio::task::spawn_blocking(move || {
+        std::thread::sleep(join_timeout);
+        let _ = server_handle.join();
+    });
+
+    // Exchange code for tokens with PKCE verifier
+    log::info!("Exchanging authorization code for tokens");
+    let oauth_result = handle_oauth_callback(&config, authorization_code, csrf_state)
+        .await
+        .map_err(|e| format!("Token exchange failed: {}", e))?;
+
+    // Set provider-specific IMAP/SMTP settings (Gmail only for now)
+    let (imap_host, imap_port, smtp_host, smtp_port) = match provider {
+        "gmail" => (
+            "imap.gmail.com".to_string(),
+            993,
+            "smtp.gmail.com".to_string(),
+            465, // Gmail OAuth SMTP requires port 465 (direct TLS)
+        ),
+        _ => return Err("Unknown provider".to_string()),
+    };
+
+    log::info!("OAuth completed successfully for {}", oauth_result.email);
+
+    Ok(OAuthCompleteResult {
+        email: oauth_result.email,
+        display_name: oauth_result.display_name,
+        access_token: oauth_result.access_token,
+        refresh_token: oauth_result.refresh_token,
+        imap_host,
+        imap_port,
+        smtp_host,
+        smtp_port,
     })
 }
 
@@ -1771,59 +1944,15 @@ struct OAuthCompleteResult {
     smtp_port: u16,
 }
 
-/// Complete OAuth2 authentication with authorization code
-#[tauri::command]
-async fn oauth_complete(
-    provider: String,
-    authorization_code: String,
-) -> Result<OAuthCompleteResult, String> {
-    log::info!("Completing OAuth2 flow for {}", provider);
-
-    let config = match provider.as_str() {
-        "gmail" => gmail_config(),
-        "microsoft" => microsoft_config(),
-        _ => return Err("Unknown OAuth provider".to_string()),
-    };
-
-    let result = handle_oauth_callback(&config, authorization_code)
-        .await
-        .map_err(|e| format!("OAuth callback failed: {}", e))?;
-
-    // Set provider-specific IMAP/SMTP settings
-    let (imap_host, imap_port, smtp_host, smtp_port) = match provider.as_str() {
-        "gmail" => (
-            "imap.gmail.com".to_string(),
-            993,
-            "smtp.gmail.com".to_string(),
-            587,
-        ),
-        "microsoft" => (
-            "outlook.office365.com".to_string(),
-            993,
-            "smtp.office365.com".to_string(),
-            587,
-        ),
-        _ => return Err("Unknown provider".to_string()),
-    };
-
-    Ok(OAuthCompleteResult {
-        email: result.email,
-        display_name: result.display_name,
-        access_token: result.access_token,
-        refresh_token: result.refresh_token,
-        imap_host,
-        imap_port,
-        smtp_host,
-        smtp_port,
-    })
-}
-
 // ============================================================================
 // Application Entry Point
 // ============================================================================
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Load .env file for OAuth credentials
+    dotenvy::dotenv().ok();
+
     // Initialize logger
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
@@ -1881,6 +2010,7 @@ pub fn run() {
             fetch_url_content,
             account_list,
             account_connect,
+            account_delete,
             folder_list,
             email_list,
             email_get,
@@ -1891,8 +2021,6 @@ pub fn run() {
             email_delete,
             email_send,
             oauth_start_gmail,
-            oauth_start_microsoft,
-            oauth_complete,
             sync_register,
             sync_login,
             sync_logout,
@@ -1917,6 +2045,43 @@ pub fn run() {
             scheduler_update_config,
         ])
         .setup(|app| {
+            // Setup system tray
+            if let Err(e) = tray::setup_tray(&app.handle()) {
+                log::error!("Failed to setup system tray: {}", e);
+            } else {
+                log::info!("System tray initialized successfully");
+            }
+
+            // Setup window close event handler (minimize to tray)
+            let app_handle = app.handle().clone();
+            if let Some(window) = app.get_webview_window("main") {
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        // Check if close_to_tray is enabled
+                        if let Some(state) = app_handle.try_state::<AppState>() {
+                            // Get setting from database (JSON boolean)
+                            let should_minimize: bool = state.db.get_setting("close_to_tray")
+                                .ok()
+                                .flatten()
+                                .unwrap_or(true); // Default: minimize to tray
+
+                            if should_minimize {
+                                // Hide window instead of closing
+                                if let Some(window) = app_handle.get_webview_window("main") {
+                                    let _ = window.hide();
+                                }
+                                api.prevent_close();
+                                log::info!("Window minimized to system tray");
+                            }
+                            // If false, let the window close normally
+                        }
+                    }
+                });
+            } else {
+                println!("❌ Could not get main window!");
+                eprintln!("❌ Could not get main window!");
+            }
+
             // Auto-start background scheduler if enabled
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {

@@ -40,6 +40,8 @@ pub struct ImapConfig {
     pub password: String,
     #[serde(default)]
     pub accept_invalid_certs: bool,
+    /// OAuth provider (e.g., "gmail") - if set, use XOAUTH2 instead of password auth
+    pub oauth_provider: Option<String>,
 }
 
 impl Default for ImapConfig {
@@ -51,6 +53,7 @@ impl Default for ImapConfig {
             username: String::new(),
             password: String::new(),
             accept_invalid_certs: false, // Secure by default
+            oauth_provider: None,
         }
     }
 }

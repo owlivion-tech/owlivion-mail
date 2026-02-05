@@ -95,44 +95,90 @@ export function AddAccountModal({
     }
   }, [isOpen, editAccount]);
 
-  // Handle Gmail OAuth
+  // Handle Gmail OAuth - fully automatic like Thunderbird!
   const handleGmailOAuth = async () => {
     try {
       setStep('detecting');
       setError('');
+      setTestProgress('Tarayıcı açılıyor...');
 
-      // Start OAuth flow
-      const result = await invoke<{ auth_url: string; csrf_token: string }>('oauth_start_gmail');
+      // Start OAuth flow - this will open browser and wait for callback automatically
+      const result = await invoke<{
+        email: string;
+        display_name: string | null;
+        access_token: string;
+        refresh_token: string | null;
+        imap_host: string;
+        imap_port: number;
+        smtp_host: string;
+        smtp_port: number;
+      }>('oauth_start_gmail');
 
-      // Open OAuth URL in browser
-      window.open(result.auth_url, '_blank');
+      // OAuth completed successfully! Fill in the form
+      setEmail(result.email);
+      setDisplayName(result.display_name || result.email.split('@')[0]);
+      setPassword(result.access_token); // OAuth token used as password
+      setImapHost(result.imap_host);
+      setImapPort(result.imap_port);
+      setImapSecurity('SSL');
+      setSmtpHost(result.smtp_host);
+      setSmtpPort(result.smtp_port);
+      setSmtpSecurity('STARTTLS');
 
-      // Wait for callback (this is a simplified version - you might want to use a proper callback mechanism)
-      setError('Please complete authentication in the browser window and then paste the authorization code.');
-      setStep('credentials');
+      // Auto-save the account
+      setStep('testing');
+      setTestProgress('Hesap kaydediliyor...');
+
+      const newAccount = {
+        displayName: result.display_name || result.email.split('@')[0],
+        email: result.email,
+        imapHost: result.imap_host,
+        imapPort: result.imap_port,
+        imapSecurity: 'SSL' as const,
+        smtpHost: result.smtp_host,
+        smtpPort: result.smtp_port,
+        smtpSecurity: 'STARTTLS' as const,
+        password: result.access_token,
+        acceptInvalidCerts: false,
+        isActive: true,
+        isDefault: false,
+        signature: '',
+        syncDays: 30,
+        oauthProvider: 'gmail' as const,
+        oauthRefreshToken: result.refresh_token || '',
+      };
+
+      const accountId = await invoke<string>('account_add', {
+        email: newAccount.email,
+        displayName: newAccount.displayName,
+        password: newAccount.password,
+        imapHost: newAccount.imapHost,
+        imapPort: newAccount.imapPort,
+        imapSecurity: newAccount.imapSecurity,
+        smtpHost: newAccount.smtpHost,
+        smtpPort: newAccount.smtpPort,
+        smtpSecurity: newAccount.smtpSecurity,
+        isDefault: true,
+        acceptInvalidCerts: newAccount.acceptInvalidCerts || false,
+        oauthProvider: 'gmail', // Mark this as a Gmail OAuth account
+      });
+
+      // Connect to the account immediately to establish IMAP connection with OAuth
+      setTestProgress('IMAP bağlantısı kuruluyor...');
+      await invoke('account_connect', { accountId });
+
+      setStep('success');
+      setTimeout(() => {
+        onAccountAdded({
+          ...newAccount,
+          id: parseInt(accountId),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+        onClose();
+      }, 1500);
     } catch (err: any) {
-      setError(`OAuth failed: ${err}`);
-      setStep('credentials');
-    }
-  };
-
-  // Handle Microsoft OAuth
-  const handleMicrosoftOAuth = async () => {
-    try {
-      setStep('detecting');
-      setError('');
-
-      // Start OAuth flow
-      const result = await invoke<{ auth_url: string; csrf_token: string }>('oauth_start_microsoft');
-
-      // Open OAuth URL in browser
-      window.open(result.auth_url, '_blank');
-
-      // Wait for callback (this is a simplified version - you might want to use a proper callback mechanism)
-      setError('Please complete authentication in the browser window and then paste the authorization code.');
-      setStep('credentials');
-    } catch (err: any) {
-      setError(`OAuth failed: ${err}`);
+      setError(`OAuth başarısız: ${err}`);
       setStep('credentials');
     }
   };
@@ -438,34 +484,28 @@ export function AddAccountModal({
                     </div>
                   </div>
 
+                  {/* Gmail / Google Workspace */}
                   <button
                     type="button"
-                    className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-owl-surface-2 border border-owl-border rounded-lg text-owl-text hover:bg-owl-border/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full flex items-center gap-3 px-4 py-3 bg-owl-surface-2 border border-owl-border rounded-lg text-owl-text hover:bg-owl-border/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed group"
                     onClick={handleGmailOAuth}
                     disabled={step !== 'credentials'}
                   >
-                    <svg className="w-5 h-5" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24">
                       <path fill="#EA4335" d="M5.266 9.765A7.077 7.077 0 0 1 12 4.909c1.69 0 3.218.6 4.418 1.582L19.91 3C17.782 1.145 15.055 0 12 0 7.27 0 3.198 2.698 1.24 6.65l4.026 3.115Z" />
                       <path fill="#34A853" d="M16.04 18.013c-1.09.703-2.474 1.078-4.04 1.078a7.077 7.077 0 0 1-6.723-4.823l-4.04 3.067A11.965 11.965 0 0 0 12 24c2.933 0 5.735-1.043 7.834-3l-3.793-2.987Z" />
                       <path fill="#4A90E2" d="M19.834 21c2.195-2.048 3.62-5.096 3.62-9 0-.71-.109-1.473-.272-2.182H12v4.637h6.436c-.317 1.559-1.17 2.766-2.395 3.558L19.834 21Z" />
                       <path fill="#FBBC05" d="M5.277 14.268A7.12 7.12 0 0 1 4.909 12c0-.782.125-1.533.357-2.235L1.24 6.65A11.934 11.934 0 0 0 0 12c0 1.92.445 3.73 1.237 5.335l4.04-3.067Z" />
                     </svg>
-                    Google ile giriş yap
+                    <div className="flex-1 text-left">
+                      <div className="font-medium">Gmail ile giriş yap</div>
+                      <div className="text-xs text-owl-text-secondary">Gmail, Google Workspace</div>
+                    </div>
+                    <svg className="w-4 h-4 text-owl-text-secondary group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
                   </button>
 
-                  <button
-                    type="button"
-                    className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-owl-surface-2 border border-owl-border rounded-lg text-owl-text hover:bg-owl-border/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    onClick={handleMicrosoftOAuth}
-                    disabled={step !== 'credentials'}
-                  >
-                    <svg className="w-5 h-5" viewBox="0 0 24 24">
-                      <path fill="#0078D4" d="M24 12c0 6.627-5.373 12-12 12S0 18.627 0 12 5.373 0 12 0s12 5.373 12 12 Z" />
-                      <path fill="#fff" d="M7.5 7.5h9v9h-9z" />
-                      <path fill="#0078D4" d="M8.25 8.25h3.75v3.75H8.25zm4.5 0h3.75v3.75h-3.75zm-4.5 4.5h3.75v3.75H8.25zm4.5 0h3.75v3.75h-3.75z" />
-                    </svg>
-                    Microsoft ile giriş yap
-                  </button>
                 </div>
               </>
             )}

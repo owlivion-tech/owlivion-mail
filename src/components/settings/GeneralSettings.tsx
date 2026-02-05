@@ -347,6 +347,20 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
               onChange={(value) => updateSetting('confirmSend', value)}
             />
           </div>
+
+          {/* Close to Tray */}
+          <div className="flex items-center justify-between">
+            <div>
+              <label className="text-sm font-medium text-owl-text">System Tray'e Minimize Et</label>
+              <p className="text-xs text-owl-text-secondary mt-0.5">
+                Pencere kapatıldığında uygulamayı tamamen kapatmak yerine system tray'e gönder
+              </p>
+            </div>
+            <Toggle
+              enabled={settings.closeToTray}
+              onChange={(value) => updateSetting('closeToTray', value)}
+            />
+          </div>
         </div>
       </section>
 

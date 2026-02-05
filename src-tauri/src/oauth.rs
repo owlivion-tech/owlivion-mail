@@ -5,12 +5,25 @@
 use oauth2::{
     basic::BasicClient,
     reqwest::async_http_client,
-    AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge,
+    AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge, PkceCodeVerifier,
     RedirectUrl, Scope, TokenResponse, TokenUrl,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tiny_http::{Response, Server};
+
+#[allow(unused_imports)]
+use Ordering as _; // Used in lazy_static initialization
+
+// Global OAuth server state to prevent multiple servers on same port
+lazy_static::lazy_static! {
+    static ref OAUTH_SERVER_RUNNING: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+    static ref OAUTH_SERVER_SHUTDOWN: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+    // Store PKCE verifiers by CSRF token (state parameter)
+    static ref PKCE_VERIFIERS: Arc<Mutex<HashMap<String, PkceCodeVerifier>>> = Arc::new(Mutex::new(HashMap::new()));
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum OAuthError {
@@ -95,10 +108,10 @@ pub fn start_oauth_flow(config: &OAuthConfig) -> Result<(String, CsrfToken), OAu
             .map_err(|e| OAuthError::OAuth2(e.to_string()))?,
     );
 
-    // Generate PKCE challenge
-    let (pkce_challenge, _pkce_verifier) = PkceCodeChallenge::new_random_sha256();
+    // Generate PKCE challenge and verifier
+    let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
 
-    // Generate authorization URL
+    // Generate authorization URL with CSRF token
     let mut auth_request = client.authorize_url(CsrfToken::new_random);
 
     // Add scopes
@@ -110,6 +123,12 @@ pub fn start_oauth_flow(config: &OAuthConfig) -> Result<(String, CsrfToken), OAu
         .set_pkce_challenge(pkce_challenge)
         .url();
 
+    // Store PKCE verifier for later use in token exchange
+    let csrf_token_str = csrf_token.secret().clone();
+    if let Ok(mut verifiers) = PKCE_VERIFIERS.lock() {
+        verifiers.insert(csrf_token_str, pkce_verifier);
+    }
+
     Ok((auth_url.to_string(), csrf_token))
 }
 
@@ -117,6 +136,7 @@ pub fn start_oauth_flow(config: &OAuthConfig) -> Result<(String, CsrfToken), OAu
 pub async fn handle_oauth_callback(
     config: &OAuthConfig,
     authorization_code: String,
+    csrf_token: String,
 ) -> Result<OAuthResult, OAuthError> {
     let client = BasicClient::new(
         ClientId::new(config.client_id.clone()),
@@ -129,9 +149,18 @@ pub async fn handle_oauth_callback(
             .map_err(|e| OAuthError::OAuth2(e.to_string()))?,
     );
 
-    // Exchange authorization code for access token
+    // Retrieve PKCE verifier from storage
+    let pkce_verifier = {
+        let mut verifiers = PKCE_VERIFIERS.lock()
+            .map_err(|e| OAuthError::OAuth2(format!("Failed to access PKCE verifiers: {}", e)))?;
+        verifiers.remove(&csrf_token)
+            .ok_or_else(|| OAuthError::OAuth2("PKCE verifier not found - possible CSRF attack or timeout".to_string()))?
+    };
+
+    // Exchange authorization code for access token with PKCE verifier
     let token_result = client
         .exchange_code(AuthorizationCode::new(authorization_code))
+        .set_pkce_verifier(pkce_verifier)
         .request_async(async_http_client)
         .await
         .map_err(|e| OAuthError::TokenExchange(e.to_string()))?;
@@ -193,15 +222,49 @@ async fn fetch_user_info(
 }
 
 /// Start a local HTTP server to handle OAuth redirect
+/// Now with proper cleanup and shutdown mechanism
+/// Returns (authorization_code, state) tuple
 pub fn start_callback_server(
-    callback_result: Arc<Mutex<Option<Result<String, OAuthError>>>>,
+    callback_result: Arc<Mutex<Option<Result<(String, String), OAuthError>>>>,
 ) -> Result<(), OAuthError> {
-    let server = Server::http("127.0.0.1:8080")
-        .map_err(|e| OAuthError::Server(e.to_string()))?;
+    // Check if server is already running
+    if OAUTH_SERVER_RUNNING.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+        log::warn!("OAuth server already running, waiting for it to finish...");
+        // Wait for the previous server to shut down
+        for _ in 0..50 {
+            if !OAUTH_SERVER_RUNNING.load(Ordering::SeqCst) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        // Try again to set running flag
+        if OAUTH_SERVER_RUNNING.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+            return Err(OAuthError::Server("OAuth server still running after timeout".to_string()));
+        }
+    }
+
+    // Reset shutdown flag
+    OAUTH_SERVER_SHUTDOWN.store(false, Ordering::SeqCst);
+
+    // Try to bind to port 8080, with retries
+    let server = match Server::http("127.0.0.1:8080") {
+        Ok(s) => s,
+        Err(e) => {
+            OAUTH_SERVER_RUNNING.store(false, Ordering::SeqCst);
+            return Err(OAuthError::Server(format!("Failed to bind to port 8080: {}. Please close any browser tabs pointing to localhost:8080 and try again.", e)));
+        }
+    };
 
     log::info!("OAuth callback server started on http://localhost:8080");
 
     for request in server.incoming_requests() {
+        // Check if we should shut down
+        if OAUTH_SERVER_SHUTDOWN.load(Ordering::SeqCst) {
+            log::info!("OAuth server received shutdown signal");
+            let _ = request.respond(Response::from_string("Server shutting down"));
+            break;
+        }
+
         let url = request.url();
         log::info!("Received OAuth callback: {}", url);
 
@@ -218,25 +281,117 @@ pub fn start_callback_server(
 
                 // Check for error
                 if let Some((_, error)) = params.iter().find(|(k, _)| *k == "error") {
-                    *callback_result.lock().unwrap() = Some(Err(OAuthError::OAuth2(error.to_string())));
-                    let _ = request.respond(Response::from_string("Authentication failed! You can close this window."));
+                    if let Ok(mut guard) = callback_result.lock() {
+                        *guard = Some(Err(OAuthError::OAuth2(error.to_string())));
+                    }
+                    let _ = request.respond(Response::from_string(
+                        "<html><body style='font-family: sans-serif; text-align: center; padding: 50px;'>\
+                        <h1>❌ Authentication Failed</h1>\
+                        <p>You can close this window and return to Owlivion Mail.</p>\
+                        </body></html>"
+                    ));
                     break;
                 }
 
-                // Get authorization code
+                // Get authorization code and state
                 if let Some((_, code)) = params.iter().find(|(k, _)| *k == "code") {
-                    *callback_result.lock().unwrap() = Some(Ok(code.to_string()));
+                    // URL decode the code
+                    let decoded_code = urlencoding::decode(code)
+                        .unwrap_or(std::borrow::Cow::Borrowed(code))
+                        .to_string();
+
+                    // Get state parameter (CSRF token)
+                    let state = params.iter()
+                        .find(|(k, _)| *k == "state")
+                        .map(|(_, v)| urlencoding::decode(v).unwrap_or(std::borrow::Cow::Borrowed(v)).to_string())
+                        .unwrap_or_default();
+
+                    if let Ok(mut guard) = callback_result.lock() {
+                        *guard = Some(Ok((decoded_code, state)));
+                    }
                     let _ = request.respond(Response::from_string(
-                        "Authentication successful! You can close this window and return to Owlivion Mail."
+                        "<html><body style='font-family: sans-serif; text-align: center; padding: 50px;'>\
+                        <h1>✅ Authentication Successful!</h1>\
+                        <p>You can close this window and return to Owlivion Mail.</p>\
+                        <script>setTimeout(() => window.close(), 2000);</script>\
+                        </body></html>"
                     ));
                     break;
                 }
             }
 
-            let _ = request.respond(Response::from_string("Invalid callback"));
+            let _ = request.respond(Response::from_string(
+                "<html><body style='font-family: sans-serif; text-align: center; padding: 50px;'>\
+                <h1>⚠️ Invalid Callback</h1>\
+                <p>Please close this window and try again.</p>\
+                </body></html>"
+            ));
             break;
         }
+
+        // Unknown request, ignore but don't break (keep server running)
+        let _ = request.respond(Response::from_string("Not found"));
     }
 
+    // Mark server as stopped
+    OAUTH_SERVER_RUNNING.store(false, Ordering::SeqCst);
+    log::info!("OAuth callback server stopped");
+
     Ok(())
+}
+
+/// Signal the OAuth server to shut down
+pub fn shutdown_callback_server() {
+    log::info!("Signaling OAuth server shutdown");
+    OAUTH_SERVER_SHUTDOWN.store(true, Ordering::SeqCst);
+
+    // Try to make a request to wake up the server if it's waiting
+    std::thread::spawn(|| {
+        let _ = reqwest::blocking::get("http://127.0.0.1:8080/shutdown");
+    });
+}
+
+/// Refresh OAuth2 access token using refresh token
+pub async fn refresh_access_token(
+    config: &OAuthConfig,
+    refresh_token: &str,
+) -> Result<OAuthResult, OAuthError> {
+    use oauth2::{RefreshToken, TokenResponse};
+
+    let client = BasicClient::new(
+        ClientId::new(config.client_id.clone()),
+        Some(ClientSecret::new(config.client_secret.clone())),
+        AuthUrl::new(config.auth_url.clone()).map_err(|e| OAuthError::OAuth2(e.to_string()))?,
+        Some(TokenUrl::new(config.token_url.clone()).map_err(|e| OAuthError::OAuth2(e.to_string()))?),
+    );
+
+    log::info!("Refreshing OAuth2 access token...");
+
+    // Exchange refresh token for new access token
+    let token_result = client
+        .exchange_refresh_token(&RefreshToken::new(refresh_token.to_string()))
+        .request_async(async_http_client)
+        .await
+        .map_err(|e| {
+            log::error!("Token refresh failed: {:?}", e);
+            OAuthError::TokenExchange(format!("Failed to refresh token: {}. Please re-authenticate.", e))
+        })?;
+
+    let access_token = token_result.access_token().secret().clone();
+    let new_refresh_token = token_result
+        .refresh_token()
+        .map(|t| t.secret().clone())
+        .or_else(|| Some(refresh_token.to_string())); // Keep old refresh token if not provided
+
+    // Fetch user info to get email (should be cached but let's be safe)
+    let (email, display_name) = fetch_user_info(&access_token, &config.auth_url).await?;
+
+    log::info!("✓ OAuth2 token refreshed successfully for {}", email);
+
+    Ok(OAuthResult {
+        access_token,
+        refresh_token: new_refresh_token,
+        email,
+        display_name,
+    })
 }

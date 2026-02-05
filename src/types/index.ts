@@ -210,6 +210,7 @@ export interface Settings {
   confirmSend: boolean;
   signaturePosition: 'top' | 'bottom';
   replyPosition: 'top' | 'bottom';
+  closeToTray: boolean;
 
   // AI
   geminiApiKey?: string;
@@ -237,6 +238,7 @@ export const DEFAULT_SETTINGS: Settings = {
   confirmSend: false,
   signaturePosition: 'bottom',
   replyPosition: 'top',
+  closeToTray: true,
   geminiApiKey: undefined,
   aiAutoSummarize: false,
   aiReplyTone: 'professional',

@@ -313,7 +313,8 @@ INSERT OR IGNORE INTO settings (key, value) VALUES
     ('keyboard_shortcuts_enabled', 'true'),
     ('compact_list_view', 'false'),
     ('show_avatars', 'true'),
-    ('conversation_view', 'true');
+    ('conversation_view', 'true'),
+    ('close_to_tray', 'true');
 
 -- ============================================================================
 -- SYNC_STATE TABLE

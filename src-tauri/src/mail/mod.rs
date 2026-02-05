@@ -6,6 +6,7 @@ pub mod autoconfig;
 pub mod async_imap;
 pub mod config;
 pub mod imap;
+pub mod smtp_oauth;
 
 use serde::{Deserialize, Serialize};
 

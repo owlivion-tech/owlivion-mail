@@ -3,6 +3,7 @@
 // ============================================================================
 
 import { useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { AddAccountModal } from './AddAccountModal';
 import type { Account } from '../../types';
 
@@ -15,9 +16,17 @@ export function AccountSettings({ accounts, onAccountsChange }: AccountSettingsP
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
 
-  const handleDeleteAccount = (accountId: number) => {
+  const handleDeleteAccount = async (accountId: number) => {
     if (confirm('Bu hesabı silmek istediğinizden emin misiniz?')) {
-      onAccountsChange(accounts.filter((a) => a.id !== accountId));
+      try {
+        // Call backend to delete from database
+        await invoke('account_delete', { accountId: accountId.toString() });
+        // Update local state after successful deletion
+        onAccountsChange(accounts.filter((a) => a.id !== accountId));
+      } catch (error) {
+        console.error('Failed to delete account:', error);
+        alert('Hesap silinirken bir hata oluştu: ' + error);
+      }
     }
   };
 

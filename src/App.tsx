@@ -126,6 +126,11 @@ function getCompanyLogoUrl(email: string): string | null {
   const domain = getEmailDomain(email);
   if (!domain) return null;
 
+  // Special case: Owlivion domains - use our logo!
+  if (domain === 'owlivion.com' || domain === 'owlcrypt.com') {
+    return owlivionIcon; // Use the Owlivion logo imported at the top
+  }
+
   // Skip personal email providers - show initials instead
   const personalDomains = ['gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com', 'yahoo.com', 'icloud.com', 'me.com', 'protonmail.com', 'proton.me', 'yandex.com', 'mail.ru'];
   if (personalDomains.includes(domain)) return null;
@@ -143,6 +148,8 @@ function CompanyAvatar({ email, name, size = 'md', unread = false }: {
 }) {
   const [logoError, setLogoError] = useState(false);
   const logoUrl = getCompanyLogoUrl(email);
+  const domain = getEmailDomain(email);
+  const isOwlivionDomain = domain === 'owlivion.com' || domain === 'owlcrypt.com';
 
   const sizeClasses = {
     sm: 'w-8 h-8 text-xs',
@@ -155,11 +162,11 @@ function CompanyAvatar({ email, name, size = 'md', unread = false }: {
   // Show logo if available and not errored
   if (logoUrl && !logoError) {
     return (
-      <div className={`${baseClasses} bg-white p-1 border border-owl-border`}>
+      <div className={`${baseClasses} ${isOwlivionDomain ? 'bg-owl-accent/10 p-1.5' : 'bg-white p-1'} border border-owl-border`}>
         <img
           src={logoUrl}
           alt={name}
-          className="w-full h-full object-contain rounded-full"
+          className={`w-full h-full object-contain ${isOwlivionDomain ? '' : 'rounded-full'}`}
           onError={() => setLogoError(true)}
         />
       </div>
@@ -1322,6 +1329,42 @@ function App() {
     initNotifications();
   }, []);
 
+  // Listen for system tray events
+  useEffect(() => {
+    let unlisten1: (() => void) | null = null;
+    let unlisten2: (() => void) | null = null;
+
+    const setupTrayListeners = async () => {
+      try {
+        const { listen } = await import('@tauri-apps/api/event');
+
+        // Listen for "New Email" tray menu click
+        unlisten1 = await listen('tray:new-email', () => {
+          console.log('Tray: New Email clicked');
+          openCompose('new');
+        });
+
+        // Listen for "Settings" tray menu click
+        unlisten2 = await listen('tray:settings', () => {
+          console.log('Tray: Settings clicked');
+          setCurrentPage('settings');
+        });
+
+        console.log('System tray event listeners initialized');
+      } catch (err) {
+        console.error('Failed to setup tray listeners:', err);
+      }
+    };
+
+    setupTrayListeners();
+
+    // Cleanup listeners on unmount
+    return () => {
+      if (unlisten1) unlisten1();
+      if (unlisten2) unlisten2();
+    };
+  }, []);
+
   // Check for new emails and show notifications
   const checkForNewEmails = useCallback(async () => {
     if (!selectedAccountId || accounts.length === 0) return;
@@ -2012,6 +2055,10 @@ function App() {
   const handleAccountAdded = async (account: Account) => {
     setAccounts(prev => [...prev, account]);
     setAddAccountModalOpen(false);
+
+    // Automatically select the newly added account
+    setSelectedAccountId(account.id);
+    setActiveFolder('INBOX'); // Reset to inbox for new account
 
     // Connect and load emails for the new account
     try {

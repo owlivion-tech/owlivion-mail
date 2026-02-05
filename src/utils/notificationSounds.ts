@@ -20,16 +20,23 @@ function getAudioContext(): AudioContext {
  */
 export function playNotificationSound(soundType: NotificationSoundType, volume: number = 0.7) {
   try {
-    // Special handling for Owlivion Signature - use REAL owl sound!
-    if (soundType === 'call') {
-      playRealOwlSound(volume);
-      return;
-    }
-
     const ctx = getAudioContext();
     const now = ctx.currentTime;
 
-    // Create oscillator and gain node
+    // Configure sound based on type
+    switch (soundType) {
+      case 'call':
+        // Special handling for Owlivion Signature - use REAL owl sound!
+        playRealOwlSound(volume);
+        return;
+
+      case 'moonlight':
+        // Moonlight Chime - Crystal clear notes with owl theme
+        playMoonlightChime(ctx, now, volume);
+        return;
+    }
+
+    // Create oscillator and gain node for other sounds
     const oscillator = ctx.createOscillator();
     const gainNode = ctx.createGain();
 
@@ -114,16 +121,6 @@ export function playNotificationSound(soundType: NotificationSoundType, volume: 
         oscillator.start(now);
         oscillator.stop(now + 0.6);
         break;
-
-      case 'call':
-        // Owl's Call - More distinctive owl sound
-        playOwlCall(ctx, now, volume);
-        return; // Early return as sequence handles its own timing
-
-      case 'moonlight':
-        // Moonlight Chime - Crystal clear notes with owl theme
-        playMoonlightChime(ctx, now, volume);
-        return; // Early return as sequence handles its own timing
     }
   } catch (error) {
     console.error('Failed to play notification sound:', error);
@@ -253,7 +250,6 @@ function playOwlCall(ctx: AudioContext, startTime: number, volume: number) {
       const attackTime = 0.08;
       const decayTime = 0.1;
       const sustainLevel = volume * 1.5 * layerVol * 0.7;
-      const releaseTime = duration - attackTime - decayTime;
 
       gain.gain.setValueAtTime(0.001, startTime + time);
       // Attack

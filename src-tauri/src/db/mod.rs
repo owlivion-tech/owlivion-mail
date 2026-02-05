@@ -187,6 +187,20 @@ impl Database {
             conn.execute("ALTER TABLE accounts ADD COLUMN accept_invalid_certs INTEGER NOT NULL DEFAULT 0", [])?;
         }
 
+        // Migration 3: Add close_to_tray setting if not exists
+        let has_close_to_tray: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM settings WHERE key = 'close_to_tray'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_close_to_tray {
+            log::info!("Running migration: Adding close_to_tray setting");
+            conn.execute("INSERT INTO settings (key, value) VALUES ('close_to_tray', 'true')", [])?;
+        }
+
         Ok(())
     }
 
@@ -215,8 +229,8 @@ impl Database {
                 smtp_host, smtp_port, smtp_security, smtp_username,
                 password_encrypted,
                 oauth_provider, oauth_access_token, oauth_refresh_token, oauth_expires_at,
-                is_default, signature, sync_days, accept_invalid_certs
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
+                is_active, is_default, signature, sync_days, accept_invalid_certs
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
             "#,
             params![
                 account.email,
@@ -234,6 +248,7 @@ impl Database {
                 account.oauth_access_token,
                 account.oauth_refresh_token,
                 account.oauth_expires_at,
+                1, // is_active - always set to 1 (active) when adding new account
                 account.is_default,
                 account.signature,
                 account.sync_days,
@@ -256,7 +271,8 @@ impl Database {
             SELECT id, email, display_name,
                    imap_host, imap_port, imap_security, imap_username,
                    smtp_host, smtp_port, smtp_security, smtp_username,
-                   oauth_provider, is_active, is_default, signature, sync_days,
+                   oauth_provider, oauth_refresh_token, oauth_expires_at,
+                   is_active, is_default, signature, sync_days,
                    accept_invalid_certs, created_at, updated_at
             FROM accounts
             ORDER BY is_default DESC, email ASC
@@ -278,13 +294,15 @@ impl Database {
                     smtp_security: row.get(9)?,
                     smtp_username: row.get(10)?,
                     oauth_provider: row.get(11)?,
-                    is_active: row.get(12)?,
-                    is_default: row.get(13)?,
-                    signature: row.get(14)?,
-                    sync_days: row.get(15)?,
-                    accept_invalid_certs: row.get(16)?,
-                    created_at: row.get(17)?,
-                    updated_at: row.get(18)?,
+                    oauth_refresh_token: row.get(12)?,
+                    oauth_expires_at: row.get(13)?,
+                    is_active: row.get(14)?,
+                    is_default: row.get(15)?,
+                    signature: row.get(16)?,
+                    sync_days: row.get(17)?,
+                    accept_invalid_certs: row.get(18)?,
+                    created_at: row.get(19)?,
+                    updated_at: row.get(20)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -304,7 +322,8 @@ impl Database {
             SELECT id, email, display_name,
                    imap_host, imap_port, imap_security, imap_username,
                    smtp_host, smtp_port, smtp_security, smtp_username,
-                   oauth_provider, is_active, is_default, signature, sync_days,
+                   oauth_provider, oauth_refresh_token, oauth_expires_at,
+                   is_active, is_default, signature, sync_days,
                    accept_invalid_certs, created_at, updated_at
             FROM accounts WHERE id = ?1
             "#,
@@ -323,13 +342,15 @@ impl Database {
                     smtp_security: row.get(9)?,
                     smtp_username: row.get(10)?,
                     oauth_provider: row.get(11)?,
-                    is_active: row.get(12)?,
-                    is_default: row.get(13)?,
-                    signature: row.get(14)?,
-                    sync_days: row.get(15)?,
-                    accept_invalid_certs: row.get(16)?,
-                    created_at: row.get(17)?,
-                    updated_at: row.get(18)?,
+                    oauth_refresh_token: row.get(12)?,
+                    oauth_expires_at: row.get(13)?,
+                    is_active: row.get(14)?,
+                    is_default: row.get(15)?,
+                    signature: row.get(16)?,
+                    sync_days: row.get(17)?,
+                    accept_invalid_certs: row.get(18)?,
+                    created_at: row.get(19)?,
+                    updated_at: row.get(20)?,
                 })
             },
         )?;
@@ -432,6 +453,51 @@ impl Database {
         conn.execute(
             "UPDATE accounts SET signature = ?1, updated_at = datetime('now') WHERE id = ?2",
             params![signature, id],
+        )?;
+
+        Ok(())
+    }
+
+    /// Update OAuth access token
+    pub fn update_oauth_access_token(&self, id: i64, encrypted_token: &str) -> DbResult<()> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        conn.execute(
+            "UPDATE accounts SET password_encrypted = ?1, updated_at = datetime('now') WHERE id = ?2",
+            params![encrypted_token, id],
+        )?;
+
+        Ok(())
+    }
+
+    /// Update OAuth token expiry time
+    pub fn update_oauth_expires_at(&self, id: i64, expires_at: i64) -> DbResult<()> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        conn.execute(
+            "UPDATE accounts SET oauth_expires_at = ?1, updated_at = datetime('now') WHERE id = ?2",
+            params![expires_at, id],
+        )?;
+
+        Ok(())
+    }
+
+    /// Update OAuth refresh token
+    pub fn update_oauth_refresh_token(&self, id: i64, refresh_token: &str) -> DbResult<()> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        conn.execute(
+            "UPDATE accounts SET oauth_refresh_token = ?1, updated_at = datetime('now') WHERE id = ?2",
+            params![refresh_token, id],
         )?;
 
         Ok(())
@@ -1259,6 +1325,8 @@ pub struct Account {
     pub smtp_security: String,
     pub smtp_username: Option<String>,
     pub oauth_provider: Option<String>,
+    pub oauth_refresh_token: Option<String>,
+    pub oauth_expires_at: Option<i64>,
     pub is_active: bool,
     pub is_default: bool,
     pub signature: String,

@@ -87,6 +87,7 @@ const defaultSettings: SettingsType = {
   // Notifications
   notificationsEnabled: true,
   notificationSound: true,
+  notificationSoundType: 'call',
   notificationBadge: true,
 
   // Behavior
@@ -96,6 +97,7 @@ const defaultSettings: SettingsType = {
   confirmSend: false,
   signaturePosition: 'bottom',
   replyPosition: 'top',
+  closeToTray: true,
 
   // AI
   geminiApiKey: '',
