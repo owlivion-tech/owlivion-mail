@@ -191,3 +191,144 @@ input[type="password"],
 input[type="number"] {
   color-scheme: dark;
 }
+
+/* ============================================================================
+   TipTap Rich Text Editor Styles
+   ============================================================================ */
+
+/* Prose (TipTap content) */
+.prose {
+  color: #e4e4e7;
+  max-width: none;
+}
+
+.prose p {
+  margin: 0.75rem 0;
+}
+
+.prose p:first-child {
+  margin-top: 0;
+}
+
+.prose p:last-child {
+  margin-bottom: 0;
+}
+
+.prose h1, .prose h2, .prose h3 {
+  color: #fff;
+  font-weight: 600;
+  margin: 1.5rem 0 0.75rem;
+}
+
+.prose h1 { font-size: 2rem; line-height: 2.5rem; }
+.prose h2 { font-size: 1.5rem; line-height: 2rem; }
+.prose h3 { font-size: 1.25rem; line-height: 1.75rem; }
+
+.prose strong, .prose b {
+  color: #fff;
+  font-weight: 600;
+}
+
+.prose em, .prose i {
+  font-style: italic;
+}
+
+.prose u {
+  text-decoration: underline;
+}
+
+.prose a {
+  color: #8b5cf6;
+  text-decoration: underline;
+}
+
+.prose a:hover {
+  color: #a78bfa;
+}
+
+.prose ul, .prose ol {
+  margin: 0.75rem 0;
+  padding-left: 1.5rem;
+}
+
+.prose ul {
+  list-style-type: disc;
+}
+
+.prose ol {
+  list-style-type: decimal;
+}
+
+.prose li {
+  margin: 0.25rem 0;
+}
+
+.prose blockquote {
+  border-left: 3px solid #8b5cf6;
+  padding-left: 1rem;
+  margin: 1rem 0;
+  color: #a1a1aa;
+  font-style: italic;
+}
+
+.prose pre {
+  background: #1a1a24;
+  border: 1px solid #2a2a3a;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 1rem 0;
+}
+
+.prose code {
+  background: #1a1a24;
+  border: 1px solid #2a2a3a;
+  border-radius: 0.25rem;
+  padding: 0.125rem 0.25rem;
+  font-family: 'Courier New', monospace;
+  font-size: 0.875rem;
+}
+
+.prose pre code {
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.prose img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+  margin: 1rem 0;
+}
+
+/* TipTap placeholder */
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #71717a;
+  pointer-events: none;
+  height: 0;
+}
+
+/* TipTap focus */
+.ProseMirror:focus {
+  outline: none;
+}
+
+/* TipTap selection */
+.ProseMirror ::selection {
+  background: rgba(139, 92, 246, 0.3);
+}
+
+/* Ensure proper spacing in editor */
+.ProseMirror {
+  min-height: 300px;
+  padding: 0;
+}
+
+/* Rich text editor container */
+.rich-text-editor {
+  background: transparent;
+  border-radius: 0;
+}

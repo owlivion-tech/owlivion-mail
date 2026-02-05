@@ -3,11 +3,14 @@
 // ============================================================================
 // SECURITY HARDENED: Strict sanitization, no style/img in compose
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import DOMPurify from 'dompurify';
 import { useShortcut } from '../hooks/useKeyboardShortcuts';
 import { RecipientInput } from './compose/RecipientInput';
 import { AttachmentList } from './compose/AttachmentList';
+import { RichTextEditor } from './compose/RichTextEditor';
+import { useDraftAutoSave } from '../hooks/useDraftAutoSave';
+import { deleteDraft } from '../services/draftService';
 import type { Email, EmailAddress, DraftEmail, Attachment, Account } from '../types';
 
 // SECURITY: Logger wrapper to avoid exposing details in production
@@ -53,7 +56,6 @@ export function Compose({
   mode,
   originalEmail,
   onSend,
-  onSaveDraft,
   defaultAccount,
 }: ComposeProps) {
   // Recipients
@@ -71,11 +73,12 @@ export function Compose({
   // State
   const [isSending, setIsSending] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [draftId, setDraftId] = useState<number | undefined>();
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   // SECURITY: Use state-based notifications instead of alert()
   const [notification, setNotification] = useState<{ type: 'error' | 'success' | 'warning'; message: string } | null>(null);
 
   // Refs
-  const bodyRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Clear notification after timeout
@@ -90,6 +93,56 @@ export function Compose({
   const showNotification = (type: 'error' | 'success' | 'warning', message: string) => {
     setNotification({ type, message });
   };
+
+  // Handle image paste from clipboard
+  const handleImagePaste = useCallback((files: File[]) => {
+    const MAX_ATTACHMENTS = 10;
+    if (attachments.length + files.length > MAX_ATTACHMENTS) {
+      showNotification('warning', `En fazla ${MAX_ATTACHMENTS} dosya ekleyebilirsiniz`);
+      return;
+    }
+
+    const newAttachments: Attachment[] = files.map((file, idx) => ({
+      index: attachments.length + idx,
+      filename: file.name,
+      contentType: file.type,
+      size: file.size,
+      localPath: URL.createObjectURL(file),
+      isInline: true,
+      _file: file,
+    }));
+
+    setAttachments(prev => [...prev, ...newAttachments]);
+    showNotification('success', `${files.length} görsel eklendi`);
+  }, [attachments]);
+
+  // Auto-save draft
+  const currentDraft = useMemo(() => ({
+    id: draftId,
+    accountId: defaultAccount?.id || 0,
+    to,
+    cc,
+    bcc,
+    subject,
+    bodyText: bodyHtml.replace(/<[^>]*>/g, ''), // Strip HTML
+    bodyHtml,
+    attachments,
+    replyToEmailId: mode === 'reply' || mode === 'replyAll' ? originalEmail?.id : undefined,
+    forwardEmailId: mode === 'forward' ? originalEmail?.id : undefined,
+    composeType: mode,
+  }), [draftId, defaultAccount, to, cc, bcc, subject, bodyHtml, attachments, mode, originalEmail]);
+
+  const { saveNow } = useDraftAutoSave(currentDraft, attachments, {
+    enabled: isOpen && !isSending,
+    debounceMs: 2000,
+    onSaveStart: () => setAutoSaveStatus('saving'),
+    onSaveSuccess: (id) => {
+      setDraftId(id);
+      setAutoSaveStatus('saved');
+      setTimeout(() => setAutoSaveStatus('idle'), 2000);
+    },
+    onSaveError: () => setAutoSaveStatus('error'),
+  });
 
   // Initialize form based on mode
   useEffect(() => {
@@ -129,25 +182,6 @@ export function Compose({
     }
   }, [isOpen, mode, originalEmail, defaultAccount]);
 
-  // Set initial body content in contentEditable (only on open/mode change)
-  const initializedRef = useRef(false);
-  const lastModeRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (bodyRef.current && isOpen) {
-      // Only update DOM when mode changes or first open (not on every bodyHtml change)
-      const shouldUpdate = !initializedRef.current || lastModeRef.current !== mode;
-      if (shouldUpdate && bodyHtml) {
-        // SECURITY: Sanitize content before inserting into DOM
-        bodyRef.current.innerHTML = sanitizeForCompose(bodyHtml);
-        initializedRef.current = true;
-        lastModeRef.current = mode;
-      }
-    }
-    if (!isOpen) {
-      initializedRef.current = false;
-      lastModeRef.current = null;
-    }
-  }, [isOpen, mode, bodyHtml]); // Include bodyHtml but only update on mode change
 
   // Keyboard shortcuts
   useShortcut('Escape', onClose, { enabled: isOpen && !isSending });
@@ -228,17 +262,14 @@ export function Compose({
     setIsSending(true);
 
     try {
-      // SECURITY: Sanitize body content before sending
-      const sanitizedBodyHtml = sanitizeForCompose(bodyRef.current?.innerHTML || '');
-
       const draft: DraftEmail = {
         accountId: defaultAccount?.id || 0,
         to,
         cc,
         bcc,
         subject,
-        bodyText: bodyRef.current?.innerText || '',
-        bodyHtml: sanitizedBodyHtml,
+        bodyText: bodyHtml.replace(/<[^>]*>/g, ''),
+        bodyHtml,
         attachments,
         replyToEmailId: mode === 'reply' || mode === 'replyAll' ? originalEmail?.id : undefined,
         forwardEmailId: mode === 'forward' ? originalEmail?.id : undefined,
@@ -246,6 +277,16 @@ export function Compose({
       };
 
       await onSend(draft);
+
+      // Delete auto-saved draft
+      if (draftId) {
+        try {
+          await deleteDraft(draftId);
+        } catch (err) {
+          log.error('Failed to delete draft:', err);
+        }
+      }
+
       onClose();
     } catch (err) {
       // SECURITY: Don't expose detailed error info to users
@@ -256,29 +297,12 @@ export function Compose({
     }
   }
 
-  // Handle save draft
+  // Handle save draft (manual)
   async function handleSaveDraft() {
     setIsSaving(true);
 
     try {
-      // SECURITY: Sanitize body content before saving
-      const sanitizedBodyHtml = sanitizeForCompose(bodyRef.current?.innerHTML || '');
-
-      const draft: DraftEmail = {
-        accountId: defaultAccount?.id || 0,
-        to,
-        cc,
-        bcc,
-        subject,
-        bodyText: bodyRef.current?.innerText || '',
-        bodyHtml: sanitizedBodyHtml,
-        attachments,
-        replyToEmailId: mode === 'reply' || mode === 'replyAll' ? originalEmail?.id : undefined,
-        forwardEmailId: mode === 'forward' ? originalEmail?.id : undefined,
-        composeType: mode,
-      };
-
-      await onSaveDraft(draft);
+      await saveNow();
       showNotification('success', 'Taslak kaydedildi');
     } catch (err) {
       // SECURITY: Don't expose detailed error info
@@ -301,12 +325,15 @@ export function Compose({
       return;
     }
 
-    const newAttachments: Attachment[] = Array.from(files).map((file) => ({
+    // Store files with blob URLs for preview, will upload on send
+    const newAttachments: Attachment[] = Array.from(files).map((file, idx) => ({
+      index: attachments.length + idx,
       filename: file.name,
       contentType: file.type || 'application/octet-stream',
       size: file.size,
       localPath: URL.createObjectURL(file),
       isInline: false,
+      _file: file, // Keep File object for upload on send
     }));
 
     setAttachments([...attachments, ...newAttachments]);
@@ -338,12 +365,14 @@ export function Compose({
       return;
     }
 
-    const newAttachments: Attachment[] = Array.from(files).map((file) => ({
+    const newAttachments: Attachment[] = Array.from(files).map((file, idx) => ({
+      index: attachments.length + idx,
       filename: file.name,
       contentType: file.type || 'application/octet-stream',
       size: file.size,
       localPath: URL.createObjectURL(file),
       isInline: false,
+      _file: file,
     }));
 
     setAttachments([...attachments, ...newAttachments]);
@@ -382,12 +411,42 @@ export function Compose({
         )}
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-owl-border">
-          <h2 className="text-lg font-semibold text-owl-text">
-            {mode === 'new' && 'Yeni E-posta'}
-            {mode === 'reply' && 'Yanıtla'}
-            {mode === 'replyAll' && 'Tümünü Yanıtla'}
-            {mode === 'forward' && 'İlet'}
-          </h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-lg font-semibold text-owl-text">
+              {mode === 'new' && 'Yeni E-posta'}
+              {mode === 'reply' && 'Yanıtla'}
+              {mode === 'replyAll' && 'Tümünü Yanıtla'}
+              {mode === 'forward' && 'İlet'}
+            </h2>
+
+            {/* Auto-save indicator */}
+            {autoSaveStatus === 'saving' && (
+              <div className="flex items-center gap-2 text-xs text-owl-text-secondary">
+                <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Kaydediliyor...
+              </div>
+            )}
+            {autoSaveStatus === 'saved' && (
+              <div className="flex items-center gap-2 text-xs text-green-500">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Kaydedildi
+              </div>
+            )}
+            {autoSaveStatus === 'error' && (
+              <div className="flex items-center gap-2 text-xs text-red-500">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Hata
+              </div>
+            )}
+          </div>
+
           <div className="flex items-center gap-2">
             <button
               onClick={handleSaveDraft}
@@ -482,18 +541,12 @@ export function Compose({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto">
-          <div
-            ref={bodyRef}
-            contentEditable
-            suppressContentEditableWarning
-            className="min-h-[300px] p-6 text-owl-text focus:outline-none email-content"
-            style={{ direction: 'ltr', textAlign: 'left', unicodeBidi: 'plaintext' }}
-            data-placeholder="E-posta içeriği..."
-            onBlur={(e) => {
-              // SECURITY: Sanitize on blur before storing
-              const sanitized = sanitizeForCompose(e.currentTarget.innerHTML);
-              setBodyHtml(sanitized);
-            }}
+          <RichTextEditor
+            content={bodyHtml}
+            onChange={(html) => setBodyHtml(html)}
+            onPaste={handleImagePaste}
+            placeholder="E-posta içeriği..."
+            disabled={isSending}
           />
         </div>
 
@@ -537,13 +590,6 @@ export function Compose({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
               </svg>
             </button>
-
-            {/* Formatting placeholder */}
-            <div className="h-5 w-px bg-owl-border mx-1" />
-            <span className="text-xs text-owl-text-secondary">
-              Biçimlendirme: <kbd className="px-1 py-0.5 bg-owl-surface border border-owl-border rounded text-[10px]">Ctrl+B</kbd> kalın,{' '}
-              <kbd className="px-1 py-0.5 bg-owl-surface border border-owl-border rounded text-[10px]">Ctrl+I</kbd> italik
-            </span>
           </div>
 
           <div className="flex items-center gap-3">

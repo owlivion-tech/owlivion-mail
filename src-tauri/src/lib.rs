@@ -953,16 +953,26 @@ async fn email_list(
 
     // Use async IMAP client
     let mut async_clients = state.async_imap_clients.lock().await;
-    let client = async_clients
-        .get_mut(&account_id)
-        .ok_or_else(|| "Account not connected".to_string())?;
 
+    // Check if account exists (borrow checker friendly)
+    if !async_clients.contains_key(&account_id) {
+        let available: Vec<_> = async_clients.keys().collect();
+        log::error!("Account {} not connected - available accounts: {:?}", account_id, available);
+        return Err("Account not connected. Please try reconnecting the account.".to_string());
+    }
+
+    let client = async_clients.get_mut(&account_id).unwrap();
+
+    log::info!("Calling fetch_emails for folder='{}', page={}, size={}", folder_path, page, safe_page_size);
     let result = client
         .fetch_emails(&folder_path, page, safe_page_size)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            log::error!("fetch_emails FAILED for account {} folder '{}': {}", account_id, folder_path, e);
+            format!("Failed to fetch emails: {}", e)
+        })?;
 
-    log::info!("email_list returning {} emails, total={}", result.emails.len(), result.total);
+    log::info!("✓ email_list SUCCESS: returning {} emails (total={})", result.emails.len(), result.total);
     Ok(result)
 }
 
@@ -1028,8 +1038,122 @@ async fn email_get(
         Err(_) => return Err("Fetch timeout - server did not respond in time".to_string()),
     };
 
+    // Save attachments to database if email exists in DB and has attachments
+    if !email.attachments.is_empty() {
+        // Try to find email in database by UID
+        let folder_id_result = state.db.query_row::<i64, _, _>(
+            "SELECT id FROM folders WHERE account_id = ?1 AND remote_name = ?2",
+            rusqlite::params![account_id_num, folder_path],
+            |row| row.get(0),
+        );
+
+        if let Ok(folder_id) = folder_id_result {
+            let email_id_result = state.db.query_row::<i64, _, _>(
+                "SELECT id FROM emails WHERE account_id = ?1 AND folder_id = ?2 AND uid = ?3",
+                rusqlite::params![account_id_num, folder_id, uid],
+                |row| row.get(0),
+            );
+
+            if let Ok(email_id) = email_id_result {
+                // Check if attachments already saved
+                let existing_count = state.db.query_row::<i64, _, _>(
+                    "SELECT COUNT(*) FROM attachments WHERE email_id = ?1",
+                    rusqlite::params![email_id],
+                    |row| row.get(0),
+                ).unwrap_or(0);
+
+                // Save attachments if not already saved
+                if existing_count == 0 {
+                    for attachment in &email.attachments {
+                        let new_att = db::NewAttachment {
+                            email_id,
+                            filename: attachment.filename.clone(),
+                            content_type: attachment.content_type.clone(),
+                            size: attachment.size as i64,
+                            content_id: None,
+                            is_inline: false,
+                            local_path: None,
+                            is_downloaded: false,
+                        };
+
+                        if let Err(e) = state.db.insert_attachment(&new_att) {
+                            log::warn!("Failed to save attachment to database: {}", e);
+                        }
+                    }
+                    log::info!("Saved {} attachments to database for email {}", email.attachments.len(), email_id);
+                }
+            }
+        }
+    }
+
     log::info!("email_get: returning email with subject={}", email.subject);
     Ok(email)
+}
+
+/// Download attachment from email
+#[tauri::command]
+async fn email_download_attachment(
+    state: State<'_, AppState>,
+    account_id: String,
+    folder: String,
+    uid: u32,
+    attachment_index: usize,
+) -> Result<mail::AttachmentData, String> {
+    log::info!("email_download_attachment: account={}, folder={}, uid={}, index={}", account_id, folder, uid, attachment_index);
+
+    let account_id_num: i64 = account_id.parse()
+        .map_err(|_| "Invalid account ID".to_string())?;
+
+    // Get account details
+    let account = state.db.get_account(account_id_num)
+        .map_err(|e| format!("Failed to get account: {}", e))?;
+
+    // Get encrypted password
+    let encrypted_password = state.db.get_account_password(account_id_num)
+        .map_err(|e| format!("Failed to get password: {}", e))?
+        .ok_or_else(|| "No password found for account".to_string())?;
+
+    // Decrypt password
+    let password = crypto::decrypt_password(&encrypted_password)
+        .map_err(|e| format!("Password decryption failed: {}", e))?;
+
+    // Parse security type
+    let security = match account.imap_security.to_uppercase().as_str() {
+        "SSL" => mail::SecurityType::SSL,
+        "STARTTLS" => mail::SecurityType::STARTTLS,
+        _ => mail::SecurityType::SSL,
+    };
+
+    // Create ImapConfig for fresh connection
+    let config = mail::ImapConfig {
+        host: account.imap_host.clone(),
+        port: account.imap_port as u16,
+        security,
+        username: account.email.clone(),
+        password,
+        accept_invalid_certs: account.accept_invalid_certs,
+        oauth_provider: account.oauth_provider.clone(),
+    };
+
+    // Create a fresh connection for this request
+    log::info!("email_download_attachment: creating fresh IMAP connection");
+    let mut fresh_client = mail::AsyncImapClient::new(config);
+    fresh_client.connect().await.map_err(|e| format!("Failed to connect: {}", e))?;
+
+    // Fetch attachment with timeout (30 seconds - larger files may take longer)
+    let fetch_result = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        fresh_client.fetch_attachment(&folder, uid, attachment_index)
+    ).await;
+
+    let attachment = match fetch_result {
+        Ok(Ok(att)) => att,
+        Ok(Err(e)) => return Err(format!("Fetch error: {}", e)),
+        Err(_) => return Err("Fetch timeout - attachment download took too long".to_string()),
+    };
+
+    log::info!("✓ email_download_attachment: downloaded {} ({} bytes)", attachment.filename, attachment.size);
+    Ok(attachment)
 }
 
 /// Search emails
@@ -1155,6 +1279,14 @@ async fn email_delete(
         .map_err(|e| e.to_string())
 }
 
+/// Attachment file path for sending
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttachmentPath {
+    pub path: String,
+    pub filename: String,
+    pub content_type: String,
+}
+
 /// Send an email
 /// SECURITY: Validates all recipients and enforces limits
 #[tauri::command]
@@ -1167,6 +1299,7 @@ async fn email_send(
     subject: String,
     text_body: Option<String>,
     html_body: Option<String>,
+    attachment_paths: Option<Vec<AttachmentPath>>,
 ) -> Result<(), String> {
     // SECURITY: Validate account ID
     let id: i64 = account_id.parse().map_err(|_| "Invalid account ID")?;
@@ -1222,6 +1355,22 @@ async fn email_send(
             (text_body.unwrap_or_default(), false)
         };
 
+        // Load attachments
+        let mut attachments_data = Vec::new();
+        if let Some(paths) = &attachment_paths {
+            for att_path in paths {
+                let data = tokio::fs::read(&att_path.path)
+                    .await
+                    .map_err(|e| format!("Failed to read attachment {}: {}", att_path.filename, e))?;
+
+                attachments_data.push(mail::smtp_oauth::AttachmentData {
+                    filename: att_path.filename.clone(),
+                    content_type: att_path.content_type.clone(),
+                    data,
+                });
+            }
+        }
+
         // Use OAuth2 SMTP implementation
         return mail::smtp_oauth::send_email_oauth(
             &account.smtp_host,
@@ -1235,6 +1384,7 @@ async fn email_send(
             &subject,
             &body_str,
             is_html,
+            &attachments_data,
         )
         .await
         .map_err(|e| {
@@ -1281,33 +1431,117 @@ async fn email_send(
         email_builder = email_builder.bcc(mailbox);
     }
 
-    // Build body
-    let email = if let (Some(text), Some(html)) = (&text_body, &html_body) {
-        email_builder
-            .multipart(
-                MultiPart::alternative()
-                    .singlepart(
-                        SinglePart::builder()
-                            .header(ContentType::TEXT_PLAIN)
-                            .body(text.clone()),
+    // Build body with or without attachments
+    let email = if let Some(paths) = &attachment_paths {
+        if !paths.is_empty() {
+            // Build multipart mixed body with attachments
+            let mut final_multipart = if let (Some(text), Some(html)) = (&text_body, &html_body) {
+                // Alternative text/html
+                MultiPart::mixed().multipart(
+                    MultiPart::alternative()
+                        .singlepart(
+                            SinglePart::builder()
+                                .header(ContentType::TEXT_PLAIN)
+                                .body(text.clone()),
+                        )
+                        .singlepart(
+                            SinglePart::builder()
+                                .header(ContentType::TEXT_HTML)
+                                .body(html.clone()),
+                        ),
+                )
+            } else if let Some(html) = &html_body {
+                MultiPart::mixed().singlepart(
+                    SinglePart::builder()
+                        .header(ContentType::TEXT_HTML)
+                        .body(html.clone()),
+                )
+            } else {
+                MultiPart::mixed().singlepart(
+                    SinglePart::builder()
+                        .header(ContentType::TEXT_PLAIN)
+                        .body(text_body.clone().unwrap_or_default()),
+                )
+            };
+
+            // Add all attachments
+            for att_path in paths {
+                let data = tokio::fs::read(&att_path.path)
+                    .await
+                    .map_err(|e| format!("Failed to read attachment {}: {}", att_path.filename, e))?;
+
+                let content_type: ContentType = att_path.content_type
+                    .parse()
+                    .unwrap_or_else(|_| ContentType::parse("application/octet-stream").unwrap());
+
+                final_multipart = final_multipart.singlepart(
+                    lettre::message::Attachment::new(att_path.filename.clone())
+                        .body(data, content_type),
+                );
+            }
+
+            email_builder
+                .multipart(final_multipart)
+                .map_err(|e| e.to_string())?
+        } else {
+            // No attachments, build simple body
+            if let (Some(text), Some(html)) = (&text_body, &html_body) {
+                email_builder
+                    .multipart(
+                        MultiPart::alternative()
+                            .singlepart(
+                                SinglePart::builder()
+                                    .header(ContentType::TEXT_PLAIN)
+                                    .body(text.clone()),
+                            )
+                            .singlepart(
+                                SinglePart::builder()
+                                    .header(ContentType::TEXT_HTML)
+                                    .body(html.clone()),
+                            ),
                     )
-                    .singlepart(
-                        SinglePart::builder()
-                            .header(ContentType::TEXT_HTML)
-                            .body(html.clone()),
-                    ),
-            )
-            .map_err(|e| e.to_string())?
-    } else if let Some(html) = html_body {
-        email_builder
-            .header(ContentType::TEXT_HTML)
-            .body(html)
-            .map_err(|e| e.to_string())?
+                    .map_err(|e| e.to_string())?
+            } else if let Some(html) = html_body {
+                email_builder
+                    .header(ContentType::TEXT_HTML)
+                    .body(html)
+                    .map_err(|e| e.to_string())?
+            } else {
+                email_builder
+                    .header(ContentType::TEXT_PLAIN)
+                    .body(text_body.unwrap_or_default())
+                    .map_err(|e| e.to_string())?
+            }
+        }
     } else {
-        email_builder
-            .header(ContentType::TEXT_PLAIN)
-            .body(text_body.unwrap_or_default())
-            .map_err(|e| e.to_string())?
+        // No attachments, build simple body
+        if let (Some(text), Some(html)) = (&text_body, &html_body) {
+            email_builder
+                .multipart(
+                    MultiPart::alternative()
+                        .singlepart(
+                            SinglePart::builder()
+                                .header(ContentType::TEXT_PLAIN)
+                                .body(text.clone()),
+                        )
+                        .singlepart(
+                            SinglePart::builder()
+                                .header(ContentType::TEXT_HTML)
+                                .body(html.clone()),
+                        ),
+                )
+                .map_err(|e| e.to_string())?
+        } else if let Some(html) = html_body {
+            email_builder
+                .header(ContentType::TEXT_HTML)
+                .body(html)
+                .map_err(|e| e.to_string())?
+        } else {
+            email_builder
+                .header(ContentType::TEXT_PLAIN)
+                .body(text_body.unwrap_or_default())
+                .map_err(|e| e.to_string())?
+        }
     };
 
     let creds = Credentials::new(account.smtp_username.clone().unwrap_or(account.email.clone()), password);
@@ -1338,6 +1572,183 @@ async fn email_send(
 
     log::info!("Email sent successfully");
     Ok(())
+}
+
+// ============================================================================
+// Attachment Commands
+// ============================================================================
+
+/// Write temporary file from byte array (for frontend File objects)
+#[tauri::command]
+async fn write_temp_attachment(
+    filename: String,
+    content_type: String,
+    data: Vec<u8>,
+) -> Result<AttachmentPath, String> {
+    // SECURITY: Validate filename
+    if filename.contains("..") || filename.contains('/') || filename.contains('\\') {
+        return Err("Invalid filename".to_string());
+    }
+
+    // SECURITY: Limit file size (50MB)
+    const MAX_FILE_SIZE: usize = 50 * 1024 * 1024;
+    if data.len() > MAX_FILE_SIZE {
+        return Err("File too large (max 50MB)".to_string());
+    }
+
+    // Create temp directory for attachments
+    let temp_dir = std::env::temp_dir().join("owlivion-mail-attachments");
+    tokio::fs::create_dir_all(&temp_dir)
+        .await
+        .map_err(|e| format!("Failed to create temp directory: {}", e))?;
+
+    // Generate unique filename
+    let unique_name = format!("{}_{}", uuid::Uuid::new_v4(), filename);
+    let temp_path = temp_dir.join(&unique_name);
+
+    // Write file to temp location
+    tokio::fs::write(&temp_path, data)
+        .await
+        .map_err(|e| format!("Failed to write temp file: {}", e))?;
+
+    Ok(AttachmentPath {
+        path: temp_path.to_string_lossy().to_string(),
+        filename,
+        content_type,
+    })
+}
+
+/// Upload attachment and return temporary path
+#[tauri::command]
+async fn attachment_upload(
+    file_path: String,
+    filename: String,
+    content_type: String,
+) -> Result<AttachmentPath, String> {
+    // SECURITY: Validate filename
+    if filename.contains("..") || filename.contains('/') || filename.contains('\\') {
+        return Err("Invalid filename".to_string());
+    }
+
+    // Read file
+    let data = tokio::fs::read(&file_path)
+        .await
+        .map_err(|e| format!("Failed to read file: {}", e))?;
+
+    // SECURITY: Limit file size (50MB)
+    const MAX_FILE_SIZE: usize = 50 * 1024 * 1024;
+    if data.len() > MAX_FILE_SIZE {
+        return Err("File too large (max 50MB)".to_string());
+    }
+
+    // Create temp directory for attachments
+    let temp_dir = std::env::temp_dir().join("owlivion-mail-attachments");
+    tokio::fs::create_dir_all(&temp_dir)
+        .await
+        .map_err(|e| format!("Failed to create temp directory: {}", e))?;
+
+    // Generate unique filename
+    let unique_name = format!("{}_{}", uuid::Uuid::new_v4(), filename);
+    let temp_path = temp_dir.join(&unique_name);
+
+    // Copy file to temp location
+    tokio::fs::write(&temp_path, data)
+        .await
+        .map_err(|e| format!("Failed to write temp file: {}", e))?;
+
+    Ok(AttachmentPath {
+        path: temp_path.to_string_lossy().to_string(),
+        filename,
+        content_type,
+    })
+}
+
+/// Get attachments for an email
+#[tauri::command]
+async fn get_email_attachments(
+    state: State<'_, AppState>,
+    email_id: i64,
+) -> Result<Vec<db::Attachment>, String> {
+    state.db.get_attachments_for_email(email_id)
+        .map_err(|e| format!("Failed to get attachments: {}", e))
+}
+
+/// Download attachment to user-selected location
+#[tauri::command]
+async fn attachment_download(
+    state: State<'_, AppState>,
+    account_id: i64,
+    email_id: i64,
+    attachment_id: i64,
+    save_path: String,
+) -> Result<(), String> {
+    // Get attachment info
+    let attachment = state.db.get_attachment(attachment_id)
+        .map_err(|e| format!("Failed to get attachment: {}", e))?;
+
+    // Verify attachment belongs to email
+    if attachment.email_id != email_id {
+        return Err("Attachment does not belong to this email".to_string());
+    }
+
+    // Check if already downloaded locally
+    if attachment.is_downloaded {
+        if let Some(local_path) = &attachment.local_path {
+            if tokio::fs::metadata(local_path).await.is_ok() {
+                // Copy to save location
+                tokio::fs::copy(local_path, &save_path)
+                    .await
+                    .map_err(|e| format!("Failed to copy file: {}", e))?;
+                return Ok(());
+            }
+        }
+    }
+
+    // Need to download from IMAP server
+    // Get account info
+    let account = state.db.get_account(account_id)
+        .map_err(|e| format!("Failed to get account: {}", e))?;
+
+    let encrypted_password = state.db.get_account_password(account_id)
+        .map_err(|e| format!("Failed to get password: {}", e))?
+        .ok_or_else(|| "No password stored".to_string())?;
+
+    let password = crypto::decrypt_password(&encrypted_password)
+        .map_err(|e| format!("Password decryption failed: {}", e))?;
+
+    // Get email info to find folder
+    let email = state.db.get_email(email_id)
+        .map_err(|e| format!("Failed to get email: {}", e))?;
+
+    let folder = state.db.get_folder_by_id(email.folder_id)
+        .map_err(|e| format!("Failed to get folder: {}", e))?;
+
+    // Connect to IMAP and fetch email with attachments
+    let config = ImapConfig {
+        host: account.imap_host.clone(),
+        port: account.imap_port as u16,
+        username: account.imap_username.clone().unwrap_or(account.email.clone()),
+        password: password.clone(),
+        security: parse_security(&account.imap_security),
+        accept_invalid_certs: account.accept_invalid_certs,
+        oauth_provider: account.oauth_provider.clone(),
+    };
+
+    let mut imap_client = AsyncImapClient::new(config);
+    imap_client.connect().await
+        .map_err(|e| format!("Failed to connect to IMAP: {}", e))?;
+
+    let parsed_email = imap_client.fetch_email(&folder.remote_name, email.uid).await
+        .map_err(|e| format!("Failed to fetch email: {}", e))?;
+
+    // Find attachment in parsed email
+    let att_info = parsed_email.attachments.iter()
+        .find(|a| a.filename == attachment.filename)
+        .ok_or_else(|| "Attachment not found in email".to_string())?;
+
+    // For now, we can't download individual attachments - would need to parse BODYSTRUCTURE
+    // This is a limitation - we'll note it for future improvement
+    return Err("Attachment download from server not yet implemented. Please re-fetch the email.".to_string());
 }
 
 // ============================================================================
@@ -1709,6 +2120,167 @@ async fn scheduler_update_config(
         .map_err(|e| format!("Failed to update scheduler config: {}", e))
 }
 
+// ============================================================================
+// Draft Commands
+// ============================================================================
+
+#[derive(Debug, Serialize, Deserialize)]
+struct DraftEmailData {
+    id: Option<i64>,
+    account_id: i64,
+    to_addresses: String,
+    cc_addresses: String,
+    bcc_addresses: String,
+    subject: String,
+    body_text: String,
+    body_html: String,
+    reply_to_email_id: Option<i64>,
+    forward_email_id: Option<i64>,
+    compose_type: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct DraftAttachmentData {
+    filename: String,
+    content_type: String,
+    size: i64,
+    local_path: String,
+}
+
+/// Sanitize filename to prevent path traversal attacks
+fn sanitize_filename(filename: &str) -> String {
+    filename
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '.' || *c == '_' || *c == '-')
+        .collect()
+}
+
+/// Save or update a draft email
+#[tauri::command]
+async fn draft_save(
+    state: State<'_, AppState>,
+    draft: DraftEmailData,
+    attachments: Vec<DraftAttachmentData>,
+    app_handle: tauri::AppHandle,
+) -> Result<i64, String> {
+    // Validate account
+    let account_id = draft.account_id;
+    if account_id <= 0 {
+        return Err("Invalid account ID".to_string());
+    }
+
+    // Validate JSON fields
+    serde_json::from_str::<Vec<serde_json::Value>>(&draft.to_addresses)
+        .map_err(|_| "Invalid to_addresses JSON")?;
+    serde_json::from_str::<Vec<serde_json::Value>>(&draft.cc_addresses)
+        .map_err(|_| "Invalid cc_addresses JSON")?;
+    serde_json::from_str::<Vec<serde_json::Value>>(&draft.bcc_addresses)
+        .map_err(|_| "Invalid bcc_addresses JSON")?;
+
+    // Insert or update draft
+    let draft_id = if let Some(existing_id) = draft.id {
+        // UPDATE existing
+        state.db.execute(
+            "UPDATE drafts SET
+                to_addresses = ?2, cc_addresses = ?3, bcc_addresses = ?4,
+                subject = ?5, body_text = ?6, body_html = ?7,
+                reply_to_email_id = ?8, forward_email_id = ?9,
+                compose_type = ?10, updated_at = datetime('now')
+             WHERE id = ?1 AND account_id = ?11",
+            rusqlite::params![
+                existing_id,
+                draft.to_addresses,
+                draft.cc_addresses,
+                draft.bcc_addresses,
+                draft.subject,
+                draft.body_text,
+                draft.body_html,
+                draft.reply_to_email_id,
+                draft.forward_email_id,
+                draft.compose_type,
+                account_id,
+            ],
+        )
+        .map_err(|e| format!("Failed to update draft: {}", e))?;
+
+        // Delete old attachments
+        state.db.execute(
+            "DELETE FROM draft_attachments WHERE draft_id = ?1",
+            rusqlite::params![existing_id],
+        )
+        .map_err(|e| format!("Failed to delete old attachments: {}", e))?;
+
+        existing_id
+    } else {
+        // INSERT new
+        state.db.execute(
+            "INSERT INTO drafts (
+                account_id, to_addresses, cc_addresses, bcc_addresses,
+                subject, body_text, body_html, reply_to_email_id,
+                forward_email_id, compose_type
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            rusqlite::params![
+                account_id,
+                draft.to_addresses,
+                draft.cc_addresses,
+                draft.bcc_addresses,
+                draft.subject,
+                draft.body_text,
+                draft.body_html,
+                draft.reply_to_email_id,
+                draft.forward_email_id,
+                draft.compose_type,
+            ],
+        )
+        .map_err(|e| format!("Failed to insert draft: {}", e))?
+    };
+
+    // Copy attachments to persistent cache
+    if !attachments.is_empty() {
+        let cache_dir = app_handle
+            .path()
+            .app_cache_dir()
+            .map_err(|e| format!("Failed to get cache directory: {}", e))?;
+
+        let drafts_dir = cache_dir.join("drafts").join(draft_id.to_string());
+        tokio::fs::create_dir_all(&drafts_dir)
+            .await
+            .map_err(|e| format!("Failed to create drafts directory: {}", e))?;
+
+        for (idx, att) in attachments.iter().enumerate() {
+            let dest_filename = format!("{}_{}", idx, sanitize_filename(&att.filename));
+            let dest_path = drafts_dir.join(&dest_filename);
+
+            tokio::fs::copy(&att.local_path, &dest_path)
+                .await
+                .map_err(|e| format!("Failed to copy attachment: {}", e))?;
+
+            state.db.execute(
+                "INSERT INTO draft_attachments (draft_id, filename, content_type, size, local_path)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![
+                    draft_id,
+                    att.filename,
+                    att.content_type,
+                    att.size,
+                    dest_path.to_string_lossy().to_string(),
+                ],
+            )
+            .map_err(|e| format!("Failed to insert attachment: {}", e))?;
+        }
+    }
+
+    Ok(draft_id)
+}
+
+/// Delete a draft email
+#[tauri::command]
+async fn draft_delete(state: State<'_, AppState>, draft_id: i64) -> Result<(), String> {
+    state.db.execute("DELETE FROM drafts WHERE id = ?1", rusqlite::params![draft_id])
+        .map_err(|e| format!("Failed to delete draft: {}", e))?;
+    Ok(())
+}
+
 // Helper function to parse data type string
 fn parse_sync_data_type(data_type: &str) -> Result<sync::SyncDataType, String> {
     match data_type {
@@ -2014,12 +2586,17 @@ pub fn run() {
             folder_list,
             email_list,
             email_get,
+            email_download_attachment,
             email_search,
             email_mark_read,
             email_mark_starred,
             email_move,
             email_delete,
             email_send,
+            write_temp_attachment,
+            attachment_upload,
+            get_email_attachments,
+            attachment_download,
             oauth_start_gmail,
             sync_register,
             sync_login,
@@ -2043,6 +2620,8 @@ pub fn run() {
             scheduler_stop,
             scheduler_get_status,
             scheduler_update_config,
+            draft_save,
+            draft_delete,
         ])
         .setup(|app| {
             // Setup system tray

@@ -34,6 +34,7 @@ export interface Email {
   isForwarded: boolean;
   hasAttachments: boolean;
   hasInlineImages: boolean;
+  attachments?: Attachment[];
   threadId?: string;
   inReplyTo?: string;
   priority: number;
@@ -75,12 +76,14 @@ export interface DraftEmail {
 // Attachment
 export interface Attachment {
   id?: number;
+  index: number;
   filename: string;
   contentType: string;
   size: number;
   localPath?: string;
   isInline: boolean;
   contentId?: string;
+  _file?: File; // Temporary File object for upload
 }
 
 // Email account
