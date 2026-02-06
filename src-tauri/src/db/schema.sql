@@ -47,6 +47,9 @@ CREATE TABLE IF NOT EXISTS accounts (
     -- Sync settings
     sync_days INTEGER NOT NULL DEFAULT 30,  -- How many days to sync
 
+    -- Security settings
+    accept_invalid_certs INTEGER NOT NULL DEFAULT 0,  -- Allow invalid SSL certificates
+
     -- Timestamps
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -314,7 +317,9 @@ INSERT OR IGNORE INTO settings (key, value) VALUES
     ('compact_list_view', 'false'),
     ('show_avatars', 'true'),
     ('conversation_view', 'true'),
-    ('close_to_tray', 'true');
+    ('close_to_tray', 'true'),
+    ('auto_sync_enabled', 'true'),
+    ('auto_sync_interval', '5');
 
 -- ============================================================================
 -- SYNC_STATE TABLE
@@ -426,6 +431,43 @@ CREATE TABLE IF NOT EXISTS outbox (
 CREATE INDEX IF NOT EXISTS idx_outbox_status ON outbox(status);
 
 -- ============================================================================
+-- EMAIL_FILTERS TABLE
+-- Email filtering rules (like Gmail filters)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS email_filters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+
+    -- Filter metadata
+    name TEXT NOT NULL,
+    description TEXT,
+    is_enabled INTEGER NOT NULL DEFAULT 1,
+    priority INTEGER NOT NULL DEFAULT 0,  -- Lower priority runs first
+
+    -- Match logic
+    match_logic TEXT NOT NULL DEFAULT 'all' CHECK (match_logic IN ('all', 'any')),
+
+    -- Conditions (JSON array)
+    -- Example: [{"field": "from", "operator": "contains", "value": "@work.com"}]
+    conditions TEXT NOT NULL,
+
+    -- Actions (JSON array)
+    -- Example: [{"action": "move_to_folder", "folder_id": 5}, {"action": "mark_as_read"}]
+    actions TEXT NOT NULL,
+
+    -- Statistics
+    matched_count INTEGER NOT NULL DEFAULT 0,
+    last_matched_at TEXT,
+
+    -- Timestamps
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_filters_account ON email_filters(account_id, priority);
+CREATE INDEX IF NOT EXISTS idx_filters_enabled ON email_filters(account_id, is_enabled) WHERE is_enabled = 1;
+
+-- ============================================================================
 -- TRIGGERS FOR updated_at
 -- ============================================================================
 
@@ -467,6 +509,11 @@ END;
 CREATE TRIGGER IF NOT EXISTS outbox_updated_at AFTER UPDATE ON outbox
 BEGIN
     UPDATE outbox SET updated_at = datetime('now') WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS email_filters_updated_at AFTER UPDATE ON email_filters
+BEGIN
+    UPDATE email_filters SET updated_at = datetime('now') WHERE id = NEW.id;
 END;
 
 -- ============================================================================

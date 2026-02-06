@@ -706,21 +706,30 @@ fn parse_email_body(body: &[u8]) -> (Option<String>, Option<String>, Vec<EmailAt
         body_html = message.body_html(0).map(|s| s.to_string());
 
         // Get attachments
-        for attachment in message.attachments() {
+        for (index, attachment) in message.attachments().enumerate() {
             let filename = attachment
                 .attachment_name()
-                .unwrap_or("unnamed")
-                .to_string();
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| format!("attachment_{}", index));
+
             let content_type = attachment
                 .content_type()
                 .map(|ct| ct.ctype().to_string())
                 .unwrap_or_else(|| "application/octet-stream".to_string());
             let size = attachment.contents().len() as u32;
 
+            let content_id = attachment.content_id()
+                .map(|id| id.to_string());
+
+            let is_inline = content_id.is_some() || attachment.is_message();
+
             attachments.push(EmailAttachment {
                 filename,
                 content_type,
                 size,
+                index,
+                content_id,
+                is_inline,
             });
         }
     }

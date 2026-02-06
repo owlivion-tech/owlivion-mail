@@ -183,6 +183,25 @@ export async function listEmails(
   return invoke('email_list', { accountId, folder, page, pageSize });
 }
 
+// Alias for backwards compatibility
+export const emailList = listEmails;
+
+/**
+ * Sync emails with automatic filter application
+ */
+export async function syncEmailsWithFilters(
+  accountId: string,
+  page: number,
+  pageSize: number,
+  folder?: string
+): Promise<{
+  fetchResult: { emails: EmailSummary[]; total: number; hasMore: boolean };
+  newEmailsCount: number;
+  filtersAppliedCount: number;
+}> {
+  return invoke('email_sync_with_filters', { accountId, folder, page, pageSize });
+}
+
 /**
  * Get full email content
  */
@@ -191,14 +210,14 @@ export async function getEmail(accountId: string, uid: number, folder?: string):
 }
 
 /**
- * Search emails
+ * Search emails using local FTS5
  */
 export async function searchEmails(
   accountId: string,
   query: string,
   folder?: string
-): Promise<number[]> {
-  return invoke<number[]>('email_search', { accountId, query, folder });
+): Promise<EmailSummary[]> {
+  return invoke<EmailSummary[]>('email_search', { accountId, query, folder });
 }
 
 /**
@@ -253,6 +272,58 @@ export async function deleteEmail(
  * Send email
  */
 export async function sendEmail(draft: DraftEmail): Promise<void> {
+  // Process attachments if present
+  let attachmentPaths: Array<{ path: string; filename: string; contentType: string }> | undefined;
+
+  if (draft.attachments && draft.attachments.length > 0) {
+    // Check if attachments have _file property (File objects from frontend)
+    const attachmentsWithFiles = draft.attachments as Array<{
+      filename: string;
+      contentType: string;
+      size: number;
+      localPath?: string;
+      _file?: File;
+    }>;
+
+    // Process each attachment with File object
+    attachmentPaths = await Promise.all(
+      attachmentsWithFiles.map(async (att) => {
+        if (att._file) {
+          // Read File as ArrayBuffer
+          const buffer = await att._file.arrayBuffer();
+          const uint8Array = new Uint8Array(buffer);
+
+          // Write to temp file using Tauri
+          try {
+            // Use Tauri command to write temp file
+            const result = await invoke<{ path: string; filename: string; contentType: string }>(
+              'write_temp_attachment',
+              {
+                filename: att.filename,
+                contentType: att.contentType,
+                data: Array.from(uint8Array),
+              }
+            );
+
+            return result;
+          } catch (err) {
+            console.error('Failed to write temp file:', err);
+            throw new Error(`Failed to prepare attachment: ${att.filename}`);
+          }
+        } else if (att.localPath) {
+          // Already has a path (e.g., from draft)
+          return {
+            path: att.localPath,
+            filename: att.filename,
+            contentType: att.contentType,
+          };
+        } else {
+          throw new Error(`Attachment missing file data: ${att.filename}`);
+        }
+      })
+    );
+  }
+
   return invoke('email_send', {
     accountId: draft.accountId.toString(),
     to: draft.to.map((r) => r.email),
@@ -261,6 +332,24 @@ export async function sendEmail(draft: DraftEmail): Promise<void> {
     subject: draft.subject,
     textBody: draft.bodyText,
     htmlBody: draft.bodyHtml,
+    attachmentPaths,
+  });
+}
+
+/**
+ * Download attachment from email
+ */
+export async function downloadAttachment(
+  accountId: string,
+  folder: string,
+  uid: number,
+  attachmentIndex: number
+): Promise<{ filename: string; contentType: string; size: number; data: string }> {
+  return invoke('email_download_attachment', {
+    accountId,
+    folder,
+    uid,
+    attachmentIndex,
   });
 }
 

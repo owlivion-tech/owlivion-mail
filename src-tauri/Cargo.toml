@@ -66,6 +66,9 @@ lazy_static = "1.4"
 hex = "0.4"
 sha2 = "0.10"
 
+# Compression for sync
+flate2 = "1.0"
+
 # OAuth2 authentication
 oauth2 = "4.4"
 tiny_http = "0.12"

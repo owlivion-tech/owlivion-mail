@@ -73,6 +73,39 @@ export interface DraftEmail {
   composeType: 'new' | 'reply' | 'replyAll' | 'forward';
 }
 
+// Draft list item (lightweight)
+export interface DraftListItem {
+  id: number;
+  accountId: number;
+  subject: string;
+  toAddresses: string; // JSON string
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Draft detail (full data)
+export interface DraftDetail {
+  id: number;
+  accountId: number;
+  toAddresses: string;
+  ccAddresses: string;
+  bccAddresses: string;
+  subject: string;
+  bodyText: string;
+  bodyHtml: string;
+  replyToEmailId?: number;
+  forwardEmailId?: number;
+  composeType: string;
+  createdAt: string;
+  updatedAt: string;
+  attachments: {
+    filename: string;
+    contentType: string;
+    size: number;
+    localPath: string;
+  }[];
+}
+
 // Attachment
 export interface Attachment {
   id?: number;
@@ -222,6 +255,10 @@ export interface Settings {
 
   // Shortcuts
   keyboardShortcutsEnabled: boolean;
+
+  // Auto-Sync
+  autoSyncEnabled: boolean;
+  autoSyncInterval: number; // minutes (1-60)
 }
 
 // Default settings
@@ -246,6 +283,8 @@ export const DEFAULT_SETTINGS: Settings = {
   aiAutoSummarize: false,
   aiReplyTone: 'professional',
   keyboardShortcutsEnabled: true,
+  autoSyncEnabled: false,
+  autoSyncInterval: 5,
 };
 
 // Sync status
@@ -452,3 +491,123 @@ export interface QueueStats {
   completedCount: number;
   totalCount: number;
 }
+
+// ============================================================================
+// Email Filtering Types
+// ============================================================================
+
+/// Email filter rule
+export interface EmailFilter {
+  id: number;
+  accountId: number;
+  name: string;
+  description?: string;
+  isEnabled: boolean;
+  priority: number;
+  matchLogic: 'all' | 'any';
+  conditions: FilterCondition[];
+  actions: FilterAction[];
+  matchedCount: number;
+  lastMatchedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/// New filter for creation
+export interface NewEmailFilter {
+  accountId: number;
+  name: string;
+  description?: string;
+  isEnabled: boolean;
+  priority: number;
+  matchLogic: 'all' | 'any';
+  conditions: FilterCondition[];
+  actions: FilterAction[];
+}
+
+/// Filter condition
+export interface FilterCondition {
+  field: ConditionField;
+  operator: ConditionOperator;
+  value: string;
+}
+
+/// Email fields that can be filtered
+export type ConditionField =
+  | 'from'
+  | 'to'
+  | 'subject'
+  | 'body'
+  | 'has_attachment';
+
+/// Comparison operators
+export type ConditionOperator =
+  | 'contains'
+  | 'not_contains'
+  | 'equals'
+  | 'not_equals'
+  | 'starts_with'
+  | 'ends_with';
+
+/// Filter action
+export interface FilterAction {
+  action: FilterActionType;
+  folderId?: number;
+  label?: string;
+}
+
+/// Types of filter actions
+export type FilterActionType =
+  | 'move_to_folder'
+  | 'add_label'
+  | 'mark_as_read'
+  | 'mark_as_starred'
+  | 'mark_as_spam'
+  | 'delete'
+  | 'archive';
+
+/// Helper to create filter conditions
+export const createCondition = (
+  field: ConditionField,
+  operator: ConditionOperator,
+  value: string
+): FilterCondition => ({ field, operator, value });
+
+/// Filter template for quick setup
+export interface FilterTemplate {
+  id: string;
+  name: string;
+  description: string;
+  category: 'spam' | 'promotions' | 'social' | 'newsletters' | 'work' | 'organization' | 'custom';
+  icon: string; // emoji
+  conditions: FilterCondition[];
+  actions: FilterAction[];
+  priority: number;
+}
+
+/// Helper to create filter actions
+export const createAction = {
+  moveToFolder: (folderId: number): FilterAction => ({
+    action: 'move_to_folder',
+    folderId,
+  }),
+  addLabel: (label: string): FilterAction => ({
+    action: 'add_label',
+    label,
+  }),
+  markAsRead: (): FilterAction => ({
+    action: 'mark_as_read',
+  }),
+  markAsStarred: (): FilterAction => ({
+    action: 'mark_as_starred',
+  }),
+  markAsSpam: (): FilterAction => ({
+    action: 'mark_as_spam',
+  }),
+  delete: (): FilterAction => ({
+    action: 'delete',
+  }),
+  archive: (): FilterAction => ({
+    action: 'archive',
+  }),
+};

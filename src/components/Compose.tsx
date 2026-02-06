@@ -45,6 +45,7 @@ interface ComposeProps {
   onClose: () => void;
   mode: 'new' | 'reply' | 'replyAll' | 'forward';
   originalEmail?: Email;
+  draft?: DraftEmail; // Draft to edit
   onSend: (email: DraftEmail) => Promise<void>;
   onSaveDraft: (email: DraftEmail) => Promise<void>;
   defaultAccount?: Account;
@@ -55,6 +56,7 @@ export function Compose({
   onClose,
   mode,
   originalEmail,
+  draft,
   onSend,
   defaultAccount,
 }: ComposeProps) {
@@ -144,9 +146,25 @@ export function Compose({
     onSaveError: () => setAutoSaveStatus('error'),
   });
 
+  // Initialize form from draft (if editing an existing draft)
+  useEffect(() => {
+    if (!isOpen || !draft) return;
+
+    setTo(draft.to);
+    setCc(draft.cc);
+    setBcc(draft.bcc);
+    setSubject(draft.subject);
+    setBodyHtml(draft.bodyHtml);
+    setAttachments(draft.attachments);
+    setDraftId(draft.id);
+    setShowCc(draft.cc.length > 0);
+    setShowBcc(draft.bcc.length > 0);
+  }, [isOpen, draft]);
+
   // Initialize form based on mode
   useEffect(() => {
     if (!isOpen) return;
+    if (draft) return; // Skip if we're editing a draft
 
     if (mode === 'new') {
       setTo([]);
@@ -180,7 +198,7 @@ export function Compose({
         setBodyHtml(generateForwardQuote(originalEmail));
       }
     }
-  }, [isOpen, mode, originalEmail, defaultAccount]);
+  }, [isOpen, mode, originalEmail, defaultAccount, draft]);
 
 
   // Keyboard shortcuts

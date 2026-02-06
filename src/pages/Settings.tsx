@@ -99,6 +99,10 @@ const defaultSettings: SettingsType = {
   replyPosition: 'top',
   closeToTray: true,
 
+  // Auto-Sync
+  autoSyncEnabled: true,
+  autoSyncInterval: 5,
+
   // AI
   geminiApiKey: '',
   aiAutoSummarize: true,

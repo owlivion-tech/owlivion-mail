@@ -4,11 +4,12 @@
 
 use crate::mail::{
     config::{ImapConfig, SecurityType},
-    EmailSummary, FetchResult, Folder, FolderType, MailError, MailResult, ParsedEmail,
+    EmailSummary, FetchResult, Folder, FolderType, MailError, MailResult, ParsedEmail, EmailAttachment, AttachmentData,
 };
 use async_imap::{Authenticator, Session};
 use futures::{pin_mut, StreamExt};
 use tokio_util::compat::TokioAsyncReadCompatExt;
+use mail_parser::MimeHeaders;
 
 /// XOAUTH2 Authenticator for Gmail OAuth
 struct XOAuth2 {
@@ -562,20 +563,45 @@ impl AsyncImapClient {
         let safe_folder = sanitize_folder_name(folder);
 
         log::info!(
-            "async fetch_emails: folder={}, page={}, page_size={}",
+            "fetch_emails with priority: folder={}, page={}, page_size={}",
             safe_folder, page, page_size
         );
 
+        // PRIORITY FETCHING: Try to get unread emails first
+        // If SEARCH fails, fallback to old behavior
+        match self.fetch_emails_with_priority(&safe_folder, page, page_size).await {
+            Ok(result) => {
+                log::info!("Priority fetch succeeded: {} emails returned", result.emails.len());
+                return Ok(result);
+            }
+            Err(e) => {
+                log::warn!("Priority fetch failed ({}), using fallback", e);
+                // Continue to fallback below
+            }
+        }
+
+        // FALLBACK: Original sequence-based fetch
+        log::info!("Using fallback fetch (no priority)");
+
         // Check if OAuth session
         if let Some(ImapSession::OAuth(_)) = &self.session {
-            log::info!("OAuth fetch_emails: using sync session");
+            log::info!("OAuth fetch_emails: using sync session for folder={}", safe_folder);
 
             // Use sync session for OAuth
             let safe_folder_clone = safe_folder.clone();
             return self.with_oauth_session(move |session| {
                 // Select the folder
-                log::info!("OAuth: Selecting folder: {}", safe_folder_clone);
-                let mailbox = session.select(&safe_folder_clone)?;
+                log::info!("OAuth: Attempting to select folder: '{}'", safe_folder_clone);
+                let mailbox = match session.select(&safe_folder_clone) {
+                    Ok(mb) => {
+                        log::info!("OAuth: Folder '{}' selected successfully", safe_folder_clone);
+                        mb
+                    }
+                    Err(e) => {
+                        log::error!("OAuth: Failed to select folder '{}': {:?}", safe_folder_clone, e);
+                        return Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>);
+                    }
+                };
 
                 let total = mailbox.exists;
                 log::info!("OAuth: Folder selected, {} messages exist", total);
@@ -925,16 +951,16 @@ impl AsyncImapClient {
                     log::info!("OAuth fetch_email: parsing body...");
                     let body = message.body();
                     log::info!("OAuth fetch_email: body present={}", body.is_some());
-                    let (body_text, body_html) = if let Some(body_bytes) = body {
+                    let (body_text, body_html, attachments) = if let Some(body_bytes) = body {
                         log::info!("OAuth fetch_email: body size={} bytes", body_bytes.len());
                         parse_email_body(body_bytes)
                     } else {
                         log::warn!("OAuth fetch_email: no body found");
-                        (None, None)
+                        (None, None, vec![])
                     };
 
-                    log::debug!("OAuth Email fetched: uid={}, body_text_len={:?}, body_html_len={:?}",
-                        uid, body_text.as_ref().map(|s| s.len()), body_html.as_ref().map(|s| s.len()));
+                    log::debug!("OAuth Email fetched: uid={}, body_text_len={:?}, body_html_len={:?}, attachments_count={}",
+                        uid, body_text.as_ref().map(|s: &String| s.len()), body_html.as_ref().map(|s: &String| s.len()), attachments.len());
 
                     return Ok(ParsedEmail {
                         uid,
@@ -949,7 +975,7 @@ impl AsyncImapClient {
                         body_html,
                         is_read,
                         is_starred,
-                        attachments: vec![],
+                        attachments,
                     });
                 }
 
@@ -1067,17 +1093,17 @@ impl AsyncImapClient {
             log::info!("fetch_email: parsing body...");
             let body = message.body();
             log::info!("fetch_email: body present={}", body.is_some());
-            let (body_text, body_html) = if let Some(body_bytes) = body {
+            let (body_text, body_html, attachments) = if let Some(body_bytes) = body {
                 log::info!("fetch_email: body size={} bytes", body_bytes.len());
                 parse_email_body(body_bytes)
             } else {
                 log::warn!("fetch_email: no body found");
-                (None, None)
+                (None, None, vec![])
             };
 
             // SECURITY: Don't log email subject/content in production
-            log::debug!("Email fetched: uid={}, body_text_len={:?}, body_html_len={:?}",
-                uid, body_text.as_ref().map(|s| s.len()), body_html.as_ref().map(|s| s.len()));
+            log::debug!("Email fetched: uid={}, body_text_len={:?}, body_html_len={:?}, attachments_count={}",
+                uid, body_text.as_ref().map(|s: &String| s.len()), body_html.as_ref().map(|s: &String| s.len()), attachments.len());
 
             return Ok(ParsedEmail {
                 uid,
@@ -1092,7 +1118,7 @@ impl AsyncImapClient {
                 body_html,
                 is_read,
                 is_starred,
-                attachments: vec![],
+                attachments,
             });
         }
 
@@ -1156,6 +1182,314 @@ impl AsyncImapClient {
             .map_err(|e| MailError::Imap(e.to_string()))?;
 
         Ok(uids_set.into_iter().collect())
+    }
+
+    /// Search for UNSEEN (unread) emails in a folder
+    /// Used for priority fetching
+    async fn search_unseen(&mut self, folder: &str) -> MailResult<Vec<u32>> {
+        let safe_folder = sanitize_folder_name(folder);
+
+        // OAuth session check (use sync imap)
+        if let Some(ImapSession::OAuth(_)) = &self.session {
+            let folder_clone = safe_folder.clone();
+            return self.with_oauth_session(move |session| {
+                session.select(&folder_clone)?;
+                let uids = session.uid_search("UNSEEN")?;
+                Ok(uids.into_iter().collect())
+            }).await;
+        }
+
+        // Regular async session
+        let session = self.get_async_session()?;
+        session.select(&safe_folder).await
+            .map_err(|e| MailError::Imap(e.to_string()))?;
+
+        let uids_set = session.uid_search("UNSEEN").await
+            .map_err(|e| MailError::Imap(e.to_string()))?;
+
+        Ok(uids_set.into_iter().collect())
+    }
+
+    /// Search for ALL emails in a folder
+    /// Used for priority fetching to get complete UID list
+    async fn search_all(&mut self, folder: &str) -> MailResult<Vec<u32>> {
+        let safe_folder = sanitize_folder_name(folder);
+
+        // OAuth session check (use sync imap)
+        if let Some(ImapSession::OAuth(_)) = &self.session {
+            let folder_clone = safe_folder.clone();
+            return self.with_oauth_session(move |session| {
+                session.select(&folder_clone)?;
+                let uids = session.uid_search("ALL")?;
+                Ok(uids.into_iter().collect())
+            }).await;
+        }
+
+        // Regular async session
+        let session = self.get_async_session()?;
+        session.select(&safe_folder).await
+            .map_err(|e| MailError::Imap(e.to_string()))?;
+
+        let uids_set = session.uid_search("ALL").await
+            .map_err(|e| MailError::Imap(e.to_string()))?;
+
+        Ok(uids_set.into_iter().collect())
+    }
+
+    /// Fetch emails with priority (unread first)
+    /// Returns error if SEARCH commands fail, fallback to sequence-based fetch
+    async fn fetch_emails_with_priority(
+        &mut self,
+        folder: &str,
+        page: u32,
+        page_size: u32,
+    ) -> MailResult<FetchResult> {
+        // PHASE 1: Get UNSEEN UIDs (priority)
+        let unseen_uids = self.search_unseen(folder).await?;
+        log::info!("Found {} unseen emails", unseen_uids.len());
+
+        // PHASE 2: Get ALL UIDs
+        let all_uids = self.search_all(folder).await?;
+        log::info!("Found {} total emails", all_uids.len());
+
+        // PHASE 3: Separate SEEN emails (all - unseen)
+        let seen_uids: Vec<u32> = all_uids
+            .into_iter()
+            .filter(|uid| !unseen_uids.contains(uid))
+            .collect();
+        log::info!("Found {} seen emails", seen_uids.len());
+
+        // PHASE 4: Merge with priority (unseen first)
+        let mut prioritized_uids = unseen_uids;
+        prioritized_uids.extend(seen_uids);
+
+        // PHASE 5: Sort by UID descending (newest first)
+        prioritized_uids.sort_unstable_by(|a, b| b.cmp(a));
+
+        let total = prioritized_uids.len() as u32;
+
+        // PHASE 6: Apply pagination
+        let start_idx = (page * page_size) as usize;
+        let page_uids: Vec<u32> = prioritized_uids
+            .into_iter()
+            .skip(start_idx)
+            .take(page_size as usize)
+            .collect();
+
+        if page_uids.is_empty() {
+            return Ok(FetchResult {
+                emails: vec![],
+                total,
+                has_more: false,
+            });
+        }
+
+        log::info!("Fetching {} UIDs for page {}: {:?}", page_uids.len(), page, page_uids);
+
+        // PHASE 7: Fetch email details by UIDs
+        let emails = self.fetch_emails_by_uids(folder, &page_uids).await?;
+
+        let has_more = start_idx + page_uids.len() < total as usize;
+
+        log::info!("Priority fetch complete: {} emails, total={}, has_more={}",
+                   emails.len(), total, has_more);
+
+        Ok(FetchResult {
+            emails,
+            total,
+            has_more,
+        })
+    }
+
+    /// Fetch specific emails by UID list
+    /// Helper for priority fetching
+    async fn fetch_emails_by_uids(
+        &mut self,
+        folder: &str,
+        uids: &[u32],
+    ) -> MailResult<Vec<EmailSummary>> {
+        if uids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let safe_folder = sanitize_folder_name(folder);
+
+        // Build UID list string: "1,5,10,15"
+        let uid_list = uids.iter()
+            .map(|u| u.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+
+        log::info!("Fetching UIDs: {}", uid_list);
+
+        // OAuth session
+        if let Some(ImapSession::OAuth(_)) = &self.session {
+            let folder_clone = safe_folder.clone();
+            let uid_list_clone = uid_list.clone();
+
+            return self.with_oauth_session(move |session| {
+                session.select(&folder_clone)?;
+
+                let messages = session.uid_fetch(&uid_list_clone, "(UID FLAGS ENVELOPE)")?;
+
+                let mut emails: Vec<EmailSummary> = Vec::new();
+
+                for message in messages.iter() {
+                    let uid = message.uid.unwrap_or(0);
+                    let flags = message.flags();
+
+                    let is_read = flags.iter().any(|f| matches!(f, imap::types::Flag::Seen));
+                    let is_starred = flags.iter().any(|f| matches!(f, imap::types::Flag::Flagged));
+
+                    if let Some(envelope) = message.envelope() {
+                        let from = envelope
+                            .from
+                            .as_ref()
+                            .and_then(|addrs| addrs.first())
+                            .map(|addr| {
+                                let mailbox = addr.mailbox.as_ref()
+                                    .map(|m| String::from_utf8_lossy(m).to_string())
+                                    .unwrap_or_default();
+                                let host = addr.host.as_ref()
+                                    .map(|h| String::from_utf8_lossy(h).to_string())
+                                    .unwrap_or_default();
+                                format!("{}@{}", mailbox, host)
+                            })
+                            .unwrap_or_else(|| "unknown".to_string());
+
+                        let from_name = envelope
+                            .from
+                            .as_ref()
+                            .and_then(|addrs| addrs.first())
+                            .and_then(|addr| addr.name.as_ref())
+                            .map(|n| {
+                                let raw = String::from_utf8_lossy(n).to_string();
+                                decode_mime_header(&raw)
+                            });
+
+                        let subject = envelope
+                            .subject
+                            .as_ref()
+                            .map(|s| {
+                                let raw = String::from_utf8_lossy(s).to_string();
+                                decode_mime_header(&raw)
+                            })
+                            .unwrap_or_else(|| "(No subject)".to_string());
+
+                        let message_id = envelope
+                            .message_id
+                            .as_ref()
+                            .map(|id| String::from_utf8_lossy(id).to_string());
+
+                        let date = envelope
+                            .date
+                            .as_ref()
+                            .map(|d| String::from_utf8_lossy(d).to_string())
+                            .unwrap_or_else(|| "Unknown".to_string());
+
+                        emails.push(EmailSummary {
+                            uid,
+                            message_id,
+                            from,
+                            from_name,
+                            subject,
+                            preview: String::new(),
+                            date,
+                            is_read,
+                            is_starred,
+                            has_attachments: false,
+                        });
+                    }
+                }
+
+                Ok(emails)
+            }).await;
+        }
+
+        // Regular async session
+        let session = self.get_async_session()?;
+        session.select(&safe_folder).await
+            .map_err(|e| MailError::Imap(e.to_string()))?;
+
+        let mut messages_stream = session
+            .uid_fetch(&uid_list, "(UID FLAGS ENVELOPE)")
+            .await
+            .map_err(|e| MailError::Imap(e.to_string()))?;
+
+        let mut emails: Vec<EmailSummary> = Vec::new();
+
+        while let Some(result) = messages_stream.next().await {
+            let message = result.map_err(|e| MailError::Imap(e.to_string()))?;
+
+            let uid = message.uid.unwrap_or(0);
+            let flags = message.flags();
+
+            let flags_vec: Vec<_> = flags.collect();
+            let is_read = flags_vec.iter().any(|f| matches!(f, async_imap::types::Flag::Seen));
+            let is_starred = flags_vec.iter().any(|f| matches!(f, async_imap::types::Flag::Flagged));
+
+            if let Some(envelope) = message.envelope() {
+                let from = envelope
+                    .from
+                    .as_ref()
+                    .and_then(|addrs| addrs.first())
+                    .map(|addr| {
+                        let mailbox = addr.mailbox.as_ref()
+                            .map(|m: &std::borrow::Cow<'_, [u8]>| String::from_utf8_lossy(m).to_string())
+                            .unwrap_or_default();
+                        let host = addr.host.as_ref()
+                            .map(|h: &std::borrow::Cow<'_, [u8]>| String::from_utf8_lossy(h).to_string())
+                            .unwrap_or_default();
+                        format!("{}@{}", mailbox, host)
+                    })
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                let from_name = envelope
+                    .from
+                    .as_ref()
+                    .and_then(|addrs| addrs.first())
+                    .and_then(|addr| addr.name.as_ref())
+                    .map(|n: &std::borrow::Cow<'_, [u8]>| {
+                        let raw = String::from_utf8_lossy(n).to_string();
+                        decode_mime_header(&raw)
+                    });
+
+                let subject = envelope
+                    .subject
+                    .as_ref()
+                    .map(|s| {
+                        let raw = String::from_utf8_lossy(s).to_string();
+                        decode_mime_header(&raw)
+                    })
+                    .unwrap_or_else(|| "(No subject)".to_string());
+
+                let message_id = envelope
+                    .message_id
+                    .as_ref()
+                    .map(|id| String::from_utf8_lossy(id).to_string());
+
+                let date = envelope
+                    .date
+                    .as_ref()
+                    .map(|d| String::from_utf8_lossy(d).to_string())
+                    .unwrap_or_else(|| "Unknown".to_string());
+
+                emails.push(EmailSummary {
+                    uid,
+                    message_id,
+                    from,
+                    from_name,
+                    subject,
+                    preview: String::new(),
+                    date,
+                    is_read,
+                    is_starred,
+                    has_attachments: false,
+                });
+            }
+        }
+
+        Ok(emails)
     }
 
     /// Mark email as read/unread
@@ -1437,18 +1771,177 @@ impl AsyncImapClient {
 
         Ok(())
     }
+
+    /// Fetch a specific attachment from an email
+    /// SECURITY: Folder name sanitized to prevent IMAP injection
+    pub async fn fetch_attachment(&mut self, folder: &str, uid: u32, attachment_index: usize) -> MailResult<AttachmentData> {
+        // SECURITY: Sanitize folder name
+        let safe_folder = sanitize_folder_name(folder);
+
+        log::info!("fetch_attachment: folder={}, uid={}, index={}", safe_folder, uid, attachment_index);
+
+        // Check if OAuth session
+        if let Some(ImapSession::OAuth(_)) = &self.session {
+            log::info!("OAuth fetch_attachment: using sync session");
+
+            let safe_folder_clone = safe_folder.clone();
+            return self.with_oauth_session(move |session| {
+                // Select folder
+                session.select(&safe_folder_clone)?;
+
+                // Fetch the email with body
+                let uid_str = uid.to_string();
+                let messages = session.uid_fetch(&uid_str, "(UID RFC822)")?;
+
+                if let Some(message) = messages.iter().next() {
+                    if let Some(body_bytes) = message.body() {
+                        // Parse email
+                        if let Some(parsed) = mail_parser::MessageParser::default().parse(body_bytes) {
+                            // Get the attachment by index
+                            if let Some(att) = parsed.attachments().nth(attachment_index) {
+                                let filename = att.attachment_name()
+                                    .map(|s| s.to_string())
+                                    .unwrap_or_else(|| format!("attachment_{}", attachment_index));
+
+                                let content_type = att.content_type()
+                                    .map(|ct| {
+                                        let subtype = ct.c_subtype.as_ref().map(|s| s.as_ref()).unwrap_or("octet-stream");
+                                        format!("{}/{}", ct.c_type, subtype)
+                                    })
+                                    .unwrap_or_else(|| "application/octet-stream".to_string());
+
+                                let contents = att.contents();
+                                let size = contents.len() as u32;
+
+                                // Base64 encode the data
+                                let data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, contents);
+
+                                return Ok(AttachmentData {
+                                    filename,
+                                    content_type,
+                                    size,
+                                    data,
+                                });
+                            }
+                        }
+                    }
+                }
+
+                Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("Attachment {} not found", attachment_index)
+                )) as Box<dyn std::error::Error + Send + Sync>)
+            }).await;
+        }
+
+        // Regular async session flow
+        let session = self.get_async_session()?;
+
+        // Select folder
+        session
+            .select(&safe_folder)
+            .await
+            .map_err(|e| MailError::Imap(e.to_string()))?;
+
+        // Fetch the email with body
+        let uid_str = uid.to_string();
+        let mut messages_stream = session
+            .uid_fetch(&uid_str, "(UID RFC822)")
+            .await
+            .map_err(|e| MailError::Imap(e.to_string()))?;
+
+        if let Some(result) = messages_stream.next().await {
+            let message = result.map_err(|e| MailError::Imap(e.to_string()))?;
+
+            if let Some(body_bytes) = message.body() {
+                // Parse email
+                if let Some(parsed) = mail_parser::MessageParser::default().parse(body_bytes) {
+                    // Get the attachment by index
+                    if let Some(att) = parsed.attachments().nth(attachment_index) {
+                        let filename = att.attachment_name()
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| format!("attachment_{}", attachment_index));
+
+                        let content_type = att.content_type()
+                            .map(|ct| {
+                                let subtype = ct.c_subtype.as_ref().map(|s| s.as_ref()).unwrap_or("octet-stream");
+                                format!("{}/{}", ct.c_type, subtype)
+                            })
+                            .unwrap_or_else(|| "application/octet-stream".to_string());
+
+                        let contents = att.contents();
+                        let size = contents.len() as u32;
+
+                        // Base64 encode the data
+                        let data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, contents);
+
+                        return Ok(AttachmentData {
+                            filename,
+                            content_type,
+                            size,
+                            data,
+                        });
+                    }
+                }
+            }
+        }
+
+        Err(MailError::NotFound(format!("Attachment {} not found", attachment_index)))
+    }
 }
 
 /// Parse email body from raw bytes
-fn parse_email_body(body: &[u8]) -> (Option<String>, Option<String>) {
+/// Parse email body and extract attachments
+fn parse_email_body(body: &[u8]) -> (Option<String>, Option<String>, Vec<EmailAttachment>) {
     // Try to parse with mail_parser
     if let Some(parsed) = mail_parser::MessageParser::default().parse(body) {
         let body_text = parsed.body_text(0).map(|s| s.to_string());
         let body_html = parsed.body_html(0).map(|s| s.to_string());
-        return (body_text, body_html);
+
+        // Extract attachments with full metadata
+        let attachments: Vec<EmailAttachment> = parsed.attachments()
+            .enumerate()
+            .map(|(index, att)| {
+                // Get filename from attachment
+                let filename = if let Some(name) = att.attachment_name() {
+                    name.to_string()
+                } else {
+                    format!("attachment_{}", index)
+                };
+
+                // Get content type
+                let content_type = if let Some(ct) = att.content_type() {
+                    let subtype = ct.c_subtype.as_ref().map(|s| s.as_ref()).unwrap_or("octet-stream");
+                    format!("{}/{}", ct.c_type, subtype)
+                } else {
+                    "application/octet-stream".to_string()
+                };
+
+                // Get size
+                let size = att.contents().len() as u32;
+
+                // Get content-id for inline images (cid:)
+                let content_id = att.content_id()
+                    .map(|id| id.to_string());
+
+                // Check if inline (has content-id or is embedded)
+                let is_inline = content_id.is_some() || att.is_message();
+
+                EmailAttachment {
+                    filename,
+                    content_type,
+                    size,
+                    index,
+                    content_id,
+                    is_inline,
+                }
+            })
+            .collect();
+
+        return (body_text, body_html, attachments);
     }
 
     // Fallback: treat as plain text
     let text = String::from_utf8_lossy(body).to_string();
-    (Some(text), None)
+    (Some(text), None, vec![])
 }

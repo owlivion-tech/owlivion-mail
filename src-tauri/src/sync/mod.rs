@@ -24,6 +24,9 @@ pub mod scheduler;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod tests_delta_compression;
+
 // Re-export commonly used types
 pub use crypto::{
     SyncDataType, SyncPayload, derive_sync_master_key, derive_data_key,

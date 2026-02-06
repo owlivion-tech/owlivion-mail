@@ -9,12 +9,12 @@ use tauri::{
     AppHandle, Manager, Runtime,
 };
 
-/// Get tray icon - use standard icon for better compatibility
+/// Get tray icon - use white icon for better visibility on dark panels
 fn get_tray_icon() -> Result<Image<'static>, Box<dyn std::error::Error>> {
-    // Use 64x64 icon for better GNOME visibility
-    let icon_bytes: &[u8] = include_bytes!("../icons/64x64.png");
+    // Use 512x512 white icon for maximum size and quality
+    let icon_bytes: &[u8] = include_bytes!("../icons/512x512-white.png");
 
-    log::info!("Loading tray icon from 64x64.png");
+    log::info!("Loading tray icon from 512x512-white.png");
 
     // Decode PNG image
     let img = image::load_from_memory(icon_bytes)?;

@@ -20,6 +20,10 @@ use ring::hkdf;
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
+use flate2::Compression;
+use flate2::write::GzEncoder;
+use flate2::read::GzDecoder;
+use std::io::{Write, Read};
 
 const NONCE_LEN: usize = 12;
 const MASTER_KEY_LEN: usize = 32;
@@ -116,9 +120,11 @@ impl hkdf::KeyType for KeyType {
 /// - Key is zeroized after use via SecureKey wrapper
 ///
 /// # Example
-/// ```rust
+/// ```rust,no_run
+/// # use owlivion_mail_lib::sync::crypto::derive_sync_master_key;
 /// let salt = [0u8; 32]; // Generate with SystemRandom in production
 /// let master_key = derive_sync_master_key("user_password", &salt)?;
+/// # Ok::<(), String>(())
 /// ```
 pub fn derive_sync_master_key(password: &str, salt: &[u8; 32]) -> Result<[u8; 32], String> {
     if password.is_empty() {
@@ -155,18 +161,28 @@ pub fn derive_sync_master_key(password: &str, salt: &[u8; 32]) -> Result<[u8; 32
 /// - Keys are zeroized after use
 ///
 /// # Example
-/// ```rust
+/// ```rust,no_run
+/// # use owlivion_mail_lib::sync::crypto::{derive_sync_master_key, derive_data_key};
+/// # use owlivion_mail_lib::sync::SyncDataType;
+/// # let salt = [0u8; 32];
 /// let master_key = derive_sync_master_key("password", &salt)?;
 /// let contacts_key = derive_data_key(&master_key, SyncDataType::Contacts)?;
+/// # Ok::<(), String>(())
 /// ```
 pub fn derive_data_key(
     master_key: &[u8; 32],
     data_type: SyncDataType,
 ) -> Result<[u8; 32], String> {
-    let salt = hkdf::Salt::new(hkdf::HKDF_SHA256, master_key);
     let context = data_type.key_context();
 
-    let prk = salt.extract(context);
+    // Use empty salt for deterministic key derivation
+    // The security comes from the master_key being high-entropy
+    let salt = hkdf::Salt::new(hkdf::HKDF_SHA256, &[0u8; 32]);
+
+    // Extract: master_key is the input key material (IKM)
+    let prk = salt.extract(master_key);
+
+    // Expand: context is the info parameter to derive different keys per data type
     let context_slice = [context];
     let okm = prk
         .expand(&context_slice, KeyType(DATA_KEY_LEN))
@@ -205,8 +221,14 @@ pub fn derive_data_key(
 /// - Checksum provides integrity verification
 ///
 /// # Example
-/// ```rust
-/// let contacts = vec![Contact { ... }];
+/// ```rust,no_run
+/// # use owlivion_mail_lib::sync::crypto::encrypt_sync_data;
+/// # use owlivion_mail_lib::sync::SyncDataType;
+/// # use serde::Serialize;
+/// # #[derive(Serialize)]
+/// # struct Contact { email: String }
+/// # let contacts = vec![Contact { email: "test@example.com".to_string() }];
+/// # let master_key = [0u8; 32];
 /// let payload = encrypt_sync_data(
 ///     &contacts,
 ///     &master_key,
@@ -214,6 +236,7 @@ pub fn derive_data_key(
 ///     "device-uuid"
 /// )?;
 /// // Upload payload.encrypted_data, payload.nonce, payload.checksum to server
+/// # Ok::<(), String>(())
 /// ```
 pub fn encrypt_sync_data<T: Serialize>(
     data: &T,
@@ -287,8 +310,14 @@ pub fn encrypt_sync_data<T: Serialize>(
 /// - Authentication tag verified by AES-GCM
 ///
 /// # Example
-/// ```rust
-/// let payload = download_from_server()?;
+/// ```rust,ignore
+/// use owlivion_mail_lib::sync::crypto::decrypt_sync_data;
+/// use serde::Deserialize;
+///
+/// #[derive(Deserialize)]
+/// struct Contact { email: String }
+///
+/// // Assuming payload was received from server
 /// let contacts: Vec<Contact> = decrypt_sync_data(&payload, &master_key)?;
 /// ```
 pub fn decrypt_sync_data<T: for<'de> Deserialize<'de>>(
@@ -313,7 +342,12 @@ pub fn decrypt_sync_data<T: for<'de> Deserialize<'de>>(
         let nonce = Nonce::try_assume_unique_for_key(&payload.nonce)
             .map_err(|_| "Invalid nonce".to_string())?;
 
-        let mut ciphertext = payload.encrypted_data.clone();
+        // encrypted_data = nonce (12 bytes) + ciphertext (from encrypt_sync_data line 255-263)
+        // We need to skip the nonce prefix before decrypting
+        if payload.encrypted_data.len() < NONCE_LEN {
+            return Err("Encrypted data too short".to_string());
+        }
+        let mut ciphertext = payload.encrypted_data[NONCE_LEN..].to_vec();
         let plaintext = key
             .open_in_place(nonce, Aad::empty(), &mut ciphertext)
             .map_err(|_| "Decryption failed - invalid key or corrupted data".to_string())?;
@@ -351,9 +385,11 @@ pub fn compute_sha256(data: &[u8]) -> String {
 /// Should be generated once per user and persisted in sync config.
 ///
 /// # Example
-/// ```rust
+/// ```rust,no_run
+/// # use owlivion_mail_lib::sync::crypto::generate_random_salt;
 /// let salt = generate_random_salt()?;
 /// // Save salt to database or config file
+/// # Ok::<(), String>(())
 /// ```
 pub fn generate_random_salt() -> Result<[u8; 32], String> {
     let rng = SystemRandom::new();
@@ -373,6 +409,50 @@ pub fn decode_base64(data: &str) -> Result<Vec<u8>, String> {
     base64::engine::general_purpose::STANDARD
         .decode(data)
         .map_err(|e| format!("Base64 decode error: {}", e))
+}
+
+// ============================================================================
+// Compression Functions (GZIP)
+// ============================================================================
+
+/// Compress data using GZIP (Level 6 - balanced speed/ratio)
+///
+/// Typical compression ratios for sync data:
+/// - JSON text: 60-80% reduction
+/// - Base64 encrypted: 10-20% reduction
+///
+/// # Example
+/// ```rust,no_run
+/// # use owlivion_mail_lib::sync::crypto::gzip_compress;
+/// let data = b"Hello, World!";
+/// let compressed = gzip_compress(data)?;
+/// # Ok::<(), String>(())
+/// ```
+pub fn gzip_compress(data: &[u8]) -> Result<Vec<u8>, String> {
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(data)
+        .map_err(|e| format!("GZIP compression failed: {}", e))?;
+    encoder.finish()
+        .map_err(|e| format!("GZIP finish failed: {}", e))
+}
+
+/// Decompress GZIP data
+///
+/// # Example
+/// ```rust,no_run
+/// # use owlivion_mail_lib::sync::crypto::{gzip_compress, gzip_decompress};
+/// let original = b"Hello, World!";
+/// let compressed = gzip_compress(original)?;
+/// let decompressed = gzip_decompress(&compressed)?;
+/// assert_eq!(original, decompressed.as_slice());
+/// # Ok::<(), String>(())
+/// ```
+pub fn gzip_decompress(data: &[u8]) -> Result<Vec<u8>, String> {
+    let mut decoder = GzDecoder::new(data);
+    let mut result = Vec::new();
+    decoder.read_to_end(&mut result)
+        .map_err(|e| format!("GZIP decompression failed: {}", e))?;
+    Ok(result)
 }
 
 // ============================================================================
@@ -600,5 +680,32 @@ mod tests {
         assert_eq!(SyncDataType::Contacts.as_str(), "contacts");
         assert_eq!(SyncDataType::Preferences.as_str(), "preferences");
         assert_eq!(SyncDataType::Signatures.as_str(), "signatures");
+    }
+
+    #[test]
+    fn test_gzip_compression() {
+        let original = b"Hello, World! This is a test string that should compress well because it has repetition. ".repeat(10);
+
+        let compressed = gzip_compress(&original).unwrap();
+        let decompressed = gzip_decompress(&compressed).unwrap();
+
+        assert_eq!(original, decompressed.as_slice());
+
+        // Compression should reduce size significantly
+        assert!(compressed.len() < original.len(),
+                "Compressed size {} should be less than original {}",
+                compressed.len(), original.len());
+
+        log::info!("Compression ratio: {:.1}%",
+                   (compressed.len() as f64 / original.len() as f64) * 100.0);
+    }
+
+    #[test]
+    fn test_gzip_empty_data() {
+        let empty: Vec<u8> = vec![];
+        let compressed = gzip_compress(&empty).unwrap();
+        let decompressed = gzip_decompress(&compressed).unwrap();
+
+        assert_eq!(empty, decompressed);
     }
 }

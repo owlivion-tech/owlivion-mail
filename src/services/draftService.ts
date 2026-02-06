@@ -3,7 +3,7 @@
 // ============================================================================
 
 import { invoke } from '@tauri-apps/api/core';
-import type { DraftEmail, Attachment } from '../types';
+import type { DraftEmail, Attachment, DraftListItem, DraftDetail } from '../types';
 
 export async function saveDraft(draft: DraftEmail, attachments: Attachment[]): Promise<number> {
   const draftData = {
@@ -37,4 +37,12 @@ export async function saveDraft(draft: DraftEmail, attachments: Attachment[]): P
 
 export async function deleteDraft(draftId: number): Promise<void> {
   await invoke('draft_delete', { draftId });
+}
+
+export async function listDrafts(accountId: number): Promise<DraftListItem[]> {
+  return await invoke<DraftListItem[]>('draft_list', { accountId });
+}
+
+export async function getDraft(draftId: number): Promise<DraftDetail> {
+  return await invoke<DraftDetail>('draft_get', { draftId });
 }

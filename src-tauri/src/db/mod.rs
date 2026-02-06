@@ -148,6 +148,9 @@ impl Database {
         let schema = include_str!("schema.sql");
         conn.execute_batch(schema)?;
 
+        // Run migrations for in-memory database too
+        Self::run_migrations(&conn)?;
+
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -199,6 +202,74 @@ impl Database {
         if !has_close_to_tray {
             log::info!("Running migration: Adding close_to_tray setting");
             conn.execute("INSERT INTO settings (key, value) VALUES ('close_to_tray', 'true')", [])?;
+        }
+
+        // Migration 4: Delta Sync - Add deleted column to accounts table
+        let has_accounts_deleted: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('accounts') WHERE name = 'deleted'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_accounts_deleted {
+            log::info!("Running migration: Adding deleted column to accounts (delta sync)");
+            conn.execute("ALTER TABLE accounts ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0", [])?;
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_accounts_deleted ON accounts(deleted) WHERE deleted = 0", [])?;
+        }
+
+        // Migration 5: Delta Sync - Add deleted column to contacts table
+        let has_contacts_deleted: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('contacts') WHERE name = 'deleted'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_contacts_deleted {
+            log::info!("Running migration: Adding deleted column to contacts (delta sync)");
+            conn.execute("ALTER TABLE contacts ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0", [])?;
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_contacts_deleted ON contacts(deleted) WHERE deleted = 0", [])?;
+        }
+
+        // Migration 6: Delta Sync - Create sync_metadata table
+        let has_sync_metadata: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='sync_metadata'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_sync_metadata {
+            log::info!("Running migration: Creating sync_metadata table (delta sync)");
+            conn.execute_batch(r#"
+                CREATE TABLE sync_metadata (
+                    data_type TEXT PRIMARY KEY CHECK (data_type IN ('accounts', 'contacts', 'preferences', 'signatures')),
+                    last_sync_at TEXT,
+                    last_sync_version INTEGER DEFAULT 0,
+                    items_synced INTEGER DEFAULT 0,
+                    items_changed INTEGER DEFAULT 0,
+                    items_deleted INTEGER DEFAULT 0,
+                    sync_status TEXT DEFAULT 'idle' CHECK (sync_status IN ('idle', 'syncing', 'error')),
+                    error_message TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+
+                INSERT INTO sync_metadata (data_type, last_sync_at) VALUES
+                    ('accounts', NULL),
+                    ('contacts', NULL),
+                    ('preferences', NULL),
+                    ('signatures', NULL);
+
+                CREATE TRIGGER sync_metadata_updated_at AFTER UPDATE ON sync_metadata
+                BEGIN
+                    UPDATE sync_metadata SET updated_at = datetime('now') WHERE data_type = NEW.data_type;
+                END;
+            "#)?;
         }
 
         Ok(())
@@ -1226,7 +1297,21 @@ impl Database {
     // =========================================================================
 
     /// Execute a SQL statement and return affected rows (for internal use)
-    pub fn execute<P>(&self, sql: &str, params: P) -> DbResult<i64>
+    pub fn execute<P>(&self, sql: &str, params: P) -> DbResult<usize>
+    where
+        P: rusqlite::Params,
+    {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let affected = conn.execute(sql, params)?;
+        Ok(affected)
+    }
+
+    /// Execute an INSERT statement and return the last inserted row ID
+    pub fn execute_insert<P>(&self, sql: &str, params: P) -> DbResult<i64>
     where
         P: rusqlite::Params,
     {
@@ -1271,6 +1356,149 @@ impl Database {
         conn.query_row(sql, params, f).map_err(DbError::from)
     }
 
+    /// Insert attachment for an email
+    pub fn insert_attachment(&self, attachment: &NewAttachment) -> DbResult<i64> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        conn.execute(
+            r#"
+            INSERT INTO attachments
+            (email_id, filename, content_type, size, content_id, is_inline, local_path, is_downloaded)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "#,
+            params![
+                attachment.email_id,
+                attachment.filename,
+                attachment.content_type,
+                attachment.size,
+                attachment.content_id,
+                attachment.is_inline,
+                attachment.local_path,
+                attachment.is_downloaded,
+            ],
+        )?;
+
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Get all attachments for an email
+    pub fn get_attachments_for_email(&self, email_id: i64) -> DbResult<Vec<Attachment>> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id, email_id, filename, content_type, size, content_id,
+                   is_inline, local_path, is_downloaded, created_at
+            FROM attachments
+            WHERE email_id = ?1
+            ORDER BY is_inline ASC, filename ASC
+            "#,
+        )?;
+
+        let attachments = stmt
+            .query_map([email_id], |row| {
+                Ok(Attachment {
+                    id: row.get(0)?,
+                    email_id: row.get(1)?,
+                    filename: row.get(2)?,
+                    content_type: row.get(3)?,
+                    size: row.get(4)?,
+                    content_id: row.get(5)?,
+                    is_inline: row.get(6)?,
+                    local_path: row.get(7)?,
+                    is_downloaded: row.get(8)?,
+                    created_at: row.get(9)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(attachments)
+    }
+
+    /// Get attachment by ID
+    pub fn get_attachment(&self, id: i64) -> DbResult<Attachment> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let attachment = conn.query_row(
+            r#"
+            SELECT id, email_id, filename, content_type, size, content_id,
+                   is_inline, local_path, is_downloaded, created_at
+            FROM attachments
+            WHERE id = ?1
+            "#,
+            [id],
+            |row| {
+                Ok(Attachment {
+                    id: row.get(0)?,
+                    email_id: row.get(1)?,
+                    filename: row.get(2)?,
+                    content_type: row.get(3)?,
+                    size: row.get(4)?,
+                    content_id: row.get(5)?,
+                    is_inline: row.get(6)?,
+                    local_path: row.get(7)?,
+                    is_downloaded: row.get(8)?,
+                    created_at: row.get(9)?,
+                })
+            },
+        )?;
+
+        Ok(attachment)
+    }
+
+    /// Update attachment local path after download
+    pub fn update_attachment_path(&self, id: i64, local_path: &str) -> DbResult<()> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        conn.execute(
+            "UPDATE attachments SET local_path = ?1, is_downloaded = 1 WHERE id = ?2",
+            params![local_path, id],
+        )?;
+
+        Ok(())
+    }
+
+    /// Get folder by ID
+    pub fn get_folder_by_id(&self, id: i64) -> DbResult<Folder> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let folder = conn.query_row(
+            "SELECT id, account_id, name, remote_name, folder_type, unread_count, total_count, is_subscribed, is_selectable, delimiter FROM folders WHERE id = ?1",
+            [id],
+            |row| {
+                Ok(Folder {
+                    id: row.get(0)?,
+                    account_id: row.get(1)?,
+                    name: row.get(2)?,
+                    remote_name: row.get(3)?,
+                    folder_type: row.get(4)?,
+                    unread_count: row.get(5)?,
+                    total_count: row.get(6)?,
+                    is_subscribed: row.get(7)?,
+                    is_selectable: row.get(8)?,
+                    delimiter: row.get(9)?,
+                })
+            },
+        )?;
+
+        Ok(folder)
+    }
+
     /// Execute batch SQL (for internal use)
     pub fn execute_batch(&self, sql: &str) -> DbResult<()> {
         let conn = self.conn.lock().unwrap_or_else(|poisoned| {
@@ -1279,6 +1507,216 @@ impl Database {
         });
 
         conn.execute_batch(sql).map_err(DbError::from)
+    }
+
+    // =========================================================================
+    // EMAIL FILTERS
+    // =========================================================================
+
+    /// Add a new email filter
+    pub fn add_filter(&self, filter: &NewEmailFilter) -> DbResult<i64> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let conditions_json = serde_json::to_string(&filter.conditions)
+            .map_err(|e| DbError::Serialization(e.to_string()))?;
+        let actions_json = serde_json::to_string(&filter.actions)
+            .map_err(|e| DbError::Serialization(e.to_string()))?;
+
+        conn.execute(
+            r#"
+            INSERT INTO email_filters (
+                account_id, name, description, is_enabled, priority,
+                match_logic, conditions, actions
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "#,
+            params![
+                filter.account_id,
+                filter.name,
+                filter.description,
+                filter.is_enabled,
+                filter.priority,
+                filter.match_logic.as_str(),
+                conditions_json,
+                actions_json,
+            ],
+        )?;
+
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Get all filters for an account
+    pub fn get_filters(&self, account_id: i64) -> DbResult<Vec<EmailFilter>> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id, account_id, name, description, is_enabled, priority,
+                   match_logic, conditions, actions, matched_count, last_matched_at,
+                   created_at, updated_at
+            FROM email_filters
+            WHERE account_id = ?1
+            ORDER BY priority ASC, id ASC
+            "#,
+        )?;
+
+        let filters = stmt
+            .query_map([account_id], |row| {
+                let conditions_json: String = row.get(7)?;
+                let actions_json: String = row.get(8)?;
+                let match_logic_str: String = row.get(6)?;
+
+                let conditions = serde_json::from_str(&conditions_json)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                let actions = serde_json::from_str(&actions_json)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                let match_logic = match match_logic_str.as_str() {
+                    "all" => MatchLogic::All,
+                    "any" => MatchLogic::Any,
+                    _ => MatchLogic::All,
+                };
+
+                Ok(EmailFilter {
+                    id: row.get(0)?,
+                    account_id: row.get(1)?,
+                    name: row.get(2)?,
+                    description: row.get(3)?,
+                    is_enabled: row.get(4)?,
+                    priority: row.get(5)?,
+                    match_logic,
+                    conditions,
+                    actions,
+                    matched_count: row.get(9)?,
+                    last_matched_at: row.get(10)?,
+                    created_at: row.get(11)?,
+                    updated_at: row.get(12)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(filters)
+    }
+
+    /// Get filter by ID
+    pub fn get_filter(&self, id: i64) -> DbResult<EmailFilter> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let filter = conn.query_row(
+            r#"
+            SELECT id, account_id, name, description, is_enabled, priority,
+                   match_logic, conditions, actions, matched_count, last_matched_at,
+                   created_at, updated_at
+            FROM email_filters
+            WHERE id = ?1
+            "#,
+            [id],
+            |row| {
+                let conditions_json: String = row.get(7)?;
+                let actions_json: String = row.get(8)?;
+                let match_logic_str: String = row.get(6)?;
+
+                let conditions = serde_json::from_str(&conditions_json)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                let actions = serde_json::from_str(&actions_json)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                let match_logic = match match_logic_str.as_str() {
+                    "all" => MatchLogic::All,
+                    "any" => MatchLogic::Any,
+                    _ => MatchLogic::All,
+                };
+
+                Ok(EmailFilter {
+                    id: row.get(0)?,
+                    account_id: row.get(1)?,
+                    name: row.get(2)?,
+                    description: row.get(3)?,
+                    is_enabled: row.get(4)?,
+                    priority: row.get(5)?,
+                    match_logic,
+                    conditions,
+                    actions,
+                    matched_count: row.get(9)?,
+                    last_matched_at: row.get(10)?,
+                    created_at: row.get(11)?,
+                    updated_at: row.get(12)?,
+                })
+            },
+        )?;
+
+        Ok(filter)
+    }
+
+    /// Update existing filter
+    pub fn update_filter(&self, id: i64, filter: &NewEmailFilter) -> DbResult<()> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let conditions_json = serde_json::to_string(&filter.conditions)
+            .map_err(|e| DbError::Serialization(e.to_string()))?;
+        let actions_json = serde_json::to_string(&filter.actions)
+            .map_err(|e| DbError::Serialization(e.to_string()))?;
+
+        conn.execute(
+            r#"
+            UPDATE email_filters SET
+                name = ?1,
+                description = ?2,
+                is_enabled = ?3,
+                priority = ?4,
+                match_logic = ?5,
+                conditions = ?6,
+                actions = ?7,
+                updated_at = datetime('now')
+            WHERE id = ?8
+            "#,
+            params![
+                filter.name,
+                filter.description,
+                filter.is_enabled,
+                filter.priority,
+                filter.match_logic.as_str(),
+                conditions_json,
+                actions_json,
+                id,
+            ],
+        )?;
+
+        Ok(())
+    }
+
+    /// Delete filter
+    pub fn delete_filter(&self, id: i64) -> DbResult<()> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        conn.execute("DELETE FROM email_filters WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    /// Toggle filter enabled state
+    pub fn toggle_filter(&self, id: i64) -> DbResult<()> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        conn.execute(
+            "UPDATE email_filters SET is_enabled = NOT is_enabled WHERE id = ?1",
+            [id],
+        )?;
+        Ok(())
     }
 }
 
@@ -1447,6 +1885,44 @@ pub struct Email {
     pub labels: String,
 }
 
+impl Email {
+    /// Create Email from database row
+    pub fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Email {
+            id: row.get(0)?,
+            account_id: row.get(1)?,
+            folder_id: row.get(2)?,
+            message_id: row.get(3)?,
+            uid: row.get::<_, i64>(4)? as u32,
+            from_address: row.get(5)?,
+            from_name: row.get(6)?,
+            to_addresses: row.get(7)?,
+            cc_addresses: row.get(8)?,
+            bcc_addresses: row.get(9)?,
+            reply_to: row.get(10)?,
+            subject: row.get(11)?,
+            preview: row.get(12)?,
+            body_text: row.get(13)?,
+            body_html: row.get(14)?,
+            date: row.get(15)?,
+            is_read: row.get(16)?,
+            is_starred: row.get(17)?,
+            is_deleted: row.get(18)?,
+            is_spam: row.get(19)?,
+            is_draft: row.get(20)?,
+            is_answered: row.get(21)?,
+            is_forwarded: row.get(22)?,
+            has_attachments: row.get(23)?,
+            has_inline_images: row.get(24)?,
+            thread_id: row.get(25)?,
+            in_reply_to: row.get(26)?,
+            references_header: row.get(27)?,
+            priority: row.get(28)?,
+            labels: row.get(29)?,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrustedSender {
     pub id: i64,
@@ -1483,6 +1959,33 @@ pub struct Contact {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Attachment {
+    pub id: i64,
+    pub email_id: i64,
+    pub filename: String,
+    pub content_type: String,
+    pub size: i64,
+    pub content_id: Option<String>,
+    pub is_inline: bool,
+    pub local_path: Option<String>,
+    pub is_downloaded: bool,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewAttachment {
+    pub email_id: i64,
+    pub filename: String,
+    pub content_type: String,
+    pub size: i64,
+    pub content_id: Option<String>,
+    pub is_inline: bool,
+    pub local_path: Option<String>,
+    pub is_downloaded: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncState {
     pub id: i64,
     pub account_id: i64,
@@ -1494,6 +1997,297 @@ pub struct SyncState {
     pub last_incremental_sync_at: Option<String>,
     pub sync_status: String,
     pub sync_error: Option<String>,
+}
+
+// ============================================================================
+// EMAIL FILTER STRUCTURES (Re-export from filters module)
+// ============================================================================
+
+pub use crate::filters::{EmailFilter, NewEmailFilter, FilterAction, FilterCondition, MatchLogic};
+
+// ============================================================================
+// DELTA SYNC OPERATIONS
+// ============================================================================
+
+/// Sync metadata for tracking last sync timestamps
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncMetadata {
+    pub data_type: String,
+    pub last_sync_at: Option<String>,
+    pub last_sync_version: i64,
+    pub items_synced: i64,
+    pub items_changed: i64,
+    pub items_deleted: i64,
+    pub sync_status: String,
+    pub error_message: Option<String>,
+}
+
+impl Database {
+    /// Get sync metadata for a data type
+    pub fn get_sync_metadata(&self, data_type: &str) -> DbResult<Option<SyncMetadata>> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let result = conn.query_row(
+            r#"
+            SELECT data_type, last_sync_at, last_sync_version, items_synced,
+                   items_changed, items_deleted, sync_status, error_message
+            FROM sync_metadata
+            WHERE data_type = ?1
+            "#,
+            params![data_type],
+            |row| {
+                Ok(SyncMetadata {
+                    data_type: row.get(0)?,
+                    last_sync_at: row.get(1)?,
+                    last_sync_version: row.get(2)?,
+                    items_synced: row.get(3)?,
+                    items_changed: row.get(4)?,
+                    items_deleted: row.get(5)?,
+                    sync_status: row.get(6)?,
+                    error_message: row.get(7)?,
+                })
+            },
+        );
+
+        match result {
+            Ok(metadata) => Ok(Some(metadata)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Update sync metadata after successful sync
+    pub fn update_sync_metadata(
+        &self,
+        data_type: &str,
+        last_sync_at: Option<&str>,
+        version: Option<i64>,
+        items_synced: Option<i64>,
+        items_changed: Option<i64>,
+        items_deleted: Option<i64>,
+    ) -> DbResult<()> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        conn.execute(
+            r#"
+            UPDATE sync_metadata
+            SET last_sync_at = COALESCE(?1, last_sync_at),
+                last_sync_version = COALESCE(?2, last_sync_version),
+                items_synced = COALESCE(?3, items_synced),
+                items_changed = COALESCE(?4, items_changed),
+                items_deleted = COALESCE(?5, items_deleted),
+                sync_status = 'idle'
+            WHERE data_type = ?6
+            "#,
+            params![last_sync_at, version, items_synced, items_changed, items_deleted, data_type],
+        )?;
+
+        Ok(())
+    }
+
+    /// Get accounts changed since last sync (delta)
+    /// NOTE: Passwords and access tokens are excluded for security
+    pub fn get_changed_accounts(&self, since: Option<&str>) -> DbResult<Vec<Account>> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let query = r#"
+            SELECT id, email, display_name,
+                   imap_host, imap_port, imap_security, imap_username,
+                   smtp_host, smtp_port, smtp_security, smtp_username,
+                   oauth_provider, oauth_refresh_token, oauth_expires_at,
+                   is_active, is_default, signature, sync_days, accept_invalid_certs,
+                   created_at, updated_at
+            FROM accounts
+            WHERE deleted = 0
+        "#;
+
+        let query_with_since = format!("{} AND updated_at > ?1 ORDER BY updated_at DESC", query);
+        let query_all = format!("{} ORDER BY updated_at DESC", query);
+
+        let mut stmt = if since.is_some() {
+            conn.prepare(&query_with_since)?
+        } else {
+            conn.prepare(&query_all)?
+        };
+
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<Account> {
+            Ok(Account {
+                id: row.get(0)?,
+                email: row.get(1)?,
+                display_name: row.get(2)?,
+                imap_host: row.get(3)?,
+                imap_port: row.get(4)?,
+                imap_security: row.get(5)?,
+                imap_username: row.get(6)?,
+                smtp_host: row.get(7)?,
+                smtp_port: row.get(8)?,
+                smtp_security: row.get(9)?,
+                smtp_username: row.get(10)?,
+                oauth_provider: row.get(11)?,
+                oauth_refresh_token: row.get(12)?,
+                oauth_expires_at: row.get(13)?,
+                is_active: row.get(14)?,
+                is_default: row.get(15)?,
+                signature: row.get(16)?,
+                sync_days: row.get(17)?,
+                accept_invalid_certs: row.get(18)?,
+                created_at: row.get(19)?,
+                updated_at: row.get(20)?,
+            })
+        };
+
+        let accounts = if let Some(timestamp) = since {
+            stmt.query_map(params![timestamp], map_row)?
+        } else {
+            stmt.query_map([], map_row)?
+        }
+        .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(accounts)
+    }
+
+    /// Get deleted accounts since last sync
+    pub fn get_deleted_accounts(&self, since: Option<&str>) -> DbResult<Vec<i64>> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let query = if since.is_some() {
+            "SELECT id FROM accounts WHERE deleted = 1 AND updated_at > ?1"
+        } else {
+            "SELECT id FROM accounts WHERE deleted = 1"
+        };
+
+        let mut stmt = conn.prepare(query)?;
+
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<i64> { row.get(0) };
+
+        let ids = if let Some(timestamp) = since {
+            stmt.query_map(params![timestamp], map_row)?
+        } else {
+            stmt.query_map([], map_row)?
+        }
+        .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(ids)
+    }
+
+    /// Get contacts changed since last sync (delta)
+    pub fn get_changed_contacts(&self, since: Option<&str>) -> DbResult<Vec<Contact>> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let query = r#"
+            SELECT id, account_id, email, name, avatar_url, company, phone, notes,
+                   is_favorite, email_count, last_emailed_at
+            FROM contacts
+            WHERE deleted = 0
+        "#;
+
+        let query_with_since = format!("{} AND updated_at > ?1 ORDER BY updated_at DESC", query);
+        let query_all = format!("{} ORDER BY updated_at DESC", query);
+
+        let mut stmt = if since.is_some() {
+            conn.prepare(&query_with_since)?
+        } else {
+            conn.prepare(&query_all)?
+        };
+
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<Contact> {
+            Ok(Contact {
+                id: row.get(0)?,
+                account_id: row.get(1)?,
+                email: row.get(2)?,
+                name: row.get(3)?,
+                avatar_url: row.get(4)?,
+                company: row.get(5)?,
+                phone: row.get(6)?,
+                notes: row.get(7)?,
+                is_favorite: row.get(8)?,
+                email_count: row.get(9)?,
+                last_emailed_at: row.get(10)?,
+            })
+        };
+
+        let contacts = if let Some(timestamp) = since {
+            stmt.query_map(params![timestamp], map_row)?
+        } else {
+            stmt.query_map([], map_row)?
+        }
+        .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(contacts)
+    }
+
+    /// Get deleted contacts since last sync
+    pub fn get_deleted_contacts(&self, since: Option<&str>) -> DbResult<Vec<i64>> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let query = if since.is_some() {
+            "SELECT id FROM contacts WHERE deleted = 1 AND updated_at > ?1"
+        } else {
+            "SELECT id FROM contacts WHERE deleted = 1"
+        };
+
+        let mut stmt = conn.prepare(query)?;
+
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<i64> { row.get(0) };
+
+        let ids = if let Some(timestamp) = since {
+            stmt.query_map(params![timestamp], map_row)?
+        } else {
+            stmt.query_map([], map_row)?
+        }
+        .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(ids)
+    }
+
+    /// Soft delete an account (mark as deleted instead of removing)
+    pub fn soft_delete_account(&self, account_id: i64) -> DbResult<()> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        conn.execute(
+            "UPDATE accounts SET deleted = 1, updated_at = datetime('now') WHERE id = ?1",
+            params![account_id],
+        )?;
+
+        Ok(())
+    }
+
+    /// Soft delete a contact (mark as deleted instead of removing)
+    pub fn soft_delete_contact(&self, contact_id: i64) -> DbResult<()> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        conn.execute(
+            "UPDATE contacts SET deleted = 1, updated_at = datetime('now') WHERE id = ?1",
+            params![contact_id],
+        )?;
+
+        Ok(())
+    }
+
 }
 
 #[cfg(test)]

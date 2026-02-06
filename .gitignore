@@ -34,3 +34,6 @@ src-tauri/target/
 
 # Personal signatures
 signatures/
+
+# Tracking reports (auto-generated)
+.test-coverage-report.txt

@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Owlivion Mail - Notification Sounds Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #2d3748;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+        .subtitle {
+            color: #718096;
+            margin-bottom: 30px;
+        }
+        .sound-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 15px;
+        }
+        .sound-item {
+            background: #f7fafc;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        .sound-item:hover {
+            border-color: #667eea;
+            background: #edf2f7;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+        }
+        .sound-item.playing {
+            border-color: #667eea;
+            background: #edf2f7;
+        }
+        .sound-item.featured {
+            border-color: #f6ad55;
+            background: linear-gradient(135deg, #fef5e7 0%, #fef9f0 100%);
+            position: relative;
+        }
+        .sound-item.featured::before {
+            content: '⭐';
+            position: absolute;
+            top: 10px;
+            right: 60px;
+            font-size: 20px;
+        }
+        .sound-item.featured:hover {
+            border-color: #ed8936;
+            transform: translateY(-3px);
+            box-shadow: 0 6px 16px rgba(246, 173, 85, 0.3);
+        }
+        .sound-info {
+            flex: 1;
+        }
+        .sound-name {
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 5px;
+            font-size: 1.1em;
+        }
+        .sound-desc {
+            color: #718096;
+            font-size: 0.9em;
+        }
+        .play-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            font-size: 20px;
+        }
+        .play-btn:hover {
+            background: #5a67d8;
+            transform: scale(1.1);
+        }
+        .play-btn.playing {
+            background: #48bb78;
+        }
+        .footer {
+            margin-top: 30px;
+            text-align: center;
+            color: #718096;
+            font-size: 0.9em;
+        }
+        .footer a {
+            color: #667eea;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎵 Notification Sounds</h1>
+        <p class="subtitle">Owlivion Mail bildirim seslerini dinleyin ve en beğendiğinizi seçin</p>
+
+        <div class="sound-grid" id="soundGrid"></div>
+
+        <div class="footer">
+            <p>Made with ❤️ for <a href="https://owlivion.com/mail">Owlivion Mail</a></p>
+        </div>
+    </div>
+
+    <script>
+        const sounds = [
+            // Owlivion Brand Sounds (NEW!)
+            { id: 'call', name: '🦉 Owlivion Signature', desc: 'GERÇEK baykuş sesi - Owlivion\'a özel! ⭐', featured: true },
+            { id: 'owlivion', name: '🦉 Owl Hoot', desc: 'Baykuş temalı yumuşak melodi - Hoo-hoo-hooo', featured: true },
+            { id: 'whisper', name: '🌙 Night Whisper', desc: 'Gizemli gece fısıltısı - Sakin ve ambient', featured: true },
+            { id: 'moonlight', name: '✨ Moonlight Chime', desc: 'Ay ışığı melodisi - Kristal berraklığında', featured: true },
+            // Classic Sounds
+            { id: 'gentle', name: 'Yumuşak (Gentle)', desc: 'Profesyonel ve yumuşak bildirim sesi' },
+            { id: 'pop', name: 'Pop', desc: 'Kısa ve dikkat çekici' },
+            { id: 'chime', name: 'Zil (Chime)', desc: 'Melodik üç notalı zil' },
+            { id: 'ding', name: 'Ding', desc: 'Klasik çan sesi' },
+            { id: 'subtle', name: 'Minimal (Subtle)', desc: 'Çok hafif, minimal bildirim' },
+            { id: 'system', name: 'Sistem (System)', desc: 'Basit sistem sesi' }
+        ];
+
+        let audioContext = null;
+        let currentlyPlaying = null;
+
+        function getAudioContext() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            return audioContext;
+        }
+
+        function playSound(soundType) {
+            const ctx = getAudioContext();
+            const now = ctx.currentTime;
+
+            const oscillator = ctx.createOscillator();
+            const gainNode = ctx.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(ctx.destination);
+
+            const volume = 0.7; // INCREASED: 0.3 → 0.7 (2x artış!)
+
+            switch (soundType) {
+                case 'gentle':
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(523.25, now);
+                    oscillator.frequency.setValueAtTime(659.25, now + 0.05);
+                    gainNode.gain.setValueAtTime(volume * 0.6, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.5);
+                    return 500;
+
+                case 'pop':
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(800, now);
+                    oscillator.frequency.exponentialRampToValueAtTime(400, now + 0.1);
+                    gainNode.gain.setValueAtTime(volume, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.15);
+                    return 150;
+
+                case 'chime':
+                    playChimeSequence(ctx, now, volume);
+                    return 700;
+
+                case 'ding':
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(1200, now);
+                    gainNode.gain.setValueAtTime(volume * 0.8, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.8);
+                    return 800;
+
+                case 'subtle':
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(440, now);
+                    gainNode.gain.setValueAtTime(volume * 0.3, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.3);
+                    return 300;
+
+                case 'system':
+                    oscillator.type = 'square';
+                    oscillator.frequency.setValueAtTime(800, now);
+                    gainNode.gain.setValueAtTime(volume * 0.5, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.2);
+                    return 200;
+
+                case 'owlivion':
+                    // Owlivion Signature - Owl hoot inspired
+                    playOwlivionSignature(ctx, now, volume);
+                    return 900;
+
+                case 'whisper':
+                    // Night Whisper
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(220, now);
+                    oscillator.frequency.exponentialRampToValueAtTime(330, now + 0.15);
+                    oscillator.frequency.exponentialRampToValueAtTime(220, now + 0.35);
+                    gainNode.gain.setValueAtTime(volume * 0.4, now);
+                    gainNode.gain.exponentialRampToValueAtTime(volume * 0.5, now + 0.15);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.6);
+                    return 600;
+
+                case 'call':
+                    // Owl's Call
+                    playOwlCall(ctx, now, volume);
+                    return 850;
+
+                case 'moonlight':
+                    // Moonlight Chime
+                    playMoonlightChime(ctx, now, volume);
+                    return 800;
+            }
+        }
+
+        function playOwlivionSignature(ctx, startTime, volume) {
+            const hoots = [
+                { freq: 293.66, time: 0, duration: 0.25 },
+                { freq: 349.23, time: 0.28, duration: 0.2 },
+                { freq: 293.66, time: 0.5, duration: 0.4 },
+            ];
+
+            hoots.forEach(({ freq, time, duration }) => {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, startTime + time);
+                gain.gain.setValueAtTime(0.001, startTime + time);
+                gain.gain.exponentialRampToValueAtTime(volume * 0.6, startTime + time + 0.05);
+                gain.gain.exponentialRampToValueAtTime(0.001, startTime + time + duration);
+                osc.start(startTime + time);
+                osc.stop(startTime + time + duration);
+            });
+        }
+
+        function playOwlCall(ctx, startTime, volume) {
+            const calls = [
+                { baseFreq: 880, time: 0, duration: 0.35 },      // A5 - OPTIMAL!
+                { baseFreq: 659.25, time: 0.4, duration: 0.5 },  // E5 - Perfect harmony
+            ];
+
+            calls.forEach(({ baseFreq, time, duration }) => {
+                // PREMIUM QUALITY: Multi-layered sound with harmonics
+                const layers = [
+                    { freq: baseFreq, volume: 1.0, type: 'sine' },           // Fundamental
+                    { freq: baseFreq * 2, volume: 0.3, type: 'sine' },       // 2nd harmonic
+                    { freq: baseFreq * 3, volume: 0.15, type: 'sine' },      // 3rd harmonic
+                    { freq: baseFreq * 0.5, volume: 0.2, type: 'sine' },     // Sub-bass
+                ];
+
+                layers.forEach(({ freq, volume: layerVol, type }) => {
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    const lfo = ctx.createOscillator();
+                    const lfoGain = ctx.createGain();
+
+                    lfo.frequency.setValueAtTime(5, startTime + time);
+                    lfoGain.gain.setValueAtTime(freq === baseFreq ? 12 : 6, startTime + time);
+                    lfo.connect(lfoGain);
+                    lfoGain.connect(osc.frequency);
+
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.type = type;
+                    osc.frequency.setValueAtTime(freq, startTime + time);
+
+                    // ADSR envelope
+                    const attackTime = 0.08;
+                    const decayTime = 0.1;
+                    const sustainLevel = volume * 1.5 * layerVol * 0.7;
+
+                    gain.gain.setValueAtTime(0.001, startTime + time);
+                    gain.gain.exponentialRampToValueAtTime(volume * 1.5 * layerVol, startTime + time + attackTime);
+                    gain.gain.exponentialRampToValueAtTime(sustainLevel, startTime + time + attackTime + decayTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, startTime + time + duration);
+
+                    osc.start(startTime + time);
+                    lfo.start(startTime + time);
+                    osc.stop(startTime + time + duration + 0.1);
+                    lfo.stop(startTime + time + duration + 0.1);
+                });
+
+                // Add breathiness with noise
+                const noise = ctx.createBufferSource();
+                const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * duration, ctx.sampleRate);
+                const output = noiseBuffer.getChannelData(0);
+                for (let i = 0; i < output.length; i++) {
+                    output[i] = (Math.random() * 2 - 1) * 0.1;
+                }
+                noise.buffer = noiseBuffer;
+
+                const noiseFilter = ctx.createBiquadFilter();
+                noiseFilter.type = 'bandpass';
+                noiseFilter.frequency.setValueAtTime(baseFreq, startTime + time);
+                noiseFilter.Q.setValueAtTime(2, startTime + time);
+
+                const noiseGain = ctx.createGain();
+                noiseGain.gain.setValueAtTime(volume * 0.15, startTime + time);
+                noiseGain.gain.exponentialRampToValueAtTime(0.001, startTime + time + duration);
+
+                noise.connect(noiseFilter);
+                noiseFilter.connect(noiseGain);
+                noiseGain.connect(ctx.destination);
+
+                noise.start(startTime + time);
+                noise.stop(startTime + time + duration);
+            });
+        }
+
+        function playMoonlightChime(ctx, startTime, volume) {
+            const notes = [
+                { freq: 523.25, time: 0 },
+                { freq: 659.25, time: 0.12 },
+                { freq: 783.99, time: 0.24 },
+                { freq: 659.25, time: 0.36 },
+                { freq: 523.25, time: 0.48 },
+            ];
+
+            notes.forEach(({ freq, time }, index) => {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, startTime + time);
+                const noteVolume = index === 2 ? volume * 0.7 : volume * 0.5;
+                gain.gain.setValueAtTime(noteVolume, startTime + time);
+                gain.gain.exponentialRampToValueAtTime(0.001, startTime + time + 0.35);
+                osc.start(startTime + time);
+                osc.stop(startTime + time + 0.35);
+            });
+        }
+
+        function playChimeSequence(ctx, startTime, volume) {
+            const notes = [
+                { freq: 523.25, time: 0 },
+                { freq: 659.25, time: 0.12 },
+                { freq: 783.99, time: 0.24 },
+            ];
+
+            notes.forEach(({ freq, time }) => {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, startTime + time);
+
+                gain.gain.setValueAtTime(volume * 0.5, startTime + time);
+                gain.gain.exponentialRampToValueAtTime(0.001, startTime + time + 0.4);
+
+                osc.start(startTime + time);
+                osc.stop(startTime + time + 0.4);
+            });
+        }
+
+        async function handlePlaySound(soundId, element) {
+            if (currentlyPlaying) return;
+
+            currentlyPlaying = soundId;
+            element.classList.add('playing');
+            const btn = element.querySelector('.play-btn');
+            btn.classList.add('playing');
+            btn.innerHTML = '🔊';
+
+            // Special handling for REAL owl sound!
+            if (soundId === 'call') {
+                try {
+                    // Use relative path for test HTML (not in dev server)
+                    const audio = new Audio('./public/sounds/owlivion-signature.ogg');
+                    audio.volume = 0.9;
+                    await audio.play();
+
+                    audio.onended = () => {
+                        currentlyPlaying = null;
+                        element.classList.remove('playing');
+                        btn.classList.remove('playing');
+                        btn.innerHTML = '▶️';
+                    };
+
+                    console.log('🦉 Playing REAL owl sound (2 sec optimized)!');
+                    return;
+                } catch (error) {
+                    console.warn('Real owl sound failed, using synthesized:', error);
+                }
+            }
+
+            const duration = playSound(soundId);
+
+            setTimeout(() => {
+                currentlyPlaying = null;
+                element.classList.remove('playing');
+                btn.classList.remove('playing');
+                btn.innerHTML = '▶️';
+            }, duration);
+        }
+
+        // Render sounds
+        const soundGrid = document.getElementById('soundGrid');
+        sounds.forEach(sound => {
+            const soundItem = document.createElement('div');
+            soundItem.className = sound.featured ? 'sound-item featured' : 'sound-item';
+            soundItem.innerHTML = `
+                <div class="sound-info">
+                    <div class="sound-name">${sound.name}</div>
+                    <div class="sound-desc">${sound.desc}</div>
+                </div>
+                <button class="play-btn">▶️</button>
+            `;
+            soundItem.addEventListener('click', () => handlePlaySound(sound.id, soundItem));
+            soundGrid.appendChild(soundItem);
+        });
+    </script>
+</body>
+</html>

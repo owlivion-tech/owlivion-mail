@@ -4,12 +4,13 @@
 
 pub mod crypto;
 pub mod db;
+pub mod filters;
 pub mod mail;
 pub mod oauth;
 pub mod sync;
 pub mod tray;
 
-use db::{Database, NewAccount as DbNewAccount};
+use db::{Database, EmailSummary, NewAccount as DbNewAccount};
 use mail::{fetch_autoconfig, fetch_autoconfig_debug, AsyncImapClient, AutoConfig, AutoConfigDebug, ImapClient, ImapConfig, SecurityType};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -363,6 +364,142 @@ fn get_current_folder_safe(
         .get(account_id)
         .cloned()
         .unwrap_or_else(|| "INBOX".to_string())
+}
+
+// ============================================================================
+// Database Sync Helpers
+// ============================================================================
+
+/// Sync folder information to database
+/// Creates or updates folder record and returns folder_id
+fn sync_folder_to_db(
+    db: &Database,
+    account_id: i64,
+    folder_name: &str,
+) -> Result<i64, String> {
+    // Check if folder exists
+    let folder_id = db
+        .query_row(
+            "SELECT id FROM folders WHERE account_id = ?1 AND remote_name = ?2 LIMIT 1",
+            rusqlite::params![account_id, folder_name],
+            |row| row.get::<_, i64>(0),
+        )
+        .ok();
+
+    if let Some(id) = folder_id {
+        return Ok(id);
+    }
+
+    // Determine folder type
+    let folder_type = match folder_name.to_uppercase().as_str() {
+        "INBOX" => "inbox",
+        "SENT" | "SENT ITEMS" | "[GMAIL]/SENT MAIL" => "sent",
+        "DRAFTS" | "[GMAIL]/DRAFTS" => "drafts",
+        "TRASH" | "DELETED" | "[GMAIL]/TRASH" => "trash",
+        "SPAM" | "JUNK" | "[GMAIL]/SPAM" => "spam",
+        "ARCHIVE" | "[GMAIL]/ALL MAIL" => "archive",
+        "STARRED" | "[GMAIL]/STARRED" => "starred",
+        _ => "custom",
+    };
+
+    // Display name (clean up Gmail folder names)
+    let display_name = folder_name
+        .replace("[Gmail]/", "")
+        .replace("[GMAIL]/", "");
+
+    // Insert new folder
+    db.execute(
+        r#"
+        INSERT INTO folders (account_id, name, remote_name, folder_type)
+        VALUES (?1, ?2, ?3, ?4)
+        "#,
+        rusqlite::params![account_id, display_name, folder_name, folder_type],
+    )
+    .map_err(|e| format!("Failed to insert folder: {}", e))?;
+
+    // Get the inserted folder ID
+    let new_folder_id = db
+        .query_row(
+            "SELECT id FROM folders WHERE account_id = ?1 AND remote_name = ?2 LIMIT 1",
+            rusqlite::params![account_id, folder_name],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|e| format!("Failed to get new folder ID: {}", e))?;
+
+    log::info!("✓ Synced folder '{}' to DB (id={}, type={})", folder_name, new_folder_id, folder_type);
+    Ok(new_folder_id)
+}
+
+/// Sync email summary to database
+/// Converts mail::EmailSummary to db::NewEmail and upserts
+/// Returns (email_id, is_new_email)
+fn sync_email_to_db(
+    db: &Database,
+    account_id: i64,
+    folder_id: i64,
+    email_summary: &mail::EmailSummary,
+) -> Result<(i64, bool), String> {
+    // Check if email already exists
+    let exists = db
+        .query_row(
+            "SELECT id FROM emails WHERE account_id = ?1 AND folder_id = ?2 AND uid = ?3",
+            rusqlite::params![account_id, folder_id, email_summary.uid],
+            |row| row.get::<_, i64>(0),
+        )
+        .ok();
+
+    if let Some(email_id) = exists {
+        // Update flags only (email already exists)
+        db.execute(
+            "UPDATE emails SET is_read = ?1, is_starred = ?2 WHERE id = ?3",
+            rusqlite::params![email_summary.is_read, email_summary.is_starred, email_id],
+        )
+        .map_err(|e| format!("Failed to update email flags: {}", e))?;
+
+        return Ok((email_id, false)); // Not a new email
+    }
+
+    // Create new email record
+    let new_email = db::NewEmail {
+        account_id,
+        folder_id,
+        message_id: email_summary.message_id.clone().unwrap_or_else(|| format!("uid-{}", email_summary.uid)),
+        uid: email_summary.uid,
+        from_address: email_summary.from.clone(),
+        from_name: email_summary.from_name.clone(),
+        to_addresses: "[]".to_string(), // Summary doesn't include full recipient list
+        cc_addresses: "[]".to_string(),
+        bcc_addresses: "[]".to_string(),
+        reply_to: None,
+        subject: email_summary.subject.clone(),
+        preview: email_summary.preview.clone(),
+        body_text: None, // Will be fetched when email is opened
+        body_html: None,
+        date: email_summary.date.clone(),
+        is_read: email_summary.is_read,
+        is_starred: email_summary.is_starred,
+        is_deleted: false,
+        is_spam: false,
+        is_draft: false,
+        is_answered: false,
+        is_forwarded: false,
+        has_attachments: email_summary.has_attachments,
+        has_inline_images: false,
+        thread_id: None,
+        in_reply_to: None,
+        references_header: None,
+        raw_headers: None,
+        raw_size: 0,
+        priority: 3,
+        labels: "[]".to_string(),
+    };
+
+    // Insert email (upsert will handle duplicates)
+    let email_id = db
+        .upsert_email(&new_email)
+        .map_err(|e| format!("Failed to save email to DB: {}", e))?;
+
+    Ok((email_id, true)) // New email inserted
 }
 
 // ============================================================================
@@ -972,8 +1109,137 @@ async fn email_list(
             format!("Failed to fetch emails: {}", e)
         })?;
 
+    // Release IMAP lock before DB operations
+    drop(async_clients);
+
+    // Parse account_id for DB operations
+    let account_id_num: i64 = account_id.parse().map_err(|_| "Invalid account ID")?;
+
+    // Sync folder to database
+    let folder_id = sync_folder_to_db(&state.db, account_id_num, &folder_path)
+        .map_err(|e| {
+            log::warn!("Failed to sync folder to DB: {}", e);
+            e
+        })
+        .unwrap_or(1); // Fallback to ID 1 if folder sync fails
+
+    // Sync emails to database (background operation, non-blocking)
+    let mut new_emails_count = 0;
+    let mut updated_count = 0;
+    for email_summary in &result.emails {
+        match sync_email_to_db(&state.db, account_id_num, folder_id, email_summary) {
+            Ok((_email_id, is_new)) => {
+                if is_new {
+                    new_emails_count += 1;
+                } else {
+                    updated_count += 1;
+                }
+            }
+            Err(e) => log::warn!("Failed to sync email uid={} to DB: {}", email_summary.uid, e),
+        }
+    }
+
+    if new_emails_count > 0 || updated_count > 0 {
+        log::info!("✓ Synced to DB: {} new, {} updated (folder_id={})", new_emails_count, updated_count, folder_id);
+    }
+
     log::info!("✓ email_list SUCCESS: returning {} emails (total={})", result.emails.len(), result.total);
     Ok(result)
+}
+
+/// Sync emails with automatic filter application
+/// Fetches emails, saves to database, and applies filters
+#[tauri::command]
+async fn email_sync_with_filters(
+    state: State<'_, AppState>,
+    account_id: String,
+    folder: Option<String>,
+    page: u32,
+    page_size: u32,
+) -> Result<EmailSyncResult, String> {
+    // SECURITY: Enforce pagination limits
+    let safe_page_size = page_size.min(MAX_PAGE_SIZE).max(1);
+
+    log::info!("Syncing emails with filters: account {} folder {:?}", account_id, folder);
+    let folder_path = folder.unwrap_or_else(|| "INBOX".to_string());
+
+    // Parse account_id
+    let account_id_num: i64 = account_id.parse().map_err(|_| "Invalid account ID")?;
+
+    // Sync folder to database (create if not exists)
+    let folder_id = sync_folder_to_db(&state.db, account_id_num, &folder_path)?;
+
+    // Fetch emails
+    let mut async_clients = state.async_imap_clients.lock().await;
+    let client = async_clients
+        .get_mut(&account_id)
+        .ok_or("Account not connected")?;
+
+    let result = client
+        .fetch_emails(&folder_path, page, safe_page_size)
+        .await
+        .map_err(|e| format!("Failed to fetch emails: {}", e))?;
+
+    drop(async_clients); // Release lock
+
+    let mut new_emails_count = 0;
+    let mut filters_applied_count = 0;
+
+    // Create filter engine
+    use filters::FilterEngine;
+    let engine = FilterEngine::new(state.db.clone());
+
+    // Process each email
+    for email_summary in &result.emails {
+        // Sync email to database (creates new or updates existing)
+        let (email_id, is_new) = match sync_email_to_db(&state.db, account_id_num, folder_id, email_summary) {
+            Ok(result) => result,
+            Err(e) => {
+                log::warn!("Failed to sync email uid={}: {}", email_summary.uid, e);
+                continue;
+            }
+        };
+
+        // Only count as new if it was actually inserted
+        if is_new {
+            new_emails_count += 1;
+        } else {
+            // Skip filter processing for existing emails
+            continue;
+        }
+
+        // Get full email from database
+        let email = state
+            .db
+            .get_email(email_id)
+            .map_err(|e| format!("Failed to get email: {}", e))?;
+
+        // Apply filters
+        let actions = engine
+            .apply_filters(&email)
+            .await
+            .map_err(|e| format!("Failed to apply filters: {}", e))?;
+
+        if !actions.is_empty() {
+            filters_applied_count += 1;
+            engine
+                .execute_actions(email_id, actions)
+                .await
+                .map_err(|e| format!("Failed to execute actions: {}", e))?;
+        }
+    }
+
+    log::info!(
+        "Sync complete: {} new emails, {} filters applied",
+        new_emails_count,
+        filters_applied_count
+    );
+
+    Ok(EmailSyncResult {
+        fetch_result: result,
+        new_emails_count,
+        filters_applied_count,
+    })
 }
 
 /// Get full email content by UID
@@ -1156,27 +1422,36 @@ async fn email_download_attachment(
     Ok(attachment)
 }
 
-/// Search emails
+/// Search emails using local FTS5 (fast, offline)
 #[tauri::command]
 async fn email_search(
     state: State<'_, AppState>,
     account_id: String,
     query: String,
-    folder: Option<String>,
-) -> Result<Vec<u32>, String> {
-    // SECURITY: Use safe folder lookup that handles mutex poisoning
-    let folder_path = folder.unwrap_or_else(|| {
-        get_current_folder_safe(&state.current_folder, &account_id)
-    });
+    _folder: Option<String>,
+) -> Result<Vec<EmailSummary>, String> {
+    // Validate query
+    if query.trim().is_empty() {
+        return Err("Search query cannot be empty".to_string());
+    }
 
-    let mut async_clients = state.async_imap_clients.lock().await;
-    let client = async_clients
-        .get_mut(&account_id)
-        .ok_or_else(|| "Account not connected".to_string())?;
+    if query.len() > 500 {
+        return Err("Search query too long (max 500 characters)".to_string());
+    }
 
-    let uids = client.search(&folder_path, &query).await.map_err(|e| e.to_string())?;
+    // Parse account ID
+    let account_id_num: i64 = account_id.parse()
+        .map_err(|_| "Invalid account ID".to_string())?;
 
-    Ok(uids)
+    // Local FTS5 Search
+    log::info!("FTS5 search: account={}, query='{}'", account_id_num, query);
+
+    let results = state.db.search_emails(account_id_num, &query, 100)
+        .map_err(|e| format!("Search failed: {}", e))?;
+
+    log::info!("FTS5 returned {} results", results.len());
+
+    Ok(results)
 }
 
 /// Mark email as read/unread
@@ -2052,7 +2327,7 @@ async fn rollback_sync(
 async fn enforce_sync_retention(
     retention_days: i64,
     state: State<'_, AppState>,
-) -> Result<i32, String> {
+) -> Result<usize, String> {
     let manager = state.get_sync_manager()?;
     manager.enforce_history_retention(retention_days)
         .map_err(|e| format!("Failed to enforce retention: {}", e))
@@ -2147,6 +2422,36 @@ struct DraftAttachmentData {
     local_path: String,
 }
 
+/// Draft list item (lightweight, for listing)
+#[derive(Debug, Serialize, Deserialize)]
+struct DraftListItem {
+    id: i64,
+    account_id: i64,
+    subject: String,
+    to_addresses: String,
+    created_at: String,
+    updated_at: String,
+}
+
+/// Draft detail (full data, for editing)
+#[derive(Debug, Serialize, Deserialize)]
+struct DraftDetail {
+    id: i64,
+    account_id: i64,
+    to_addresses: String,
+    cc_addresses: String,
+    bcc_addresses: String,
+    subject: String,
+    body_text: String,
+    body_html: String,
+    reply_to_email_id: Option<i64>,
+    forward_email_id: Option<i64>,
+    compose_type: String,
+    created_at: String,
+    updated_at: String,
+    attachments: Vec<DraftAttachmentData>,
+}
+
 /// Sanitize filename to prevent path traversal attacks
 fn sanitize_filename(filename: &str) -> String {
     filename
@@ -2213,7 +2518,7 @@ async fn draft_save(
         existing_id
     } else {
         // INSERT new
-        state.db.execute(
+        state.db.execute_insert(
             "INSERT INTO drafts (
                 account_id, to_addresses, cc_addresses, bcc_addresses,
                 subject, body_text, body_html, reply_to_email_id,
@@ -2281,6 +2586,492 @@ async fn draft_delete(state: State<'_, AppState>, draft_id: i64) -> Result<(), S
     Ok(())
 }
 
+/// List drafts for an account
+#[tauri::command]
+async fn draft_list(state: State<'_, AppState>, account_id: i64) -> Result<Vec<DraftListItem>, String> {
+    if account_id <= 0 {
+        return Err("Invalid account ID".to_string());
+    }
+
+    let result = state.db.query(
+        "SELECT id, account_id, subject, to_addresses, created_at, updated_at
+         FROM drafts
+         WHERE account_id = ?1
+         ORDER BY updated_at DESC",
+        rusqlite::params![account_id],
+        |row| {
+            Ok(DraftListItem {
+                id: row.get(0)?,
+                account_id: row.get(1)?,
+                subject: row.get(2)?,
+                to_addresses: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
+            })
+        },
+    )
+    .map_err(|e| format!("Failed to list drafts: {}", e))?;
+
+    Ok(result)
+}
+
+/// Get a single draft with full details
+#[tauri::command]
+async fn draft_get(state: State<'_, AppState>, draft_id: i64) -> Result<DraftDetail, String> {
+    if draft_id <= 0 {
+        return Err("Invalid draft ID".to_string());
+    }
+
+    // Get draft data
+    let drafts = state.db.query(
+        "SELECT id, account_id, to_addresses, cc_addresses, bcc_addresses,
+                subject, body_text, body_html, reply_to_email_id, forward_email_id,
+                compose_type, created_at, updated_at
+         FROM drafts
+         WHERE id = ?1",
+        rusqlite::params![draft_id],
+        |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, String>(7)?,
+                row.get::<_, Option<i64>>(8)?,
+                row.get::<_, Option<i64>>(9)?,
+                row.get::<_, String>(10)?,
+                row.get::<_, String>(11)?,
+                row.get::<_, String>(12)?,
+            ))
+        },
+    )
+    .map_err(|e| format!("Failed to get draft: {}", e))?;
+
+    if drafts.is_empty() {
+        return Err("Draft not found".to_string());
+    }
+
+    let (id, account_id, to_addresses, cc_addresses, bcc_addresses,
+         subject, body_text, body_html, reply_to_email_id, forward_email_id,
+         compose_type, created_at, updated_at) = drafts[0].clone();
+
+    // Get attachments
+    let attachments = state.db.query(
+        "SELECT filename, content_type, size, local_path
+         FROM draft_attachments
+         WHERE draft_id = ?1",
+        rusqlite::params![draft_id],
+        |row| {
+            Ok(DraftAttachmentData {
+                filename: row.get(0)?,
+                content_type: row.get(1)?,
+                size: row.get(2)?,
+                local_path: row.get(3)?,
+            })
+        },
+    )
+    .map_err(|e| format!("Failed to get attachments: {}", e))?;
+
+    Ok(DraftDetail {
+        id,
+        account_id,
+        to_addresses,
+        cc_addresses,
+        bcc_addresses,
+        subject,
+        body_text,
+        body_html,
+        reply_to_email_id,
+        forward_email_id,
+        compose_type,
+        created_at,
+        updated_at,
+        attachments,
+    })
+}
+
+// ============================================================================
+// EMAIL FILTERS COMMANDS
+// ============================================================================
+
+use db::{EmailFilter as DbEmailFilter, NewEmailFilter as DbNewEmailFilter};
+use filters::{FilterAction, FilterCondition, MatchLogic};
+
+/// Add a new email filter
+#[tauri::command]
+async fn filter_add(
+    state: State<'_, AppState>,
+    filter: DbNewEmailFilter,
+) -> Result<i64, String> {
+    // Validate account_id
+    if filter.account_id <= 0 {
+        return Err("Invalid account ID".to_string());
+    }
+
+    // Validate filter name
+    if filter.name.trim().is_empty() {
+        return Err("Filter name cannot be empty".to_string());
+    }
+
+    // Validate conditions
+    if filter.conditions.is_empty() {
+        return Err("Filter must have at least one condition".to_string());
+    }
+
+    // Validate actions
+    if filter.actions.is_empty() {
+        return Err("Filter must have at least one action".to_string());
+    }
+
+    let filter_id = state
+        .db
+        .add_filter(&filter)
+        .map_err(|e| format!("Failed to add filter: {}", e))?;
+
+    log::info!("Created filter '{}' with ID {}", filter.name, filter_id);
+
+    Ok(filter_id)
+}
+
+/// Get all filters for an account
+#[tauri::command]
+async fn filter_list(
+    state: State<'_, AppState>,
+    account_id: i64,
+) -> Result<Vec<DbEmailFilter>, String> {
+    if account_id <= 0 {
+        return Err("Invalid account ID".to_string());
+    }
+
+    let filters = state
+        .db
+        .get_filters(account_id)
+        .map_err(|e| format!("Failed to list filters: {}", e))?;
+
+    Ok(filters)
+}
+
+/// Get a single filter by ID
+#[tauri::command]
+async fn filter_get(state: State<'_, AppState>, filter_id: i64) -> Result<DbEmailFilter, String> {
+    if filter_id <= 0 {
+        return Err("Invalid filter ID".to_string());
+    }
+
+    let filter = state
+        .db
+        .get_filter(filter_id)
+        .map_err(|e| format!("Failed to get filter: {}", e))?;
+
+    Ok(filter)
+}
+
+/// Update an existing filter
+#[tauri::command]
+async fn filter_update(
+    state: State<'_, AppState>,
+    filter_id: i64,
+    filter: DbNewEmailFilter,
+) -> Result<(), String> {
+    if filter_id <= 0 {
+        return Err("Invalid filter ID".to_string());
+    }
+
+    // Validate same as filter_add
+    if filter.name.trim().is_empty() {
+        return Err("Filter name cannot be empty".to_string());
+    }
+
+    if filter.conditions.is_empty() {
+        return Err("Filter must have at least one condition".to_string());
+    }
+
+    if filter.actions.is_empty() {
+        return Err("Filter must have at least one action".to_string());
+    }
+
+    state
+        .db
+        .update_filter(filter_id, &filter)
+        .map_err(|e| format!("Failed to update filter: {}", e))?;
+
+    log::info!("Updated filter ID {}", filter_id);
+
+    Ok(())
+}
+
+/// Delete a filter
+#[tauri::command]
+async fn filter_delete(state: State<'_, AppState>, filter_id: i64) -> Result<(), String> {
+    if filter_id <= 0 {
+        return Err("Invalid filter ID".to_string());
+    }
+
+    state
+        .db
+        .delete_filter(filter_id)
+        .map_err(|e| format!("Failed to delete filter: {}", e))?;
+
+    log::info!("Deleted filter ID {}", filter_id);
+
+    Ok(())
+}
+
+/// Toggle filter enabled state
+#[tauri::command]
+async fn filter_toggle(state: State<'_, AppState>, filter_id: i64) -> Result<(), String> {
+    if filter_id <= 0 {
+        return Err("Invalid filter ID".to_string());
+    }
+
+    state
+        .db
+        .toggle_filter(filter_id)
+        .map_err(|e| format!("Failed to toggle filter: {}", e))?;
+
+    log::info!("Toggled filter ID {}", filter_id);
+
+    Ok(())
+}
+
+/// Test if a filter would match a specific email
+#[tauri::command]
+async fn filter_test(
+    state: State<'_, AppState>,
+    filter_id: i64,
+    email_id: i64,
+) -> Result<bool, String> {
+    if filter_id <= 0 || email_id <= 0 {
+        return Err("Invalid filter or email ID".to_string());
+    }
+
+    // Get filter
+    let filter = state
+        .db
+        .get_filter(filter_id)
+        .map_err(|e| format!("Failed to get filter: {}", e))?;
+
+    // Get email
+    let email = state
+        .db
+        .get_email(email_id)
+        .map_err(|e| format!("Failed to get email: {}", e))?;
+
+    // Create filter engine and test
+    use filters::FilterEngine;
+    let engine = FilterEngine::new(state.db.clone());
+    let matches = engine.test_filter(&filter, &email);
+
+    Ok(matches)
+}
+
+/// Apply filters to existing emails in batch
+#[tauri::command]
+async fn filter_apply_batch(
+    state: State<'_, AppState>,
+    account_id: i64,
+    filter_id: Option<i64>,
+    folder_id: Option<i64>,
+) -> Result<FilterBatchResult, String> {
+    if account_id <= 0 {
+        return Err("Invalid account ID".to_string());
+    }
+
+    log::info!(
+        "Batch applying filters: account_id={}, filter_id={:?}, folder_id={:?}",
+        account_id,
+        filter_id,
+        folder_id
+    );
+
+    // Get emails to process
+    let email_select = r#"
+        SELECT id, account_id, folder_id, message_id, uid,
+               from_address, from_name, to_addresses, cc_addresses, bcc_addresses, reply_to,
+               subject, preview, body_text, body_html, date,
+               is_read, is_starred, is_deleted, is_spam, is_draft, is_answered, is_forwarded,
+               has_attachments, has_inline_images, thread_id, in_reply_to, references_header,
+               priority, labels
+    "#;
+
+    let emails = if let Some(fid) = folder_id {
+        // Filter by folder
+        state
+            .db
+            .query(
+                &format!("{} FROM emails WHERE account_id = ?1 AND folder_id = ?2 AND is_deleted = 0", email_select),
+                rusqlite::params![account_id, fid],
+                |row| db::Email::from_row(row),
+            )
+            .map_err(|e| format!("Failed to get emails: {}", e))?
+    } else {
+        // All emails for account
+        state
+            .db
+            .query(
+                &format!("{} FROM emails WHERE account_id = ?1 AND is_deleted = 0", email_select),
+                [account_id],
+                |row| db::Email::from_row(row),
+            )
+            .map_err(|e| format!("Failed to get emails: {}", e))?
+    };
+
+    log::info!("Processing {} emails", emails.len());
+
+    // Create filter engine
+    use filters::FilterEngine;
+    let engine = FilterEngine::new(state.db.clone());
+
+    let mut emails_processed = 0;
+    let mut filters_matched = 0;
+    let mut actions_executed = 0;
+
+    for email in emails {
+        emails_processed += 1;
+
+        // Get actions to perform
+        let actions = if let Some(fid) = filter_id {
+            // Apply specific filter only
+            let filter = state
+                .db
+                .get_filter(fid)
+                .map_err(|e| format!("Failed to get filter: {}", e))?;
+
+            if engine.test_filter(&filter, &email) {
+                filters_matched += 1;
+                // Update filter stats
+                state
+                    .db
+                    .execute(
+                        "UPDATE email_filters SET matched_count = matched_count + 1, last_matched_at = datetime('now') WHERE id = ?1",
+                        [fid],
+                    )
+                    .map_err(|e| format!("Failed to update filter stats: {}", e))?;
+
+                filter.actions
+            } else {
+                vec![]
+            }
+        } else {
+            // Apply all filters
+            let filter_actions = engine
+                .apply_filters(&email)
+                .await
+                .map_err(|e| format!("Failed to apply filters: {}", e))?;
+
+            if !filter_actions.is_empty() {
+                filters_matched += 1;
+            }
+
+            filter_actions
+        };
+
+        // Execute actions
+        if !actions.is_empty() {
+            actions_executed += actions.len();
+            engine
+                .execute_actions(email.id, actions)
+                .await
+                .map_err(|e| format!("Failed to execute actions: {}", e))?;
+        }
+    }
+
+    log::info!(
+        "Batch complete: processed={}, matched={}, actions={}",
+        emails_processed,
+        filters_matched,
+        actions_executed
+    );
+
+    Ok(FilterBatchResult {
+        emails_processed,
+        filters_matched,
+        actions_executed,
+    })
+}
+
+/// Export filters as JSON
+#[tauri::command]
+async fn filter_export(
+    state: State<'_, AppState>,
+    account_id: i64,
+) -> Result<String, String> {
+    if account_id <= 0 {
+        return Err("Invalid account ID".to_string());
+    }
+
+    let filters = state
+        .db
+        .get_filters(account_id)
+        .map_err(|e| format!("Failed to get filters: {}", e))?;
+
+    // Convert to JSON
+    serde_json::to_string_pretty(&filters)
+        .map_err(|e| format!("Failed to serialize filters: {}", e))
+}
+
+/// Import filters from JSON
+#[tauri::command]
+async fn filter_import(
+    state: State<'_, AppState>,
+    account_id: i64,
+    json_data: String,
+) -> Result<usize, String> {
+    if account_id <= 0 {
+        return Err("Invalid account ID".to_string());
+    }
+
+    // Parse JSON
+    let filters: Vec<DbEmailFilter> = serde_json::from_str(&json_data)
+        .map_err(|e| format!("Invalid JSON format: {}", e))?;
+
+    log::info!("Importing {} filters for account {}", filters.len(), account_id);
+
+    let mut imported_count = 0;
+
+    for filter in filters {
+        // Create new filter (without ID) for the target account
+        let new_filter = DbNewEmailFilter {
+            account_id,
+            name: filter.name,
+            description: filter.description,
+            is_enabled: filter.is_enabled,
+            priority: filter.priority,
+            match_logic: filter.match_logic,
+            conditions: filter.conditions,
+            actions: filter.actions,
+        };
+
+        // Check if filter with same name already exists
+        let existing = state
+            .db
+            .get_filters(account_id)
+            .ok()
+            .and_then(|filters| {
+                filters.iter().find(|f| f.name == new_filter.name).cloned()
+            });
+
+        if existing.is_some() {
+            log::warn!("Skipping filter '{}' - already exists", new_filter.name);
+            continue;
+        }
+
+        // Add filter
+        state
+            .db
+            .add_filter(&new_filter)
+            .map_err(|e| format!("Failed to import filter '{}': {}", new_filter.name, e))?;
+
+        imported_count += 1;
+    }
+
+    log::info!("Successfully imported {} filters", imported_count);
+    Ok(imported_count)
+}
+
 // Helper function to parse data type string
 fn parse_sync_data_type(data_type: &str) -> Result<sync::SyncDataType, String> {
     match data_type {
@@ -2293,6 +3084,20 @@ fn parse_sync_data_type(data_type: &str) -> Result<sync::SyncDataType, String> {
 }
 
 // DTO Types for Tauri Commands
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct FilterBatchResult {
+    emails_processed: usize,
+    filters_matched: usize,
+    actions_executed: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct EmailSyncResult {
+    fetch_result: mail::FetchResult,
+    new_emails_count: usize,
+    filters_applied_count: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SyncConfigDto {
     enabled: bool,
@@ -2585,6 +3390,7 @@ pub fn run() {
             account_delete,
             folder_list,
             email_list,
+            email_sync_with_filters,
             email_get,
             email_download_attachment,
             email_search,
@@ -2622,6 +3428,18 @@ pub fn run() {
             scheduler_update_config,
             draft_save,
             draft_delete,
+            draft_list,
+            draft_get,
+            filter_add,
+            filter_list,
+            filter_get,
+            filter_update,
+            filter_delete,
+            filter_toggle,
+            filter_test,
+            filter_apply_batch,
+            filter_export,
+            filter_import,
         ])
         .setup(|app| {
             // Setup system tray

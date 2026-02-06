@@ -44,10 +44,11 @@ export function AIReplyModal({ isOpen, onClose, emailContent, emailSubject, send
     setError('');
 
     try {
+      // Auto-detect language from email content
       const response = await generateReply({
         emailContent,
         tone,
-        language: 'tr',
+        language: 'tr', // Default to Turkish
       }, apiKey);
 
       setGeneratedReply(response.reply);

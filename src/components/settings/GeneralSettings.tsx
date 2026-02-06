@@ -364,6 +364,60 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
         </div>
       </section>
 
+      {/* Auto-Sync */}
+      <section className="bg-owl-surface border border-owl-border rounded-xl p-6">
+        <h3 className="text-lg font-medium text-owl-text mb-4">Otomatik Senkronizasyon</h3>
+
+        <div className="space-y-4">
+          {/* Enable Auto-Sync */}
+          <div className="flex items-center justify-between">
+            <div>
+              <label className="text-sm font-medium text-owl-text">Otomatik Senkronizasyonu Etkinleştir</label>
+              <p className="text-xs text-owl-text-secondary mt-0.5">
+                Yeni emailleri periyodik olarak otomatik kontrol et
+              </p>
+            </div>
+            <Toggle
+              enabled={settings.autoSyncEnabled}
+              onChange={(value) => updateSetting('autoSyncEnabled', value)}
+            />
+          </div>
+
+          {/* Auto-Sync Interval */}
+          {settings.autoSyncEnabled && (
+            <div className="flex items-center justify-between pl-4 border-l-2 border-owl-border">
+              <div>
+                <label className="text-sm font-medium text-owl-text">Senkronizasyon Aralığı</label>
+                <p className="text-xs text-owl-text-secondary mt-0.5">
+                  Email kontrolü yapma sıklığı (dakika)
+                </p>
+              </div>
+              <select
+                value={settings.autoSyncInterval}
+                onChange={(e) => updateSetting('autoSyncInterval', parseInt(e.target.value))}
+                className="px-4 py-2 bg-owl-bg border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm text-owl-text appearance-none cursor-pointer"
+              >
+                <option value="1" className="bg-owl-bg text-owl-text">Her dakika</option>
+                <option value="2" className="bg-owl-bg text-owl-text">2 dakika</option>
+                <option value="5" className="bg-owl-bg text-owl-text">5 dakika (Önerilen)</option>
+                <option value="10" className="bg-owl-bg text-owl-text">10 dakika</option>
+                <option value="15" className="bg-owl-bg text-owl-text">15 dakika</option>
+                <option value="30" className="bg-owl-bg text-owl-text">30 dakika</option>
+                <option value="60" className="bg-owl-bg text-owl-text">60 dakika</option>
+              </select>
+            </div>
+          )}
+
+          {/* Info */}
+          <div className="px-4 py-3 bg-blue-900/10 border border-blue-700/30 rounded-lg">
+            <p className="text-xs text-blue-400">
+              💡 <strong>İpucu:</strong> Daha sık senkronizasyon daha fazla pil tüketir.
+              Çoğu kullanıcı için 5 dakika idealdir.
+            </p>
+          </div>
+        </div>
+      </section>
+
       {/* Compose */}
       <section className="bg-owl-surface border border-owl-border rounded-xl p-6">
         <h3 className="text-lg font-medium text-owl-text mb-4">Yazma</h3>

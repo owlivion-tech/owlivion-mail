@@ -184,7 +184,7 @@ impl QueueManager {
     pub fn add_to_queue(&self, item: QueueItem) -> Result<i64, QueueError> {
         log::info!("Adding {} to sync queue (retry: {})", item.data_type, item.retry_count);
 
-        let id = self.db.execute(
+        let id = self.db.execute_insert(
             r#"
             INSERT INTO sync_queue (
                 data_type, encrypted_data, version, retry_count, max_retries,

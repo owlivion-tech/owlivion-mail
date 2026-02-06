@@ -1,0 +1,20 @@
+#!/bin/bash
+# Post-commit hook - Log commit activity for changelog
+
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+cd "$PROJECT_ROOT"
+
+# Get latest commit info
+COMMIT_HASH=$(git log -1 --pretty=format:"%h")
+COMMIT_MSG=$(git log -1 --pretty=format:"%s")
+COMMIT_DATE=$(git log -1 --pretty=format:"%ai")
+FILES_CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD | wc -l)
+
+# Append to changelog file
+CHANGELOG_FILE=".commit-history.log"
+echo "[$COMMIT_DATE] $COMMIT_HASH - $COMMIT_MSG ($FILES_CHANGED files)" >> "$CHANGELOG_FILE"
+
+# Keep only last 100 entries
+tail -100 "$CHANGELOG_FILE" > "$CHANGELOG_FILE.tmp" && mv "$CHANGELOG_FILE.tmp" "$CHANGELOG_FILE"
+
+exit 0

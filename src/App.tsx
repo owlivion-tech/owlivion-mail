@@ -3,6 +3,7 @@ import DOMPurify from "dompurify";
 import "./App.css";
 import owlivionIcon from "./assets/owlivion-logo.svg";
 import { Settings } from "./pages/Settings";
+import { Filters } from "./pages/Filters";
 import { AIReplyModal } from "./components/AIReplyModal";
 import { Compose } from "./components/Compose";
 import { ShortcutsHelp } from "./components/ShortcutsHelp";
@@ -10,7 +11,8 @@ import { Welcome } from "./components/Welcome";
 import { AddAccountModal } from "./components/settings/AddAccountModal";
 import { summarizeEmail, analyzePhishing, detectEmailTracking, type PhishingAnalysis, type TrackingAnalysis } from "./services/geminiService";
 import { requestNotificationPermission, showNewEmailNotification, playNotificationSound } from "./services/notificationService";
-import type { DraftEmail, EmailAddress, Account, ImapFolder } from "./types";
+import { listDrafts, getDraft, deleteDraft } from "./services/draftService";
+import type { DraftEmail, EmailAddress, Account, ImapFolder, DraftListItem } from "./types";
 
 // Configure DOMPurify to remove dangerous content
 // SECURITY: 'style' attribute removed to prevent CSS injection attacks (e.g., expression(), url(javascript:))
@@ -74,6 +76,7 @@ const Icons = {
   ShieldCheck: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>,
   X: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>,
   Settings: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
+  Filter: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" /></svg>,
   MailOpen: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 19v-8.93a2 2 0 01.89-1.664l7-4.666a2 2 0 012.22 0l7 4.666A2 2 0 0121 10.07V19M3 19a2 2 0 002 2h14a2 2 0 002-2M3 19l6.75-4.5M21 19l-6.75-4.5M3 10l6.75 4.5M21 10l-6.75 4.5m0 0l-1.14.76a2 2 0 01-2.22 0l-1.14-.76" /></svg>,
   MailUnread: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /><circle cx="18" cy="5" r="3" fill="currentColor" /></svg>,
   Summarize: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>,
@@ -95,8 +98,17 @@ interface Email {
   starred: boolean;
   hasAttachments: boolean;
   hasImages: boolean;
+  attachments?: Array<{
+    index: number;
+    filename: string;
+    contentType: string;
+    size: number;
+    isInline: boolean;
+    contentId?: string;
+  }>;
   archived?: boolean;
   deleted?: boolean;
+  isDraft?: boolean;
 }
 
 
@@ -318,6 +330,12 @@ function MailPanel({
   imapFolders,
   isLoadingFolders,
   onToggleStar,
+  onDeleteDraft,
+  drafts,
+  isLoadingDrafts: _isLoadingDrafts,
+  onFiltersClick,
+  isSearching,
+  searchResultsCount,
 }: {
   emails: Email[];
   selectedId: string | null;
@@ -325,17 +343,23 @@ function MailPanel({
   activeFolder: string;
   onFolderChange: (path: string) => void;
   onSettingsClick: () => void;
+  onFiltersClick: () => void;
   onComposeClick: () => void;
   onSyncClick: () => void;
   isSyncing: boolean;
   searchQuery: string;
   onSearchChange: (query: string) => void;
+  isSearching?: boolean;
+  searchResultsCount?: number;
   accounts: Account[];
   selectedAccountId: number | null;
   onAccountChange: (id: number) => void;
   imapFolders: ImapFolder[];
   isLoadingFolders: boolean;
   onToggleStar: (emailId: string) => void;
+  onDeleteDraft?: (draftId: number) => void;
+  drafts: DraftListItem[];
+  isLoadingDrafts: boolean;
 }) {
   const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
   const [showAllFolders, setShowAllFolders] = useState(false);
@@ -393,8 +417,51 @@ function MailPanel({
     return folder?.name || 'Inbox';
   }, [activeFolder, imapFolders]);
 
+  // Check if current folder is drafts
+  const isDraftsFolder = useMemo(() => {
+    return imapFolders.find(f => f.path === activeFolder)?.folder_type.toLowerCase() === 'drafts' ||
+           activeFolder.toLowerCase().includes('draft');
+  }, [activeFolder, imapFolders]);
+
   // Filter emails based on folder
   const filteredEmails = useMemo(() => {
+    // If we're in the Drafts folder, convert drafts to Email format
+    if (isDraftsFolder) {
+      let result = drafts.map((draft): Email => {
+        const toAddresses = JSON.parse(draft.toAddresses || '[]') as EmailAddress[];
+        const toPreview = toAddresses.length > 0 ? toAddresses[0].email : '(Alıcı yok)';
+
+        return {
+          id: `draft-${draft.id}`,
+          from: { name: 'Taslak', email: '' },
+          to: toAddresses,
+          subject: draft.subject || '(Konu yok)',
+          preview: `Alıcı: ${toPreview}`,
+          body: '',
+          bodyHtml: '',
+          bodyText: '',
+          date: new Date(draft.updatedAt),
+          read: true,
+          starred: false,
+          hasAttachments: false,
+          hasImages: false,
+          isDraft: true,
+        };
+      });
+
+      // Search filter for drafts
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        result = result.filter(e =>
+          e.subject.toLowerCase().includes(query) ||
+          e.preview.toLowerCase().includes(query)
+        );
+      }
+
+      return result;
+    }
+
+    // Regular email filtering
     let result = emails;
 
     // Starred is a local filter
@@ -420,7 +487,7 @@ function MailPanel({
     }
 
     return result;
-  }, [emails, activeFolder, searchQuery]);
+  }, [emails, activeFolder, searchQuery, isDraftsFolder, drafts]);
 
   return (
     <div className="w-[380px] bg-owl-surface border-r border-owl-border flex flex-col">
@@ -624,7 +691,15 @@ function MailPanel({
             <div className="text-xs font-medium text-owl-text-secondary uppercase tracking-wider">
               {activeFolderName}
             </div>
-            <span className="text-xs text-owl-text-secondary">{filteredEmails.length} emails</span>
+            <span className="text-xs text-owl-text-secondary">
+              {isSearching ? (
+                'Searching...'
+              ) : searchQuery && searchResultsCount !== undefined ? (
+                `${searchResultsCount} results`
+              ) : (
+                `${filteredEmails.length} emails`
+              )}
+            </span>
           </div>
           {filteredEmails.map((email) => (
             <button
@@ -656,20 +731,36 @@ function MailPanel({
                   <div className="text-xs text-owl-text-secondary truncate">{email.preview}</div>
                 </div>
                 <div className="flex flex-col items-center gap-1 shrink-0">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onToggleStar(email.id);
-                    }}
-                    className={`p-1 rounded transition-colors ${
-                      email.starred
-                        ? 'text-yellow-500 hover:text-yellow-400'
-                        : 'text-owl-text-secondary/50 hover:text-yellow-500'
-                    }`}
-                    title={email.starred ? "Yıldızı kaldır" : "Yıldızla"}
-                  >
-                    {email.starred ? <Icons.StarFilled /> : <Icons.Star />}
-                  </button>
+                  {email.isDraft ? (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const draftId = parseInt(email.id.replace('draft-', ''));
+                        if (onDeleteDraft && window.confirm('Bu taslağı silmek istediğinizden emin misiniz?')) {
+                          onDeleteDraft(draftId);
+                        }
+                      }}
+                      className="p-1 rounded transition-colors text-owl-text-secondary/50 hover:text-red-500"
+                      title="Taslağı sil"
+                    >
+                      <Icons.Trash />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleStar(email.id);
+                      }}
+                      className={`p-1 rounded transition-colors ${
+                        email.starred
+                          ? 'text-yellow-500 hover:text-yellow-400'
+                          : 'text-owl-text-secondary/50 hover:text-yellow-500'
+                      }`}
+                      title={email.starred ? "Yıldızı kaldır" : "Yıldızla"}
+                    >
+                      {email.starred ? <Icons.StarFilled /> : <Icons.Star />}
+                    </button>
+                  )}
                   {email.hasAttachments && <Icons.Paperclip />}
                 </div>
               </div>
@@ -695,6 +786,13 @@ function MailPanel({
             <div className="text-xs text-owl-text-secondary truncate">{selectedAccount?.email || ''}</div>
           </div>
           <button
+            onClick={onFiltersClick}
+            className="p-2 hover:bg-owl-surface-2 text-owl-text-secondary hover:text-owl-text rounded-lg transition-colors"
+            title="Filtreler"
+          >
+            <Icons.Filter />
+          </button>
+          <button
             onClick={onSettingsClick}
             className="p-2 hover:bg-owl-surface-2 text-owl-text-secondary hover:text-owl-text rounded-lg transition-colors"
             title="Ayarlar"
@@ -710,6 +808,8 @@ function MailPanel({
 // Email View Component
 function EmailView({
   email,
+  accountId,
+  folder,
   showImages,
   isTrustedSender,
   onLoadImages,
@@ -728,8 +828,11 @@ function EmailView({
   phishingAnalysis,
   isAnalyzingPhishing,
   trackingAnalysis,
+  onDownloadAttachment,
 }: {
   email: Email | null;
+  accountId: string | null;
+  folder: string;
   showImages: boolean;
   isTrustedSender: boolean;
   onLoadImages: () => void;
@@ -748,8 +851,76 @@ function EmailView({
   phishingAnalysis: PhishingAnalysis | null;
   isAnalyzingPhishing: boolean;
   trackingAnalysis: TrackingAnalysis | null;
+  onDownloadAttachment: (attachmentIndex: number, filename: string) => void;
 }) {
   const [showSummary, setShowSummary] = useState(false);
+  const [processedHtml, setProcessedHtml] = useState<string | null>(null);
+
+  // Process inline images (CID)
+  useEffect(() => {
+    if (!email?.bodyHtml || !email?.attachments || !accountId) {
+      setProcessedHtml(null);
+      return;
+    }
+
+    const processCidImages = async () => {
+      let html = email.bodyHtml!;
+
+      // Find all cid: references in the HTML
+      const cidRegex = /src=["']cid:([^"']+)["']/gi;
+      const matches = Array.from(html.matchAll(cidRegex));
+
+      if (matches.length === 0) {
+        setProcessedHtml(html);
+        return;
+      }
+
+      // Import download function
+      const { downloadAttachment } = await import('./services/mailService');
+
+      // Process each CID
+      for (const match of matches) {
+        const fullMatch = match[0];
+        const cid = match[1];
+
+        // Find attachment with matching content_id
+        const attachment = email.attachments?.find(att => {
+          if (!att.contentId) return false;
+          // Content-ID may have <> brackets, remove them
+          const cleanCid = att.contentId.replace(/^<|>$/g, '');
+          return cleanCid === cid;
+        });
+
+        if (attachment && email.id) {
+          try {
+            console.log('Loading inline image:', cid, attachment.filename);
+
+            // Download the attachment
+            const data = await downloadAttachment(
+              accountId,
+              folder,
+              parseInt(email.id),
+              attachment.index
+            );
+
+            // Convert to data URL
+            const dataUrl = `data:${data.contentType};base64,${data.data}`;
+
+            // Replace cid: with data URL
+            html = html.replace(fullMatch, `src="${dataUrl}"`);
+
+            console.log('✓ Inline image loaded:', attachment.filename);
+          } catch (err) {
+            console.error('Failed to load inline image:', err);
+          }
+        }
+      }
+
+      setProcessedHtml(html);
+    };
+
+    processCidImages();
+  }, [email?.bodyHtml, email?.attachments, email?.id, accountId, folder]);
 
   if (!email) {
     return (
@@ -770,10 +941,13 @@ function EmailView({
   const shouldShowImages = showImages || isTrustedSender;
   const hasHtmlContent = email.bodyHtml && email.hasImages;
 
+  // Use processed HTML (with CID images replaced) if available
+  const htmlToSanitize = processedHtml || email.bodyHtml;
+
   // Sanitize HTML with DOMPurify for XSS protection
-  const sanitizedHtml = hasHtmlContent
-    ? sanitizeEmailHtml(email.bodyHtml!, !shouldShowImages)
-    : email.bodyHtml;
+  const sanitizedHtml = hasHtmlContent && htmlToSanitize
+    ? sanitizeEmailHtml(htmlToSanitize, !shouldShowImages)
+    : htmlToSanitize;
 
   return (
     <div className="flex-1 flex flex-col bg-owl-bg">
@@ -1014,6 +1188,49 @@ function EmailView({
         ) : (
           <div className="whitespace-pre-wrap text-owl-text leading-relaxed">{email.body}</div>
         )}
+
+        {/* Attachments Section */}
+        {email.hasAttachments && email.attachments && email.attachments.length > 0 && (
+          <div className="mt-6 pt-6 border-t border-owl-border">
+            <div className="flex items-center gap-2 mb-3">
+              <Icons.Paperclip />
+              <span className="font-medium text-owl-text">Ekler</span>
+              <span className="text-xs text-owl-text-secondary">({email.attachments.length} ek)</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {email.attachments
+                .filter(att => !att.isInline)
+                .map((attachment) => {
+                  const sizeKB = (attachment.size / 1024).toFixed(1);
+                  const sizeMB = (attachment.size / (1024 * 1024)).toFixed(2);
+                  const displaySize = attachment.size > 1024 * 1024 ? `${sizeMB} MB` : `${sizeKB} KB`;
+
+                  return (
+                    <div key={attachment.index} className="flex items-center gap-3 p-3 bg-owl-surface rounded-lg border border-owl-border hover:border-owl-accent transition-colors">
+                      <div className="w-10 h-10 bg-owl-accent/20 rounded-lg flex items-center justify-center text-owl-accent">
+                        <Icons.File />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-owl-text truncate" title={attachment.filename}>
+                          {attachment.filename}
+                        </p>
+                        <p className="text-xs text-owl-text-secondary">{displaySize}</p>
+                      </div>
+                      <button
+                        onClick={() => onDownloadAttachment(attachment.index, attachment.filename)}
+                        className="p-2 text-owl-text-secondary hover:text-owl-accent rounded-lg transition-colors"
+                        title="İndir"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                      </button>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="p-4 border-t border-owl-border">
@@ -1115,7 +1332,7 @@ function CommandPalette({ isOpen, onClose, onCommand }: { isOpen: boolean; onClo
 }
 
 // Main App
-type Page = 'mail' | 'settings';
+type Page = 'mail' | 'settings' | 'filters';
 type ComposeMode = 'new' | 'reply' | 'replyAll' | 'forward';
 
 function App() {
@@ -1124,6 +1341,10 @@ function App() {
   const [emails, setEmails] = useState<Email[]>([]);  // Start empty - no mock data
   const [selectedEmail, setSelectedEmail] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Search state (FTS5 backend)
+  const [searchResults, setSearchResults] = useState<Email[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
 
   // Account state
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -1136,6 +1357,10 @@ function App() {
   const [imapFolders, setImapFolders] = useState<ImapFolder[]>([]);
   const [isLoadingFolders, setIsLoadingFolders] = useState(false);
 
+  // Drafts state
+  const [drafts, setDrafts] = useState<DraftListItem[]>([]);
+  const [isLoadingDrafts, setIsLoadingDrafts] = useState(false);
+
   // Notification state
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const knownEmailIds = useRef<Set<string>>(new Set());
@@ -1144,16 +1369,20 @@ function App() {
   // Email cache per account (to avoid re-fetching when switching)
   const emailCache = useRef<Map<number, Email[]>>(new Map());
 
-  // Settings state for API keys
+  // Settings state for API keys and auto-sync
   const [geminiApiKey, setGeminiApiKey] = useState<string | undefined>(undefined);
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
+  const [autoSyncInterval, setAutoSyncInterval] = useState(5); // minutes
 
-  // Load API key from localStorage on mount
+  // Load settings from localStorage on mount
   useEffect(() => {
     try {
       const saved = localStorage.getItem('owlivion-settings');
       if (saved) {
         const settings = JSON.parse(saved);
         setGeminiApiKey(settings.geminiApiKey);
+        setAutoSyncEnabled(settings.autoSyncEnabled ?? false);
+        setAutoSyncInterval(settings.autoSyncInterval ?? 5);
       }
     } catch (err) {
       console.error('Failed to load settings:', err);
@@ -1175,6 +1404,60 @@ function App() {
       setIsLoadingFolders(false);
     }
   }, []);
+
+  // Search handler (backend FTS5)
+  const handleSearch = useCallback(async (query: string, accountId: number) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      const { searchEmails } = await import('./services/mailService');
+      const results = await searchEmails(accountId.toString(), query, activeFolder);
+
+      // Convert EmailSummary[] to Email[] format
+      const mappedResults: Email[] = results.map(result => ({
+        id: result.uid.toString(),
+        from: {
+          name: result.fromName || result.fromAddress,
+          email: result.fromAddress,
+        },
+        to: [],
+        subject: result.subject,
+        preview: result.preview,
+        body: result.preview,
+        date: new Date(result.date),
+        read: result.isRead,
+        starred: result.isStarred,
+        hasAttachments: result.hasAttachments,
+        hasImages: result.hasInlineImages,
+      }));
+
+      setSearchResults(mappedResults);
+      console.log(`FTS5 search returned ${mappedResults.length} results`);
+    } catch (error) {
+      console.error('Search failed:', error);
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  }, [activeFolder]);
+
+  // Debounced search (wait 300ms after user stops typing)
+  const debouncedSearch = useMemo(() => {
+    let timeoutId: number | undefined;
+    return (query: string, accountId: number) => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      timeoutId = window.setTimeout(() => {
+        handleSearch(query, accountId);
+      }, 300);
+    };
+  }, [handleSearch]);
 
   // Function to reload accounts from database (used after settings changes)
   const reloadAccounts = useCallback(async () => {
@@ -1300,6 +1583,38 @@ function App() {
               }
             } catch (emailErr) {
               console.error('Error loading emails:', emailErr);
+              // Show error to user
+              const errorMessage = emailErr instanceof Error ? emailErr.message : String(emailErr);
+              if (window.confirm(`E-postalar yüklenemedi: ${errorMessage}\n\nHesabı yeniden bağlamayı denemek ister misiniz?`)) {
+                // Reconnect attempt
+                try {
+                  await connectAccount(firstAccount.id.toString());
+                  // Retry loading emails
+                  const retryResult = await listEmails(firstAccount.id.toString(), 0, 500, 'INBOX');
+                  if (retryResult && retryResult.emails) {
+                    const loadedEmails: Email[] = retryResult.emails.map((e: any, idx: number) => ({
+                      id: e.uid?.toString() || e.id?.toString() || idx.toString(),
+                      from: { name: e.fromName || e.from || '', email: e.from || '' },
+                      to: [{ name: '', email: '' }],
+                      subject: e.subject || '(Konu yok)',
+                      preview: e.preview || '',
+                      body: e.bodyText || e.preview || '',
+                      bodyHtml: e.bodyHtml,
+                      bodyText: e.bodyText,
+                      date: new Date(e.date || Date.now()),
+                      read: e.isRead ?? false,
+                      starred: e.isStarred ?? false,
+                      hasAttachments: e.hasAttachments ?? false,
+                      hasImages: false,
+                    }));
+                    emailCache.current.set(firstAccount.id, loadedEmails);
+                    setEmails(loadedEmails);
+                  }
+                } catch (retryErr) {
+                  console.error('Reconnect failed:', retryErr);
+                  alert('Yeniden bağlanma başarısız oldu. Lütfen hesabı silin ve OAuth ile tekrar ekleyin.');
+                }
+              }
             }
           } catch (connectErr) {
             console.error('Failed to connect/load emails:', connectErr);
@@ -1426,19 +1741,22 @@ function App() {
     }
   }, [selectedAccountId, accounts, notificationsEnabled]);
 
-  // Poll for new emails every 60 seconds
+  // Poll for new emails based on auto-sync settings
   useEffect(() => {
-    if (!selectedAccountId || accounts.length === 0) return;
+    if (!selectedAccountId || accounts.length === 0 || !autoSyncEnabled) return;
 
     // Initialize known email IDs from current emails
     emails.forEach(e => knownEmailIds.current.add(e.id));
 
+    // Convert interval from minutes to milliseconds
+    const intervalMs = autoSyncInterval * 60 * 1000;
+
     const pollInterval = setInterval(() => {
       checkForNewEmails();
-    }, 60000); // Check every 60 seconds
+    }, intervalMs);
 
     return () => clearInterval(pollInterval);
-  }, [selectedAccountId, accounts, checkForNewEmails, emails]);
+  }, [selectedAccountId, accounts, checkForNewEmails, emails, autoSyncEnabled, autoSyncInterval]);
 
   // Sync emails handler
   const handleSync = useCallback(async () => {
@@ -1502,6 +1820,9 @@ function App() {
       }
     } catch (err) {
       console.error('Sync failed:', err);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      // Show error notification
+      alert(`Senkronizasyon başarısız: ${errorMessage}\n\nEğer sorun devam ederse, hesabı yeniden ekleyin.`);
     } finally {
       setIsSyncing(false);
     }
@@ -1605,6 +1926,27 @@ function App() {
       return;
     }
 
+    // Check if this is the Drafts folder
+    const isDraftsFolder = imapFolders.find(f => f.path === folderPath)?.folder_type.toLowerCase() === 'drafts' ||
+                           folderPath.toLowerCase().includes('draft');
+
+    if (isDraftsFolder) {
+      console.log('Loading drafts from database...');
+      try {
+        setIsLoadingDrafts(true);
+        const draftList = await listDrafts(selectedAccountId);
+        setDrafts(draftList);
+        setEmails([]); // Clear regular emails
+        console.log('Loaded drafts:', draftList.length);
+      } catch (err) {
+        console.error('Failed to load drafts:', err);
+        setDrafts([]);
+      } finally {
+        setIsLoadingDrafts(false);
+      }
+      return;
+    }
+
     console.log('Switching to folder:', folderPath);
 
     try {
@@ -1652,6 +1994,7 @@ function App() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeMode, setComposeMode] = useState<ComposeMode>('new');
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
+  const [draftToEdit, setDraftToEdit] = useState<DraftEmail | null>(null);
 
   // Email states
   const [trustedSenders, setTrustedSenders] = useState<string[]>([]);
@@ -1717,6 +2060,17 @@ function App() {
 
   // Get visible emails for navigation
   const visibleEmails = useMemo(() => {
+    // If searching, use backend FTS5 search results
+    if (searchQuery.trim() && searchResults.length > 0) {
+      return searchResults;
+    }
+
+    // If searching but no results yet (or empty search), continue with normal flow
+    if (searchQuery.trim() && searchResults.length === 0 && !isSearching) {
+      return []; // Empty results when search is done
+    }
+
+    // Otherwise, use regular filtered emails
     let result = emails;
     switch (activeFolder) {
       case "starred": result = result.filter(e => e.starred && !e.deleted); break;
@@ -1724,16 +2078,22 @@ function App() {
       case "trash": result = result.filter(e => e.deleted); break;
       default: result = result.filter(e => !e.archived && !e.deleted);
     }
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter(e =>
-        e.subject.toLowerCase().includes(query) ||
-        e.from.name.toLowerCase().includes(query) ||
-        e.body.toLowerCase().includes(query)
-      );
-    }
     return result;
-  }, [emails, activeFolder, searchQuery]);
+  }, [emails, activeFolder, searchQuery, searchResults, isSearching]);
+
+  // Handle search input changes
+  const handleSearchChange = useCallback((query: string) => {
+    setSearchQuery(query);
+
+    // Trigger debounced backend search
+    if (selectedAccountId && query.trim()) {
+      debouncedSearch(query, selectedAccountId);
+    } else {
+      // Clear search results if query is empty
+      setSearchResults([]);
+      setIsSearching(false);
+    }
+  }, [selectedAccountId, debouncedSearch]);
 
   // Auto-analyze phishing when email is selected
   useEffect(() => {
@@ -1900,6 +2260,72 @@ function App() {
     setComposeOpen(true);
   }, []);
 
+  // Handle opening a draft for editing
+  const handleOpenDraft = useCallback(async (draftId: number) => {
+    try {
+      const draftDetail = await getDraft(draftId);
+
+      // Convert DraftDetail to DraftEmail
+      const toAddresses = JSON.parse(draftDetail.toAddresses || '[]') as EmailAddress[];
+      const ccAddresses = JSON.parse(draftDetail.ccAddresses || '[]') as EmailAddress[];
+      const bccAddresses = JSON.parse(draftDetail.bccAddresses || '[]') as EmailAddress[];
+
+      // Open compose with draft data
+      setComposeMode(draftDetail.composeType as ComposeMode);
+      setComposeOpen(true);
+
+      // The Compose component will receive this draft via its props
+      // We need to pass this data somehow - let's store it in a state
+      setDraftToEdit({
+        id: draftDetail.id,
+        accountId: draftDetail.accountId,
+        to: toAddresses,
+        cc: ccAddresses,
+        bcc: bccAddresses,
+        subject: draftDetail.subject,
+        bodyText: draftDetail.bodyText,
+        bodyHtml: draftDetail.bodyHtml,
+        attachments: draftDetail.attachments.map((att, idx) => ({
+          id: idx,
+          index: idx,
+          filename: att.filename,
+          contentType: att.contentType,
+          size: att.size,
+          localPath: att.localPath,
+          isInline: false,
+        })),
+        replyToEmailId: draftDetail.replyToEmailId,
+        forwardEmailId: draftDetail.forwardEmailId,
+        composeType: draftDetail.composeType as 'new' | 'reply' | 'replyAll' | 'forward',
+      });
+    } catch (err) {
+      console.error('Failed to open draft:', err);
+    }
+  }, []);
+
+  // Handle email selection (including drafts)
+  const handleEmailSelect = useCallback((emailId: string) => {
+    // Check if this is a draft
+    if (emailId.startsWith('draft-')) {
+      const draftId = parseInt(emailId.replace('draft-', ''));
+      handleOpenDraft(draftId);
+    } else {
+      setSelectedEmail(emailId);
+    }
+  }, [handleOpenDraft]);
+
+  // Handle draft deletion
+  const handleDeleteDraft = useCallback(async (draftId: number) => {
+    try {
+      await deleteDraft(draftId);
+      // Remove from drafts list
+      setDrafts(prev => prev.filter(d => d.id !== draftId));
+      console.log('Draft deleted:', draftId);
+    } catch (err) {
+      console.error('Failed to delete draft:', err);
+    }
+  }, []);
+
   const handleSend = async (draft: DraftEmail) => {
     console.log("Sending email:", draft);
     try {
@@ -1924,6 +2350,48 @@ function App() {
     // TODO: Implement draft saving
   };
 
+  // Download attachment
+  const handleDownloadAttachment = async (attachmentIndex: number, filename: string) => {
+    if (!currentEmail || !selectedAccountId) return;
+
+    try {
+      const { downloadAttachment } = await import('./services/mailService');
+      console.log('Downloading attachment:', { attachmentIndex, filename, folder: activeFolder });
+
+      // Call backend to download attachment
+      const result = await downloadAttachment(
+        selectedAccountId.toString(),
+        activeFolder,
+        parseInt(currentEmail.id),
+        attachmentIndex
+      );
+
+      // Convert base64 to blob
+      const byteCharacters = atob(result.data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: result.contentType });
+
+      // Create download link
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = result.filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      console.log('✓ Attachment downloaded:', result.filename);
+    } catch (err) {
+      console.error('Failed to download attachment:', err);
+      alert(`Ek indirilirken hata oluştu: ${err}`);
+    }
+  };
+
   // Summarize
   const handleSummarize = useCallback(async () => {
     if (!currentEmail || summarizingId) return;
@@ -1934,7 +2402,8 @@ function App() {
     }
     setSummarizingId(currentEmail.id);
     try {
-      const summary = await summarizeEmail(currentEmail.body, 'tr', geminiApiKey);
+      // Auto-detect language from email content
+      const summary = await summarizeEmail(currentEmail.body, undefined, geminiApiKey);
       setSummaries(prev => ({ ...prev, [currentEmail.id]: summary }));
     } catch (err) {
       console.error("Summarize failed:", err);
@@ -2116,29 +2585,42 @@ function App() {
     return <Settings onBack={() => { reloadAccounts(); setCurrentPage('mail'); }} />;
   }
 
+  // Show Filters page
+  if (currentPage === 'filters') {
+    return <Filters onBack={() => setCurrentPage('mail')} defaultAccountId={selectedAccountId || undefined} />;
+  }
+
   return (
     <div className="h-screen flex bg-owl-bg">
       <MailPanel
         emails={emails}
         selectedId={selectedEmail}
-        onSelect={setSelectedEmail}
+        onSelect={handleEmailSelect}
         activeFolder={activeFolder}
         onFolderChange={handleFolderChange}
         onSettingsClick={() => setCurrentPage('settings')}
+        onFiltersClick={() => setCurrentPage('filters')}
         onComposeClick={() => openCompose('new')}
         onSyncClick={handleSync}
         isSyncing={isSyncing}
         searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
+        onSearchChange={handleSearchChange}
         accounts={accounts}
         selectedAccountId={selectedAccountId}
         onAccountChange={handleAccountChange}
         imapFolders={imapFolders}
         isLoadingFolders={isLoadingFolders}
         onToggleStar={handleToggleStar}
+        onDeleteDraft={handleDeleteDraft}
+        drafts={drafts}
+        isLoadingDrafts={isLoadingDrafts}
+        isSearching={isSearching}
+        searchResultsCount={searchResults.length}
       />
       <EmailView
         email={currentEmail}
+        accountId={selectedAccountId?.toString() || null}
+        folder={activeFolder}
         showImages={showImages}
         isTrustedSender={isTrustedSender}
         onLoadImages={handleLoadImages}
@@ -2157,6 +2639,7 @@ function App() {
         phishingAnalysis={selectedEmail ? phishingResults[selectedEmail] || null : null}
         isAnalyzingPhishing={analyzingPhishingId === selectedEmail}
         trackingAnalysis={selectedEmail ? trackingResults[selectedEmail] || null : null}
+        onDownloadAttachment={handleDownloadAttachment}
       />
 
       {/* Modals */}
@@ -2219,8 +2702,12 @@ function App() {
       {!currentEmail && composeMode === 'new' && (
         <Compose
           isOpen={composeOpen}
-          onClose={() => setComposeOpen(false)}
+          onClose={() => {
+            setComposeOpen(false);
+            setDraftToEdit(null);
+          }}
           mode="new"
+          draft={draftToEdit || undefined}
           onSend={handleSend}
           onSaveDraft={handleSaveDraft}
           defaultAccount={currentAccount}

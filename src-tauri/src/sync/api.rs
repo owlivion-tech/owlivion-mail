@@ -186,6 +186,72 @@ impl SyncApiClient {
 
         handle_response(response).await
     }
+
+    /// Upload delta (only changed data since last sync)
+    /// NOTE: Backend support pending (Task #7) - currently falls back to full upload
+    pub async fn upload_delta(
+        &self,
+        data_type: &str,
+        payload: DeltaUploadRequest,
+    ) -> Result<UploadResponse, SyncApiError> {
+        let token = self.get_token().await
+            .ok_or(SyncApiError::Unauthorized)?;
+
+        // TODO: Use /sync/{type}/delta endpoint when backend is ready
+        // For now, fallback to regular upload
+        let upload_req = UploadRequest {
+            encrypted_data: payload.encrypted_data,
+            version: payload.version,
+        };
+
+        let response = self.client
+            .post(format!("{}/sync/{}", API_BASE_URL, data_type))
+            .bearer_auth(token)
+            .json(&upload_req)
+            .send()
+            .await?;
+
+        handle_response(response).await
+    }
+
+    /// Download delta (only changed data since last sync)
+    /// NOTE: Backend support pending (Task #7) - currently falls back to full download
+    pub async fn download_delta(
+        &self,
+        data_type: &str,
+        last_sync_at: Option<String>,
+    ) -> Result<DeltaDownloadResponse, SyncApiError> {
+        let token = self.get_token().await
+            .ok_or(SyncApiError::Unauthorized)?;
+
+        // TODO: Use /sync/{type}/delta endpoint with query param when backend is ready
+        // For now, fallback to regular download
+        let response = self.client
+            .get(format!("{}/sync/{}", API_BASE_URL, data_type))
+            .bearer_auth(token)
+            .send()
+            .await?;
+
+        // Handle 404 as empty data (first sync)
+        if response.status() == StatusCode::NOT_FOUND {
+            return Ok(DeltaDownloadResponse {
+                encrypted_data: String::new(),
+                version: 0,
+                updated_at: chrono::Utc::now().to_rfc3339(),
+                has_more: false,
+            });
+        }
+
+        let download_resp: DownloadResponse = handle_response(response).await?;
+
+        // Convert to DeltaDownloadResponse
+        Ok(DeltaDownloadResponse {
+            encrypted_data: download_resp.encrypted_data,
+            version: download_resp.version,
+            updated_at: download_resp.updated_at,
+            has_more: false, // Full download has no pagination
+        })
+    }
 }
 
 // ============================================================================
@@ -249,6 +315,27 @@ pub struct DownloadResponse {
     pub encrypted_data: String,
     pub version: i64,
     pub updated_at: String,
+}
+
+// Delta Sync Request/Response Types
+#[derive(Debug, Clone, Serialize)]
+pub struct DeltaUploadRequest {
+    pub encrypted_data: String,
+    pub version: i64,
+    pub last_sync_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DeltaDownloadRequest {
+    pub last_sync_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DeltaDownloadResponse {
+    pub encrypted_data: String,
+    pub version: i64,
+    pub updated_at: String,
+    pub has_more: bool, // Pagination support
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -168,11 +168,24 @@ pub struct ParsedEmail {
     pub attachments: Vec<EmailAttachment>,
 }
 
-/// Email attachment
+/// Email attachment metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EmailAttachment {
     pub filename: String,
     pub content_type: String,
     pub size: u32,
+    pub index: usize,
+    pub content_id: Option<String>,  // For inline images (cid:)
+    pub is_inline: bool,
+}
+
+/// Email attachment with data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentData {
+    pub filename: String,
+    pub content_type: String,
+    pub size: u32,
+    pub data: String,  // Base64 encoded content
 }

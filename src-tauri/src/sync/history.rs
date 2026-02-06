@@ -125,7 +125,7 @@ impl HistoryManager {
     ) -> Result<i64, HistoryError> {
         let snapshot_hash = compute_snapshot_hash(encrypted_data);
 
-        let snapshot_id = self.db.execute(
+        let snapshot_id = self.db.execute_insert(
             "INSERT INTO sync_history (
                 data_type, version, encrypted_snapshot, snapshot_hash,
                 device_id, operation, items_count, sync_status, created_at
@@ -244,15 +244,17 @@ impl HistoryManager {
     pub fn enforce_retention_policy(
         &self,
         retention_days: i64,
-    ) -> Result<i32, HistoryError> {
+    ) -> Result<usize, HistoryError> {
         let cutoff_date = Utc::now() - chrono::Duration::days(retention_days);
 
+        // Use SQLite datetime() function for proper date comparison
+        // This handles both RFC3339 and SQLite datetime formats correctly
         let deleted = self.db.execute(
-            "DELETE FROM sync_history WHERE created_at < ?1",
+            "DELETE FROM sync_history WHERE datetime(created_at) < datetime(?1)",
             rusqlite::params![cutoff_date.to_rfc3339()],
         ).map_err(|e| HistoryError::DatabaseError(e.to_string()))?;
 
-        Ok(deleted as i32)
+        Ok(deleted)
     }
 
     /// Get statistics about sync history

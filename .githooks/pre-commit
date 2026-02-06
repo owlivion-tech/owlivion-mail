@@ -1,0 +1,20 @@
+#!/bin/bash
+# Pre-commit hook - Auto-generate progress statistics
+# This runs before every commit to track project metrics
+
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+cd "$PROJECT_ROOT"
+
+# Only run if track-progress.sh exists
+if [ -f "scripts/track-progress.sh" ]; then
+    echo "🔄 Generating progress statistics..."
+    bash scripts/track-progress.sh > /dev/null 2>&1
+
+    # Add progress stats to commit if it exists
+    if [ -f ".progress-stats.json" ]; then
+        git add .progress-stats.json 2>/dev/null || true
+        echo "✅ Progress stats updated"
+    fi
+fi
+
+exit 0

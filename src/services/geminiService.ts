@@ -8,10 +8,10 @@ import type { AIReplyRequest, AIReplyResponse, Settings } from '../types';
 const GEMINI_API_URL =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
-// Rate limiting state
+// Rate limiting state (adjusted for Gemini free tier: 15 req/min)
 let lastRequestTime = 0;
-const MIN_REQUEST_INTERVAL_MS = 1000; // Minimum 1 second between requests
-const MAX_REQUESTS_PER_MINUTE = 10;
+const MIN_REQUEST_INTERVAL_MS = 4000; // Minimum 4 seconds between requests (safer)
+const MAX_REQUESTS_PER_MINUTE = 10; // Keep under free tier limit (15/min)
 const requestTimestamps: number[] = [];
 
 /**
@@ -116,10 +116,14 @@ export async function generateReply(
     throw new Error('Gemini API key is required. Please set it in Settings > AI.');
   }
 
-  const systemPrompt = getSystemPrompt(request.tone, request.language);
+  // Auto-detect language from email content
+  const detectedLanguage = detectLanguage(request.emailContent);
+  const language = request.language || detectedLanguage;
+
+  const systemPrompt = getSystemPrompt(request.tone, language);
   // SECURITY: Sanitize email content before sending to AI
   const sanitizedContent = sanitizeEmailContent(request.emailContent);
-  const userPrompt = getUserPrompt({ ...request, emailContent: sanitizedContent });
+  const userPrompt = getUserPrompt({ ...request, language, emailContent: sanitizedContent });
 
   const response = await makeGeminiRequest(apiKey, {
     contents: [
@@ -178,18 +182,21 @@ export async function generateReply(
  */
 export async function summarizeEmail(
   emailContent: string,
-  language: 'tr' | 'en' = 'tr',
+  language?: 'tr' | 'en',
   apiKey?: string
 ): Promise<string> {
   if (!apiKey) {
     throw new Error('Gemini API key is required. Please set it in Settings > AI.');
   }
 
+  // Auto-detect language if not provided
+  const detectedLanguage = language || detectLanguage(emailContent);
+
   // SECURITY: Sanitize email content
   const sanitizedContent = sanitizeEmailContent(emailContent);
 
   const prompt =
-    language === 'tr'
+    detectedLanguage === 'tr'
       ? `Bu e-postayı kısa ve öz bir şekilde özetle (3-5 cümle). Ana konuyu, önemli noktaları ve varsa eylem öğelerini belirt:
 
 E-posta:
@@ -229,18 +236,21 @@ Summary:`;
  */
 export async function extractActionItems(
   emailContent: string,
-  language: 'tr' | 'en' = 'tr',
+  language?: 'tr' | 'en',
   apiKey?: string
 ): Promise<string[]> {
   if (!apiKey) {
     throw new Error('Gemini API key is required. Please set it in Settings > AI.');
   }
 
+  // Auto-detect language if not provided
+  const detectedLanguage = language || detectLanguage(emailContent);
+
   // SECURITY: Sanitize email content
   const sanitizedContent = sanitizeEmailContent(emailContent);
 
   const prompt =
-    language === 'tr'
+    detectedLanguage === 'tr'
       ? `Bu e-postadan yapılması gereken işleri (action items) çıkar. Her bir maddeyi ayrı bir satırda, madde işareti olmadan yaz. Eğer eylem öğesi yoksa "YOK" yaz.
 
 E-posta:
@@ -333,6 +343,37 @@ Sentiment:`;
 // ============================================================================
 // Helper Functions
 // ============================================================================
+
+/**
+ * Detect language of text (simple heuristic)
+ * Returns 'tr' for Turkish, 'en' for English
+ */
+function detectLanguage(text: string): 'tr' | 'en' {
+  if (!text || text.length < 10) return 'tr'; // Default to Turkish
+
+  // Turkish-specific characters
+  const turkishChars = /[ğüşıöçĞÜŞİÖÇ]/;
+
+  // Common Turkish words
+  const turkishWords = /\b(ve|bir|bu|için|ile|olan|gibi|daha|çok|ben|sen|biz|siz|var|yok|ama|veya)\b/gi;
+
+  // Common English words
+  const englishWords = /\b(the|and|is|are|was|were|have|has|been|will|would|could|should|can|may|must|this|that|with|from|they|their)\b/gi;
+
+  const hasTurkishChars = turkishChars.test(text);
+  const turkishWordCount = (text.match(turkishWords) || []).length;
+  const englishWordCount = (text.match(englishWords) || []).length;
+
+  // If has Turkish characters, likely Turkish
+  if (hasTurkishChars) return 'tr';
+
+  // Compare word counts
+  if (turkishWordCount > englishWordCount) return 'tr';
+  if (englishWordCount > turkishWordCount) return 'en';
+
+  // Default to Turkish for Turkish users
+  return 'tr';
+}
 
 function getSystemPrompt(
   tone: Settings['aiReplyTone'],

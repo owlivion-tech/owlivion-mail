@@ -3300,6 +3300,7 @@ dependencies = [
  "directories",
  "dotenvy",
  "env_logger",
+ "flate2",
  "futures",
  "hex",
  "hickory-resolver",

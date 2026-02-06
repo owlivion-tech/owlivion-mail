@@ -6,6 +6,14 @@ use crate::mail::MailError;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 
+/// Attachment data for sending
+#[derive(Clone)]
+pub struct AttachmentData {
+    pub filename: String,
+    pub content_type: String,
+    pub data: Vec<u8>,
+}
+
 /// Send email using SMTP with OAuth2 XOAUTH2 authentication
 pub async fn send_email_oauth(
     smtp_host: &str,
@@ -19,6 +27,7 @@ pub async fn send_email_oauth(
     subject: &str,
     body: &str,
     is_html: bool,
+    attachments: &[AttachmentData],
 ) -> Result<(), MailError> {
     let smtp_host = smtp_host.to_string();
     let email = email.to_string();
@@ -29,6 +38,7 @@ pub async fn send_email_oauth(
     let bcc = bcc.to_vec();
     let subject = subject.to_string();
     let body = body.to_string();
+    let attachments = attachments.to_vec();
 
     // Run SMTP operations in blocking thread
     tokio::task::spawn_blocking(move || {
@@ -126,16 +136,69 @@ pub async fn send_email_oauth(
         }
 
         email_data.push_str(&format!("Subject: {}\r\n", subject));
+        email_data.push_str("MIME-Version: 1.0\r\n");
 
-        if is_html {
-            email_data.push_str("Content-Type: text/html; charset=utf-8\r\n");
+        // Use multipart if there are attachments
+        if attachments.is_empty() {
+            // Simple message without attachments
+            if is_html {
+                email_data.push_str("Content-Type: text/html; charset=utf-8\r\n");
+            } else {
+                email_data.push_str("Content-Type: text/plain; charset=utf-8\r\n");
+            }
+            email_data.push_str("\r\n");
+            email_data.push_str(&body);
         } else {
-            email_data.push_str("Content-Type: text/plain; charset=utf-8\r\n");
+            // Multipart message with attachments
+            let boundary = format!("----=_Part_{}_{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+                uuid::Uuid::new_v4().to_string().replace('-', "")
+            );
+
+            email_data.push_str(&format!("Content-Type: multipart/mixed; boundary=\"{}\"\r\n", boundary));
+            email_data.push_str("\r\n");
+            email_data.push_str(&format!("--{}\r\n", boundary));
+
+            // Body part
+            if is_html {
+                email_data.push_str("Content-Type: text/html; charset=utf-8\r\n");
+            } else {
+                email_data.push_str("Content-Type: text/plain; charset=utf-8\r\n");
+            }
+            email_data.push_str("Content-Transfer-Encoding: 8bit\r\n");
+            email_data.push_str("\r\n");
+            email_data.push_str(&body);
+            email_data.push_str("\r\n");
+
+            // Attachment parts
+            for attachment in &attachments {
+                email_data.push_str(&format!("--{}\r\n", boundary));
+                email_data.push_str(&format!("Content-Type: {}; name=\"{}\"\r\n",
+                    attachment.content_type, attachment.filename));
+                email_data.push_str("Content-Transfer-Encoding: base64\r\n");
+                email_data.push_str(&format!("Content-Disposition: attachment; filename=\"{}\"\r\n",
+                    attachment.filename));
+                email_data.push_str("\r\n");
+
+                // Encode attachment data as base64
+                let base64_data = base64::Engine::encode(
+                    &base64::engine::general_purpose::STANDARD,
+                    &attachment.data
+                );
+
+                // Split base64 into 76-character lines (RFC 2045)
+                for chunk in base64_data.as_bytes().chunks(76) {
+                    email_data.push_str(&String::from_utf8_lossy(chunk));
+                    email_data.push_str("\r\n");
+                }
+            }
+
+            email_data.push_str(&format!("--{}--\r\n", boundary));
         }
 
-        email_data.push_str("MIME-Version: 1.0\r\n");
-        email_data.push_str("\r\n");
-        email_data.push_str(&body);
         email_data.push_str("\r\n.\r\n");
 
         // Send email data

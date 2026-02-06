@@ -179,6 +179,14 @@ pub struct AccountConfig {
     /// OAuth provider (if using OAuth)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub oauth_provider: Option<String>, // "gmail", "outlook"
+
+    /// Last updated timestamp (for delta sync)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<DateTime<Utc>>,
+
+    /// Soft delete flag (for delta sync)
+    #[serde(default)]
+    pub deleted: bool,
 }
 
 fn default_sync_days() -> i32 {
@@ -237,9 +245,13 @@ pub struct ContactItem {
     #[serde(default)]
     pub is_favorite: bool,
 
-    /// Last updated timestamp (for conflict resolution)
+    /// Last updated timestamp (for conflict resolution & delta sync)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<DateTime<Utc>>,
+
+    /// Soft delete flag (for delta sync)
+    #[serde(default)]
+    pub deleted: bool,
 }
 
 impl ContactItem {
@@ -253,12 +265,19 @@ impl ContactItem {
             notes: None,
             is_favorite: false,
             updated_at: Some(Utc::now()),
+            deleted: false,
         }
     }
 
     /// Update timestamp to now
     pub fn touch(&mut self) {
         self.updated_at = Some(Utc::now());
+    }
+
+    /// Mark as deleted (soft delete)
+    pub fn mark_deleted(&mut self) {
+        self.deleted = true;
+        self.touch();
     }
 }
 
@@ -511,6 +530,8 @@ mod tests {
             sync_days: 30,
             is_default: true,
             oauth_provider: None,
+            updated_at: Some(Utc::now()),
+            deleted: false,
         };
 
         let data = AccountSyncData::new(vec![account]);
@@ -615,6 +636,7 @@ mod tests {
             notes: None,
             is_favorite: false,
             updated_at: None,
+            deleted: false,
         };
 
         let contact2 = ContactItem {
@@ -625,6 +647,7 @@ mod tests {
             notes: None,
             is_favorite: false,
             updated_at: None,
+            deleted: false,
         };
 
         assert_eq!(contact1, contact2);
