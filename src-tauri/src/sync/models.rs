@@ -670,6 +670,7 @@ mod tests {
             conflict_details: "Test conflict".to_string(),
             local_data: serde_json::json!({"test": "local"}),
             server_data: serde_json::json!({"test": "server"}),
+            field_changes: None,
         };
 
         assert_eq!(conflict.data_type, "contacts");

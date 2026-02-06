@@ -2642,6 +2642,7 @@ mod tests {
             conflict_details: "Test conflict".to_string(),
             local_data: serde_json::json!({}),
             server_data: serde_json::json!({}),
+            field_changes: None,
         }]);
         assert!(result.has_conflicts());
     }
