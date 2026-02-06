@@ -10,7 +10,7 @@ pub mod oauth;
 pub mod sync;
 pub mod tray;
 
-use db::{Database, EmailSummary, NewAccount as DbNewAccount};
+use db::{Database, EmailSummary, EmailTemplate, NewAccount as DbNewAccount, NewEmailTemplate};
 use mail::{fetch_autoconfig, fetch_autoconfig_debug, AsyncImapClient, AutoConfig, AutoConfigDebug, ImapClient, ImapConfig, SecurityType};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -1126,11 +1126,14 @@ async fn email_list(
     // Sync emails to database (background operation, non-blocking)
     let mut new_emails_count = 0;
     let mut updated_count = 0;
+    let mut new_email_ids = Vec::new();
+
     for email_summary in &result.emails {
         match sync_email_to_db(&state.db, account_id_num, folder_id, email_summary) {
-            Ok((_email_id, is_new)) => {
+            Ok((email_id, is_new)) => {
                 if is_new {
                     new_emails_count += 1;
+                    new_email_ids.push(email_id);
                 } else {
                     updated_count += 1;
                 }
@@ -1143,8 +1146,43 @@ async fn email_list(
         log::info!("✓ Synced to DB: {} new, {} updated (folder_id={})", new_emails_count, updated_count, folder_id);
     }
 
-    log::info!("✓ email_list SUCCESS: returning {} emails (total={})", result.emails.len(), result.total);
-    Ok(result)
+    // Apply filters to new emails automatically
+    if !new_email_ids.is_empty() {
+        use filters::FilterEngine;
+        let engine = FilterEngine::new(state.db.clone());
+        let mut filters_applied = 0;
+
+        for email_id in new_email_ids {
+            // Get full email from database
+            if let Ok(email) = state.db.get_email(email_id) {
+                // Apply filters
+                match engine.apply_filters(&email).await {
+                    Ok(actions) => {
+                        if !actions.is_empty() {
+                            filters_applied += 1;
+                            if let Err(e) = engine.execute_actions(email_id, actions).await {
+                                log::warn!("Failed to execute filter actions on email {}: {}", email_id, e);
+                            }
+                        }
+                    }
+                    Err(e) => log::warn!("Failed to apply filters to email {}: {}", email_id, e),
+                }
+            }
+        }
+
+        if filters_applied > 0 {
+            log::info!("✓ Applied filters to {} new email(s)", filters_applied);
+        }
+    }
+
+    // Add account metadata to all emails (for unified inbox compatibility)
+    let mut result_with_account_id = result;
+    for email in &mut result_with_account_id.emails {
+        email.account_id = Some(account_id.clone());
+    }
+
+    log::info!("✓ email_list SUCCESS: returning {} emails (total={}) with account_id={}", result_with_account_id.emails.len(), result_with_account_id.total, account_id);
+    Ok(result_with_account_id)
 }
 
 /// Sync emails with automatic filter application
@@ -1235,11 +1273,388 @@ async fn email_sync_with_filters(
         filters_applied_count
     );
 
+    // Add account metadata to all emails (for unified inbox compatibility)
+    let mut result_with_account_id = result;
+    for email in &mut result_with_account_id.emails {
+        email.account_id = Some(account_id.clone());
+    }
+
     Ok(EmailSyncResult {
-        fetch_result: result,
+        fetch_result: result_with_account_id,
         new_emails_count,
         filters_applied_count,
     })
+}
+
+// ============================================================================
+// Helper Functions for Multi-Account Fetching
+// ============================================================================
+
+/// Generate deterministic account color based on email hash
+fn generate_account_color(email: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    email.hash(&mut hasher);
+    let hash = hasher.finish();
+
+    // Generate HSL color with fixed saturation and lightness
+    let hue = (hash % 360) as i32;
+    format!("hsl({}, 70%, 60%)", hue)
+}
+
+/// Apply global sorting to merged emails from multiple accounts
+fn apply_global_sort(emails: &mut Vec<mail::EmailSummary>, sort_by: &str) {
+    match sort_by {
+        "account" => {
+            // Sort by account_id, then by date (newest first)
+            emails.sort_by(|a, b| {
+                let account_cmp = a.account_id.cmp(&b.account_id);
+                if account_cmp == std::cmp::Ordering::Equal {
+                    b.date.cmp(&a.date) // Newer first
+                } else {
+                    account_cmp
+                }
+            });
+        }
+        "unread" | "priority" => {
+            // Unread first, then by date (newest first)
+            emails.sort_by(|a, b| {
+                let read_cmp = a.is_read.cmp(&b.is_read); // false < true (unread first)
+                if read_cmp == std::cmp::Ordering::Equal {
+                    b.date.cmp(&a.date) // Newer first
+                } else {
+                    read_cmp
+                }
+            });
+        }
+        _ => {
+            // Default: sort by date (newest first)
+            emails.sort_by(|a, b| b.date.cmp(&a.date));
+        }
+    }
+}
+
+/// Fetch emails from all active accounts (unified inbox) - TRUE PARALLEL VERSION
+#[tauri::command]
+async fn email_list_all_accounts(
+    state: State<'_, AppState>,
+    folder: Option<String>,
+    page: u32,
+    page_size: u32,
+    sort_by: Option<String>, // "date", "account", "unread", "priority"
+) -> Result<mail::MultiAccountFetchResult, String> {
+    use std::time::Instant;
+
+    let total_start = Instant::now();
+
+    // SECURITY: Enforce pagination limits
+    let safe_page_size = page_size.min(MAX_PAGE_SIZE).max(1);
+    let folder_path = folder.unwrap_or_else(|| "INBOX".to_string());
+    let sort_mode = sort_by.as_deref().unwrap_or("priority");
+
+    log::info!(
+        "[PARALLEL FETCH] Starting: folder={}, page={}, page_size={}, sort={}",
+        folder_path, page, safe_page_size, sort_mode
+    );
+
+    // Get all active accounts
+    let accounts = state.db.get_all_accounts()
+        .map_err(|e| format!("Failed to get accounts: {}", e))?;
+
+    if accounts.is_empty() {
+        return Ok(mail::MultiAccountFetchResult {
+            emails: vec![],
+            total: 0,
+            has_more: false,
+            account_results: vec![],
+        });
+    }
+
+    log::info!("[PARALLEL FETCH] Starting fetch for {} accounts", accounts.len());
+
+    // Clone necessary data for parallel tasks
+    let db = state.db.clone();
+
+    // Spawn parallel fetch tasks
+    let mut handles = vec![];
+
+    for account in accounts {
+        let account_id = account.id;
+        let account_email = account.email.clone();
+        let account_display_name = account.display_name.clone();
+        let folder_path_clone = folder_path.clone();
+        let db_clone = db.clone();
+        let enable_priority = account.enable_priority_fetch;
+
+        let handle = tokio::spawn(async move {
+            let start_time = Instant::now();
+            let account_id_str = account_id.to_string();
+
+            log::info!("[Account {}] Starting fetch (priority={})", account_email, enable_priority);
+
+            // Get account metadata for badge
+            let (display_name, email) = match db_clone.get_account_metadata(account_id) {
+                Ok(metadata) => metadata,
+                Err(e) => {
+                    log::warn!("[Account {}] Failed to get metadata: {}", account_email, e);
+                    (account_display_name.clone(), account_email.clone())
+                }
+            };
+
+            let account_color = generate_account_color(&email);
+
+            // Get encrypted password
+            let encrypted_password = match db_clone.get_account_password(account_id) {
+                Ok(Some(pwd)) => pwd,
+                Ok(None) => {
+                    return mail::AccountFetchTaskResult {
+                        emails: vec![],
+                        status: mail::AccountFetchStatus {
+                            account_id: account_id_str,
+                            account_email: account_email.clone(),
+                            account_name: Some(display_name),
+                            email_count: 0,
+                            success: false,
+                            error: Some("No password found".to_string()),
+                            fetch_time_ms: start_time.elapsed().as_millis() as u64,
+                        },
+                    };
+                }
+                Err(e) => {
+                    return mail::AccountFetchTaskResult {
+                        emails: vec![],
+                        status: mail::AccountFetchStatus {
+                            account_id: account_id_str,
+                            account_email: account_email.clone(),
+                            account_name: Some(display_name),
+                            email_count: 0,
+                            success: false,
+                            error: Some(format!("Failed to get password: {}", e)),
+                            fetch_time_ms: start_time.elapsed().as_millis() as u64,
+                        },
+                    };
+                }
+            };
+
+            // Decrypt password
+            let password = match crypto::decrypt_password(&encrypted_password) {
+                Ok(pwd) => pwd,
+                Err(e) => {
+                    return mail::AccountFetchTaskResult {
+                        emails: vec![],
+                        status: mail::AccountFetchStatus {
+                            account_id: account_id_str,
+                            account_email: account_email.clone(),
+                            account_name: Some(display_name),
+                            email_count: 0,
+                            success: false,
+                            error: Some(format!("Password decryption failed: {}", e)),
+                            fetch_time_ms: start_time.elapsed().as_millis() as u64,
+                        },
+                    };
+                }
+            };
+
+            // Parse security type
+            let security = match account.imap_security.to_uppercase().as_str() {
+                "TLS" | "SSL" => SecurityType::SSL,
+                "STARTTLS" => SecurityType::STARTTLS,
+                _ => SecurityType::NONE,
+            };
+
+            // Create independent IMAP client for this account
+            let imap_config = ImapConfig {
+                host: account.imap_host.clone(),
+                port: account.imap_port as u16,
+                security,
+                username: account.imap_username.unwrap_or_else(|| account_email.clone()),
+                password,
+                accept_invalid_certs: account.accept_invalid_certs,
+                oauth_provider: account.oauth_provider.clone(),
+            };
+
+            let mut client = AsyncImapClient::new(imap_config);
+
+            if let Err(e) = client.connect().await {
+                return mail::AccountFetchTaskResult {
+                    emails: vec![],
+                    status: mail::AccountFetchStatus {
+                        account_id: account_id_str,
+                        account_email: account_email.clone(),
+                        account_name: Some(display_name),
+                        email_count: 0,
+                        success: false,
+                        error: Some(format!("Connection failed: {}", e)),
+                        fetch_time_ms: start_time.elapsed().as_millis() as u64,
+                    },
+                };
+            }
+
+            // Fetch emails (with or without priority)
+            let fetch_result = if enable_priority {
+                log::info!("[Account {}] Using priority fetch (unread first)", account_email);
+                client.fetch_emails_with_priority(&folder_path_clone, 0, safe_page_size).await
+            } else {
+                log::info!("[Account {}] Using standard fetch", account_email);
+                client.fetch_emails(&folder_path_clone, 0, safe_page_size).await
+            };
+
+            let elapsed = start_time.elapsed().as_millis() as u64;
+
+            match fetch_result {
+                Ok(result) => {
+                    let email_count = result.emails.len() as u32;
+                    log::info!("[Account {}] ✓ Fetched {} emails in {}ms", account_email, email_count, elapsed);
+
+                    // Add account metadata to each email
+                    let mut emails_with_metadata = result.emails;
+                    for email in &mut emails_with_metadata {
+                        email.account_id = Some(account_id_str.clone());
+                        email.account_email = Some(account_email.clone());
+                        email.account_name = Some(display_name.clone());
+                        email.account_color = Some(account_color.clone());
+                    }
+
+                    mail::AccountFetchTaskResult {
+                        emails: emails_with_metadata,
+                        status: mail::AccountFetchStatus {
+                            account_id: account_id_str,
+                            account_email: account_email.clone(),
+                            account_name: Some(display_name),
+                            email_count,
+                            success: true,
+                            error: None,
+                            fetch_time_ms: elapsed,
+                        },
+                    }
+                }
+                Err(e) => {
+                    let error_msg = format!("{}", e);
+                    log::warn!("[Account {}] ✗ Failed in {}ms: {}", account_email, elapsed, error_msg);
+
+                    mail::AccountFetchTaskResult {
+                        emails: vec![],
+                        status: mail::AccountFetchStatus {
+                            account_id: account_id_str,
+                            account_email: account_email.clone(),
+                            account_name: Some(display_name),
+                            email_count: 0,
+                            success: false,
+                            error: Some(error_msg),
+                            fetch_time_ms: elapsed,
+                        },
+                    }
+                }
+            }
+        });
+
+        handles.push(handle);
+    }
+
+    // Wait for all tasks to complete
+    log::info!("[PARALLEL FETCH] Waiting for {} tasks to complete", handles.len());
+    let results = futures::future::join_all(handles).await;
+
+    // Collect results
+    let mut all_emails: Vec<mail::EmailSummary> = Vec::new();
+    let mut account_results: Vec<mail::AccountFetchStatus> = Vec::new();
+
+    for result in results {
+        match result {
+            Ok(task_result) => {
+                // Collect emails from this account
+                all_emails.extend(task_result.emails);
+                account_results.push(task_result.status);
+            }
+            Err(e) => {
+                log::error!("[PARALLEL FETCH] Task panicked: {}", e);
+                // Create error status for panicked task
+                account_results.push(mail::AccountFetchStatus {
+                    account_id: "unknown".to_string(),
+                    account_email: "unknown".to_string(),
+                    account_name: None,
+                    email_count: 0,
+                    success: false,
+                    error: Some(format!("Task panicked: {}", e)),
+                    fetch_time_ms: 0,
+                });
+            }
+        }
+    }
+
+    // Apply global sorting
+    apply_global_sort(&mut all_emails, sort_mode);
+
+    // Apply pagination
+    let total = all_emails.len() as u32;
+    let start_idx = (page * safe_page_size) as usize;
+    let end_idx = std::cmp::min(start_idx + safe_page_size as usize, all_emails.len());
+    let has_more = end_idx < all_emails.len();
+
+    let paginated_emails = if start_idx < all_emails.len() {
+        all_emails[start_idx..end_idx].to_vec()
+    } else {
+        vec![]
+    };
+
+    let total_elapsed = total_start.elapsed().as_millis();
+    log::info!(
+        "[PARALLEL FETCH] ✓ Completed in {}ms: {} total emails, returning {}-{}, has_more={}",
+        total_elapsed, total, start_idx, end_idx, has_more
+    );
+
+    Ok(mail::MultiAccountFetchResult {
+        emails: paginated_emails,
+        total,
+        has_more,
+        account_results,
+    })
+}
+
+/// Helper to connect an account (internal use)
+async fn connect_account_internal(state: &State<'_, AppState>, account: &db::Account) -> Result<(), String> {
+    let account_id = account.id.to_string();
+
+    // Get password
+    let encrypted_password = state.db.get_account_password(account.id)
+        .map_err(|e| format!("Failed to get password: {}", e))?
+        .ok_or_else(|| "No password found for account".to_string())?;
+
+    // Decrypt password
+    let password = crypto::decrypt_password(&encrypted_password)
+        .map_err(|e| format!("Password decryption failed: {}", e))?;
+
+    // Parse security type
+    let security = match account.imap_security.to_uppercase().as_str() {
+        "SSL" => mail::SecurityType::SSL,
+        "STARTTLS" => mail::SecurityType::STARTTLS,
+        _ => mail::SecurityType::SSL,
+    };
+
+    // Create ImapConfig
+    let config = mail::ImapConfig {
+        host: account.imap_host.clone(),
+        port: account.imap_port as u16,
+        security,
+        username: account.email.clone(),
+        password,
+        accept_invalid_certs: account.accept_invalid_certs,
+        oauth_provider: account.oauth_provider.clone(),
+    };
+
+    // Create and connect client
+    let mut client = mail::AsyncImapClient::new(config);
+    client.connect().await.map_err(|e| format!("{}", e))?;
+
+    // Store client
+    let mut async_clients = state.async_imap_clients.lock().await;
+    async_clients.insert(account_id.clone(), client);
+
+    log::info!("Connected to account: {} ({})", account.email, account_id);
+
+    Ok(())
 }
 
 /// Get full email content by UID
@@ -1452,6 +1867,36 @@ async fn email_search(
     log::info!("FTS5 returned {} results", results.len());
 
     Ok(results)
+}
+
+/// Advanced email search with filters
+#[tauri::command]
+async fn email_search_advanced(
+    state: State<'_, AppState>,
+    account_id: String,
+    filters: db::SearchFilters,
+    limit: i32,
+    offset: i32,
+) -> Result<db::SearchResult, String> {
+    // Parse account ID
+    let account_id_num: i64 = account_id.parse()
+        .map_err(|_| "Invalid account ID".to_string())?;
+
+    log::info!(
+        "Advanced search: account={}, filters={:?}, limit={}, offset={}",
+        account_id_num, filters, limit, offset
+    );
+
+    // Execute advanced search
+    let result = state.db.search_emails_advanced(account_id_num, &filters, limit, offset)
+        .map_err(|e| format!("Advanced search failed: {}", e))?;
+
+    log::info!(
+        "Advanced search returned {} results (search_time={}ms, has_more={})",
+        result.emails.len(), result.search_time, result.has_more
+    );
+
+    Ok(result)
 }
 
 /// Mark email as read/unread
@@ -2334,6 +2779,480 @@ async fn enforce_sync_retention(
 }
 
 // ============================================================================
+// Session Management Commands
+// ============================================================================
+
+/// Get active sessions
+#[tauri::command]
+async fn sync_get_sessions(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    use crate::sync::models::ActiveSession;
+
+    let manager = state.get_sync_manager()?;
+    let client = manager.client.lock().await;
+
+    if client.is_none() {
+        return Err("Not logged in to sync account".to_string());
+    }
+
+    let http_client = &client.as_ref().unwrap().client;
+    let token = &client.as_ref().unwrap().access_token;
+
+    let response = http_client
+        .get(format!("{}/api/v1/sessions", manager.server_url))
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to get sessions: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("Server error: {}", response.status()));
+    }
+
+    let data: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+    Ok(data)
+}
+
+/// Revoke a specific session
+#[tauri::command]
+async fn sync_revoke_session(
+    device_id: String,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let manager = state.get_sync_manager()?;
+    let client = manager.client.lock().await;
+
+    if client.is_none() {
+        return Err("Not logged in to sync account".to_string());
+    }
+
+    let http_client = &client.as_ref().unwrap().client;
+    let token = &client.as_ref().unwrap().access_token;
+
+    let response = http_client
+        .delete(format!("{}/api/v1/sessions/{}", manager.server_url, device_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to revoke session: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("Server error: {}", response.status()));
+    }
+
+    let data: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+    Ok(data)
+}
+
+/// Revoke all sessions except current
+#[tauri::command]
+async fn sync_revoke_all_sessions(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let manager = state.get_sync_manager()?;
+    let client = manager.client.lock().await;
+
+    if client.is_none() {
+        return Err("Not logged in to sync account".to_string());
+    }
+
+    let http_client = &client.as_ref().unwrap().client;
+    let token = &client.as_ref().unwrap().access_token;
+
+    let response = http_client
+        .delete(format!("{}/api/v1/sessions", manager.server_url))
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to revoke sessions: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("Server error: {}", response.status()));
+    }
+
+    let data: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+    Ok(data)
+}
+
+// ============================================================================
+// Audit Log Commands
+// ============================================================================
+
+/// Get audit logs with filters
+#[tauri::command]
+async fn sync_get_audit_logs(
+    filters: Option<serde_json::Value>,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let manager = state.get_sync_manager()?;
+    let client = manager.client.lock().await;
+
+    if client.is_none() {
+        return Err("Not logged in to sync account".to_string());
+    }
+
+    let http_client = &client.as_ref().unwrap().client;
+    let token = &client.as_ref().unwrap().access_token;
+
+    // Build query string from filters
+    let mut query_params = vec![];
+    if let Some(filters_obj) = filters {
+        if let Some(page) = filters_obj.get("page") {
+            query_params.push(format!("page={}", page));
+        }
+        if let Some(limit) = filters_obj.get("limit") {
+            query_params.push(format!("limit={}", limit));
+        }
+        if let Some(data_type) = filters_obj.get("data_type").and_then(|v| v.as_str()) {
+            query_params.push(format!("data_type={}", data_type));
+        }
+        if let Some(action) = filters_obj.get("action").and_then(|v| v.as_str()) {
+            query_params.push(format!("action={}", action));
+        }
+        if let Some(start_date) = filters_obj.get("start_date").and_then(|v| v.as_str()) {
+            query_params.push(format!("start_date={}", start_date));
+        }
+        if let Some(end_date) = filters_obj.get("end_date").and_then(|v| v.as_str()) {
+            query_params.push(format!("end_date={}", end_date));
+        }
+        if let Some(success) = filters_obj.get("success") {
+            query_params.push(format!("success={}", success));
+        }
+    }
+
+    let query_string = if query_params.is_empty() {
+        String::new()
+    } else {
+        format!("?{}", query_params.join("&"))
+    };
+
+    let response = http_client
+        .get(format!("{}/api/v1/audit/logs{}", manager.server_url, query_string))
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to get audit logs: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("Server error: {}", response.status()));
+    }
+
+    let data: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+    Ok(data)
+}
+
+/// Get audit statistics
+#[tauri::command]
+async fn sync_get_audit_stats(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let manager = state.get_sync_manager()?;
+    let client = manager.client.lock().await;
+
+    if client.is_none() {
+        return Err("Not logged in to sync account".to_string());
+    }
+
+    let http_client = &client.as_ref().unwrap().client;
+    let token = &client.as_ref().unwrap().access_token;
+
+    let response = http_client
+        .get(format!("{}/api/v1/audit/stats", manager.server_url))
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to get audit stats: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("Server error: {}", response.status()));
+    }
+
+    let data: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+    Ok(data)
+}
+
+/// Export audit logs to CSV
+#[tauri::command]
+async fn sync_export_audit_logs(
+    start_date: Option<String>,
+    end_date: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let manager = state.get_sync_manager()?;
+    let client = manager.client.lock().await;
+
+    if client.is_none() {
+        return Err("Not logged in to sync account".to_string());
+    }
+
+    let http_client = &client.as_ref().unwrap().client;
+    let token = &client.as_ref().unwrap().access_token;
+
+    // Build query string
+    let mut query_params = vec![];
+    if let Some(start) = start_date {
+        query_params.push(format!("start_date={}", start));
+    }
+    if let Some(end) = end_date {
+        query_params.push(format!("end_date={}", end));
+    }
+
+    let query_string = if query_params.is_empty() {
+        String::new()
+    } else {
+        format!("?{}", query_params.join("&"))
+    };
+
+    let response = http_client
+        .get(format!("{}/api/v1/audit/export{}", manager.server_url, query_string))
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to export audit logs: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("Server error: {}", response.status()));
+    }
+
+    // Get CSV content
+    let csv_content = response
+        .text()
+        .await
+        .map_err(|e| format!("Failed to get CSV content: {}", e))?;
+
+    // Save to downloads directory
+    use std::path::PathBuf;
+    let downloads_dir = dirs::download_dir().unwrap_or_else(|| PathBuf::from("."));
+    let filename = format!("owlivion-audit-{}.csv", chrono::Utc::now().format("%Y-%m-%d"));
+    let file_path = downloads_dir.join(&filename);
+
+    std::fs::write(&file_path, csv_content)
+        .map_err(|e| format!("Failed to save CSV file: {}", e))?;
+
+    Ok(serde_json::json!({
+        "success": true,
+        "csv_path": file_path.to_string_lossy()
+    }))
+}
+
+// ============================================================================
+// Two-Factor Authentication Commands
+// ============================================================================
+
+/// Get 2FA status for current user
+#[tauri::command]
+async fn sync_get_2fa_status(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let manager = state.get_sync_manager()?;
+    let client = manager.client.lock().await;
+
+    if client.is_none() {
+        return Err("Not logged in to sync account".to_string());
+    }
+
+    let http_client = &client.as_ref().unwrap().client;
+    let token = &client.as_ref().unwrap().access_token;
+
+    let response = http_client
+        .get(format!("{}/api/v1/auth/2fa/status", manager.server_url))
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to get 2FA status: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("Server error: {}", response.status()));
+    }
+
+    let data: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+    Ok(data)
+}
+
+/// Setup 2FA (generate secret and QR code)
+#[tauri::command]
+async fn sync_setup_2fa(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let manager = state.get_sync_manager()?;
+    let client = manager.client.lock().await;
+
+    if client.is_none() {
+        return Err("Not logged in to sync account".to_string());
+    }
+
+    let http_client = &client.as_ref().unwrap().client;
+    let token = &client.as_ref().unwrap().access_token;
+
+    let response = http_client
+        .post(format!("{}/api/v1/auth/2fa/setup", manager.server_url))
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to setup 2FA: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("Server error {}: {}", status, error_text));
+    }
+
+    let data: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+    Ok(data)
+}
+
+/// Enable 2FA (confirm with token and get backup codes)
+#[tauri::command]
+async fn sync_enable_2fa(
+    token: String,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let manager = state.get_sync_manager()?;
+    let client = manager.client.lock().await;
+
+    if client.is_none() {
+        return Err("Not logged in to sync account".to_string());
+    }
+
+    let http_client = &client.as_ref().unwrap().client;
+    let access_token = &client.as_ref().unwrap().access_token;
+
+    let response = http_client
+        .post(format!("{}/api/v1/auth/2fa/enable", manager.server_url))
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("Content-Type", "application/json")
+        .body(serde_json::json!({ "token": token }).to_string())
+        .send()
+        .await
+        .map_err(|e| format!("Failed to enable 2FA: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("Server error {}: {}", status, error_text));
+    }
+
+    let data: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+    Ok(data)
+}
+
+/// Disable 2FA (requires password and 2FA token)
+#[tauri::command]
+async fn sync_disable_2fa(
+    password: String,
+    token: String,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let manager = state.get_sync_manager()?;
+    let client = manager.client.lock().await;
+
+    if client.is_none() {
+        return Err("Not logged in to sync account".to_string());
+    }
+
+    let http_client = &client.as_ref().unwrap().client;
+    let access_token = &client.as_ref().unwrap().access_token;
+
+    let response = http_client
+        .post(format!("{}/api/v1/auth/2fa/disable", manager.server_url))
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("Content-Type", "application/json")
+        .body(serde_json::json!({
+            "password": password,
+            "token": token
+        }).to_string())
+        .send()
+        .await
+        .map_err(|e| format!("Failed to disable 2FA: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("Server error {}: {}", status, error_text));
+    }
+
+    let data: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+    Ok(data)
+}
+
+/// Verify 2FA during login
+#[tauri::command]
+async fn sync_verify_2fa(
+    email: String,
+    token: String,
+    remember_device: bool,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let manager = state.get_sync_manager()?;
+
+    // Note: This is called during login, so we may not have a client yet
+    // We'll use a temporary HTTP client
+    let http_client = reqwest::Client::new();
+
+    let response = http_client
+        .post(format!("{}/api/v1/auth/2fa/verify", manager.server_url))
+        .header("Content-Type", "application/json")
+        .body(serde_json::json!({
+            "email": email,
+            "token": token,
+            "remember_device": remember_device
+        }).to_string())
+        .send()
+        .await
+        .map_err(|e| format!("Failed to verify 2FA: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("Server error {}: {}", status, error_text));
+    }
+
+    let data: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+    Ok(data)
+}
+
+// ============================================================================
 // Background Scheduler Commands
 // ============================================================================
 
@@ -3072,6 +3991,267 @@ async fn filter_import(
     Ok(imported_count)
 }
 
+// ============================================================================
+// EMAIL TEMPLATES
+// ============================================================================
+
+/// Add a new email template
+#[tauri::command]
+async fn template_add(
+    state: State<'_, AppState>,
+    template: NewEmailTemplate,
+) -> Result<i64, String> {
+    // Validation
+    if template.name.trim().is_empty() {
+        return Err("Template name cannot be empty".to_string());
+    }
+    if template.name.len() > 200 {
+        return Err("Template name cannot exceed 200 characters".to_string());
+    }
+    if template.subject_template.len() > 1000 {
+        return Err("Subject template cannot exceed 1000 characters".to_string());
+    }
+    if template.body_html_template.len() > 50_000 {
+        return Err("Body template cannot exceed 50KB".to_string());
+    }
+
+    // Validate category
+    let valid_categories = vec![
+        "business", "personal", "customer_support",
+        "sales", "marketing", "internal", "custom"
+    ];
+    if !valid_categories.contains(&template.category.as_str()) {
+        return Err("Invalid category".to_string());
+    }
+
+    log::info!("Adding template: {}", template.name);
+
+    state
+        .db
+        .add_template(&template)
+        .map_err(|e| format!("Failed to add template: {}", e))
+}
+
+/// Get all templates for an account
+#[tauri::command]
+async fn template_list(
+    state: State<'_, AppState>,
+    account_id: i64,
+) -> Result<Vec<EmailTemplate>, String> {
+    if account_id <= 0 {
+        return Err("Invalid account ID".to_string());
+    }
+
+    state
+        .db
+        .get_templates(account_id)
+        .map_err(|e| format!("Failed to get templates: {}", e))
+}
+
+/// Get a single template by ID
+#[tauri::command]
+async fn template_get(
+    state: State<'_, AppState>,
+    template_id: i64,
+) -> Result<EmailTemplate, String> {
+    if template_id <= 0 {
+        return Err("Invalid template ID".to_string());
+    }
+
+    state
+        .db
+        .get_template(template_id)
+        .map_err(|e| format!("Failed to get template: {}", e))
+}
+
+/// Update an existing template
+#[tauri::command]
+async fn template_update(
+    state: State<'_, AppState>,
+    template_id: i64,
+    template: NewEmailTemplate,
+) -> Result<(), String> {
+    if template_id <= 0 {
+        return Err("Invalid template ID".to_string());
+    }
+
+    // Validation
+    if template.name.trim().is_empty() {
+        return Err("Template name cannot be empty".to_string());
+    }
+    if template.name.len() > 200 {
+        return Err("Template name cannot exceed 200 characters".to_string());
+    }
+    if template.subject_template.len() > 1000 {
+        return Err("Subject template cannot exceed 1000 characters".to_string());
+    }
+    if template.body_html_template.len() > 50_000 {
+        return Err("Body template cannot exceed 50KB".to_string());
+    }
+
+    // Validate category
+    let valid_categories = vec![
+        "business", "personal", "customer_support",
+        "sales", "marketing", "internal", "custom"
+    ];
+    if !valid_categories.contains(&template.category.as_str()) {
+        return Err("Invalid category".to_string());
+    }
+
+    log::info!("Updating template ID: {}", template_id);
+
+    state
+        .db
+        .update_template(template_id, &template)
+        .map_err(|e| format!("Failed to update template: {}", e))
+}
+
+/// Delete a template
+#[tauri::command]
+async fn template_delete(
+    state: State<'_, AppState>,
+    template_id: i64,
+) -> Result<(), String> {
+    if template_id <= 0 {
+        return Err("Invalid template ID".to_string());
+    }
+
+    log::info!("Deleting template ID: {}", template_id);
+
+    state
+        .db
+        .delete_template(template_id)
+        .map_err(|e| format!("Failed to delete template: {}", e))
+}
+
+/// Toggle template enabled status
+#[tauri::command]
+async fn template_toggle(
+    state: State<'_, AppState>,
+    template_id: i64,
+) -> Result<(), String> {
+    if template_id <= 0 {
+        return Err("Invalid template ID".to_string());
+    }
+
+    state
+        .db
+        .toggle_template(template_id)
+        .map_err(|e| format!("Failed to toggle template: {}", e))
+}
+
+/// Toggle template favorite status
+#[tauri::command]
+async fn template_toggle_favorite(
+    state: State<'_, AppState>,
+    template_id: i64,
+) -> Result<(), String> {
+    if template_id <= 0 {
+        return Err("Invalid template ID".to_string());
+    }
+
+    state
+        .db
+        .toggle_template_favorite(template_id)
+        .map_err(|e| format!("Failed to toggle template favorite: {}", e))
+}
+
+/// Increment template usage count
+#[tauri::command]
+async fn template_increment_usage(
+    state: State<'_, AppState>,
+    template_id: i64,
+) -> Result<(), String> {
+    if template_id <= 0 {
+        return Err("Invalid template ID".to_string());
+    }
+
+    state
+        .db
+        .increment_template_usage(template_id)
+        .map_err(|e| format!("Failed to increment template usage: {}", e))
+}
+
+/// Search templates using FTS5
+#[tauri::command]
+async fn template_search(
+    state: State<'_, AppState>,
+    account_id: i64,
+    query: String,
+    limit: i32,
+) -> Result<Vec<EmailTemplate>, String> {
+    if account_id <= 0 {
+        return Err("Invalid account ID".to_string());
+    }
+    if query.trim().is_empty() {
+        return Err("Search query cannot be empty".to_string());
+    }
+    if query.len() > 500 {
+        return Err("Search query too long".to_string());
+    }
+
+    state
+        .db
+        .search_templates(account_id, &query, limit)
+        .map_err(|e| format!("Failed to search templates: {}", e))
+}
+
+/// Get templates by category
+#[tauri::command]
+async fn template_get_by_category(
+    state: State<'_, AppState>,
+    account_id: i64,
+    category: String,
+) -> Result<Vec<EmailTemplate>, String> {
+    if account_id <= 0 {
+        return Err("Invalid account ID".to_string());
+    }
+
+    // Validate category
+    let valid_categories = vec![
+        "business", "personal", "customer_support",
+        "sales", "marketing", "internal", "custom"
+    ];
+    if !valid_categories.contains(&category.as_str()) {
+        return Err("Invalid category".to_string());
+    }
+
+    state
+        .db
+        .get_templates_by_category(account_id, &category)
+        .map_err(|e| format!("Failed to get templates by category: {}", e))
+}
+
+/// Get favorite templates
+#[tauri::command]
+async fn template_get_favorites(
+    state: State<'_, AppState>,
+    account_id: i64,
+) -> Result<Vec<EmailTemplate>, String> {
+    if account_id <= 0 {
+        return Err("Invalid account ID".to_string());
+    }
+
+    state
+        .db
+        .get_favorite_templates(account_id)
+        .map_err(|e| format!("Failed to get favorite templates: {}", e))
+}
+
+/// Get available template categories
+#[tauri::command]
+async fn template_get_categories() -> Result<Vec<String>, String> {
+    Ok(vec![
+        "business".to_string(),
+        "personal".to_string(),
+        "customer_support".to_string(),
+        "sales".to_string(),
+        "marketing".to_string(),
+        "internal".to_string(),
+        "custom".to_string(),
+    ])
+}
+
 // Helper function to parse data type string
 fn parse_sync_data_type(data_type: &str) -> Result<sync::SyncDataType, String> {
     match data_type {
@@ -3193,6 +4373,35 @@ struct SchedulerStatusDto {
 
 // ============================================================================
 // OAuth2 Authentication Commands
+// ============================================================================
+
+// ============================================================================
+// Account Priority Settings Commands
+// ============================================================================
+
+/// Get priority fetching setting for an account
+#[tauri::command]
+async fn account_get_priority_fetch(
+    state: State<'_, AppState>,
+    account_id: i64,
+) -> Result<bool, String> {
+    state.db.get_account_priority_setting(account_id)
+        .map_err(|e| format!("Failed to get priority setting: {}", e))
+}
+
+/// Set priority fetching setting for an account
+#[tauri::command]
+async fn account_set_priority_fetch(
+    state: State<'_, AppState>,
+    account_id: i64,
+    enabled: bool,
+) -> Result<(), String> {
+    state.db.set_account_priority_setting(account_id, enabled)
+        .map_err(|e| format!("Failed to set priority setting: {}", e))
+}
+
+// ============================================================================
+// OAuth Commands
 // ============================================================================
 
 use crate::oauth::{gmail_config, start_oauth_flow, handle_oauth_callback, start_callback_server, shutdown_callback_server};
@@ -3384,16 +4593,20 @@ pub fn run() {
             account_add,
             account_update,
             account_update_signature,
+            account_get_priority_fetch,
+            account_set_priority_fetch,
             fetch_url_content,
             account_list,
             account_connect,
             account_delete,
             folder_list,
             email_list,
+            email_list_all_accounts,
             email_sync_with_filters,
             email_get,
             email_download_attachment,
             email_search,
+            email_search_advanced,
             email_mark_read,
             email_mark_starred,
             email_move,
@@ -3440,6 +4653,29 @@ pub fn run() {
             filter_apply_batch,
             filter_export,
             filter_import,
+            template_add,
+            template_list,
+            template_get,
+            template_update,
+            template_delete,
+            template_toggle,
+            template_toggle_favorite,
+            template_increment_usage,
+            template_search,
+            template_get_by_category,
+            template_get_favorites,
+            template_get_categories,
+            sync_get_sessions,
+            sync_revoke_session,
+            sync_revoke_all_sessions,
+            sync_get_audit_logs,
+            sync_get_audit_stats,
+            sync_export_audit_logs,
+            sync_get_2fa_status,
+            sync_setup_2fa,
+            sync_enable_2fa,
+            sync_disable_2fa,
+            sync_verify_2fa,
         ])
         .setup(|app| {
             // Setup system tray

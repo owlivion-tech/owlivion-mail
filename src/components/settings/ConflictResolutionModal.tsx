@@ -1,5 +1,5 @@
 // ============================================================================
-// Owlivion Mail - Conflict Resolution Modal
+// Owlivion Mail - Conflict Resolution Modal (Enhanced)
 // ============================================================================
 
 import { useState } from 'react';
@@ -83,9 +83,237 @@ export function ConflictResolutionModal({
     }
   };
 
+  // Get field label in Turkish
+  const getFieldLabel = (field: string): string => {
+    const labels: Record<string, string> = {
+      // Account fields
+      display_name: 'Görünen Ad',
+      imap_host: 'IMAP Sunucu',
+      imap_port: 'IMAP Port',
+      imap_security: 'IMAP Güvenlik',
+      smtp_host: 'SMTP Sunucu',
+      smtp_port: 'SMTP Port',
+      smtp_security: 'SMTP Güvenlik',
+      signature: 'İmza',
+      sync_days: 'Senkronizasyon Günleri',
+      is_default: 'Varsayılan Hesap',
+      oauth_provider: 'OAuth Sağlayıcı',
+
+      // Preferences fields
+      theme: 'Tema',
+      language: 'Dil',
+      notifications_enabled: 'Bildirimler',
+      notification_sound: 'Bildirim Sesi',
+      notification_badge: 'Bildirim Rozeti',
+      auto_mark_read: 'Otomatik Okundu İşaretle',
+      auto_mark_read_delay: 'Okundu Gecikmesi',
+      confirm_delete: 'Silme Onayı',
+      confirm_send: 'Gönderme Onayı',
+      signature_position: 'İmza Konumu',
+      reply_position: 'Cevap Konumu',
+      gemini_api_key: 'Gemini API Anahtarı',
+      ai_auto_summarize: 'AI Otomatik Özet',
+      ai_reply_tone: 'AI Cevap Tonu',
+      keyboard_shortcuts_enabled: 'Klavye Kısayolları',
+      compact_list_view: 'Kompakt Liste',
+      show_avatars: 'Avatar Göster',
+      conversation_view: 'Konuşma Görünümü',
+
+      // Signature fields
+      signature_html: 'İmza İçeriği',
+    };
+
+    return labels[field] || field;
+  };
+
+  // Render field-level diff for accounts/preferences
+  const renderFieldDiff = (conflict: ConflictInfo) => {
+    if (!conflict.fieldChanges || conflict.fieldChanges.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="mb-4 p-3 bg-owl-surface-1 rounded border border-owl-border">
+        <div className="text-xs font-medium text-owl-text-primary mb-2">
+          Değişen Alanlar ({conflict.fieldChanges.length})
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {conflict.fieldChanges.map((field) => (
+            <span
+              key={field}
+              className="px-2 py-1 bg-owl-warning/20 text-owl-warning text-xs rounded"
+            >
+              {getFieldLabel(field)}
+            </span>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // Render data comparison based on type
+  const renderDataComparison = (conflict: ConflictInfo) => {
+    // Signatures: Special HTML preview
+    if (conflict.dataType === 'signatures') {
+      return (
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          {/* Local Signature */}
+          <div className="border-l-4 border-owl-accent p-3 bg-owl-surface-3 rounded">
+            <div className="text-xs font-medium text-owl-text-primary mb-2">
+              Yerel İmza
+            </div>
+            {conflict.localData?.signature_html ? (
+              <>
+                <div className="text-xs text-owl-text-muted mb-1">Önizleme:</div>
+                <div
+                  className="p-2 bg-white text-black rounded text-xs mb-2 max-h-32 overflow-auto"
+                  dangerouslySetInnerHTML={{ __html: conflict.localData.signature_html }}
+                />
+                <div className="text-xs text-owl-text-muted">
+                  Düz metin: {conflict.localData.signature_text || 'Boş'}
+                </div>
+              </>
+            ) : (
+              <div className="text-xs text-owl-text-muted">İmza yok</div>
+            )}
+            {conflict.localUpdatedAt && (
+              <div className="text-xs text-owl-text-muted mt-2">
+                Güncellenme: {new Date(conflict.localUpdatedAt).toLocaleString('tr-TR')}
+              </div>
+            )}
+          </div>
+
+          {/* Server Signature */}
+          <div className="border-l-4 border-owl-warning p-3 bg-owl-surface-3 rounded">
+            <div className="text-xs font-medium text-owl-text-primary mb-2">
+              Sunucu İmzası
+            </div>
+            {conflict.serverData?.signature_html ? (
+              <>
+                <div className="text-xs text-owl-text-muted mb-1">Önizleme:</div>
+                <div
+                  className="p-2 bg-white text-black rounded text-xs mb-2 max-h-32 overflow-auto"
+                  dangerouslySetInnerHTML={{ __html: conflict.serverData.signature_html }}
+                />
+                <div className="text-xs text-owl-text-muted">
+                  Düz metin: {conflict.serverData.signature_text || 'Boş'}
+                </div>
+              </>
+            ) : (
+              <div className="text-xs text-owl-text-muted">İmza yok</div>
+            )}
+            {conflict.serverUpdatedAt && (
+              <div className="text-xs text-owl-text-muted mt-2">
+                Güncellenme: {new Date(conflict.serverUpdatedAt).toLocaleString('tr-TR')}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // Accounts/Preferences/Contacts: Field-by-field comparison
+    if (conflict.dataType === 'accounts' || conflict.dataType === 'preferences') {
+      const changedFields = conflict.fieldChanges || [];
+
+      return (
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          {/* Local Data */}
+          <div className="border-l-4 border-owl-accent p-3 bg-owl-surface-3 rounded">
+            <div className="text-xs font-medium text-owl-text-primary mb-2">
+              Yerel Veri
+            </div>
+            <div className="space-y-1 text-xs max-h-64 overflow-auto">
+              {changedFields.length > 0 ? (
+                changedFields.map((field) => (
+                  <div key={field} className="flex justify-between items-start gap-2">
+                    <span className="font-medium text-owl-text-primary">{getFieldLabel(field)}:</span>
+                    <span className="text-owl-accent break-all">
+                      {JSON.stringify(conflict.localData[field])}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <pre className="text-owl-text-secondary font-mono whitespace-pre-wrap">
+                  {JSON.stringify(conflict.localData, null, 2)}
+                </pre>
+              )}
+            </div>
+            {conflict.localUpdatedAt && (
+              <div className="text-xs text-owl-text-muted mt-2">
+                Güncellenme: {new Date(conflict.localUpdatedAt).toLocaleString('tr-TR')}
+              </div>
+            )}
+          </div>
+
+          {/* Server Data */}
+          <div className="border-l-4 border-owl-warning p-3 bg-owl-surface-3 rounded">
+            <div className="text-xs font-medium text-owl-text-primary mb-2">
+              Sunucu Verisi
+            </div>
+            <div className="space-y-1 text-xs max-h-64 overflow-auto">
+              {changedFields.length > 0 ? (
+                changedFields.map((field) => (
+                  <div key={field} className="flex justify-between items-start gap-2">
+                    <span className="font-medium text-owl-text-primary">{getFieldLabel(field)}:</span>
+                    <span className="text-owl-warning break-all">
+                      {JSON.stringify(conflict.serverData[field])}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <pre className="text-owl-text-secondary font-mono whitespace-pre-wrap">
+                  {JSON.stringify(conflict.serverData, null, 2)}
+                </pre>
+              )}
+            </div>
+            {conflict.serverUpdatedAt && (
+              <div className="text-xs text-owl-text-muted mt-2">
+                Güncellenme: {new Date(conflict.serverUpdatedAt).toLocaleString('tr-TR')}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // Default: JSON view (for contacts)
+    return (
+      <div className="grid grid-cols-2 gap-4 mb-4">
+        <div className="border-l-4 border-owl-accent p-3 bg-owl-surface-3 rounded">
+          <div className="text-xs font-medium text-owl-text-primary mb-2">
+            Yerel Veri
+          </div>
+          <pre className="text-xs text-owl-text-secondary overflow-auto max-h-32 font-mono whitespace-pre-wrap">
+            {JSON.stringify(conflict.localData, null, 2)}
+          </pre>
+          {conflict.localUpdatedAt && (
+            <div className="text-xs text-owl-text-muted mt-2">
+              Güncellenme: {new Date(conflict.localUpdatedAt).toLocaleString('tr-TR')}
+            </div>
+          )}
+        </div>
+
+        <div className="border-l-4 border-owl-warning p-3 bg-owl-surface-3 rounded">
+          <div className="text-xs font-medium text-owl-text-primary mb-2">
+            Sunucu Verisi
+          </div>
+          <pre className="text-xs text-owl-text-secondary overflow-auto max-h-32 font-mono whitespace-pre-wrap">
+            {JSON.stringify(conflict.serverData, null, 2)}
+          </pre>
+          {conflict.serverUpdatedAt && (
+            <div className="text-xs text-owl-text-muted mt-2">
+              Güncellenme: {new Date(conflict.serverUpdatedAt).toLocaleString('tr-TR')}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="w-full max-w-3xl bg-owl-surface-1 rounded-lg shadow-xl border border-owl-border overflow-hidden">
+      <div className="w-full max-w-4xl bg-owl-surface-1 rounded-lg shadow-xl border border-owl-border overflow-hidden">
         {/* Header */}
         <div className="p-6 border-b border-owl-border">
           <h2 className="text-2xl font-bold text-owl-text-primary mb-2">
@@ -115,40 +343,11 @@ export function ConflictResolutionModal({
                 {conflict.conflictDetails}
               </p>
 
-              {/* Data Comparison */}
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                {/* Local Data */}
-                <div className="border-l-4 border-owl-accent p-3 bg-owl-surface-3 rounded">
-                  <div className="text-xs font-medium text-owl-text-primary mb-2">
-                    Yerel Veri
-                  </div>
-                  <pre className="text-xs text-owl-text-secondary overflow-auto max-h-32 font-mono">
-                    {JSON.stringify(conflict.localData, null, 2)}
-                  </pre>
-                  {conflict.localUpdatedAt && (
-                    <div className="text-xs text-owl-text-muted mt-2">
-                      Güncellenme:{' '}
-                      {new Date(conflict.localUpdatedAt).toLocaleString('tr-TR')}
-                    </div>
-                  )}
-                </div>
+              {/* Field-level diff (if available) */}
+              {renderFieldDiff(conflict)}
 
-                {/* Server Data */}
-                <div className="border-l-4 border-owl-warning p-3 bg-owl-surface-3 rounded">
-                  <div className="text-xs font-medium text-owl-text-primary mb-2">
-                    Sunucu Verisi
-                  </div>
-                  <pre className="text-xs text-owl-text-secondary overflow-auto max-h-32 font-mono">
-                    {JSON.stringify(conflict.serverData, null, 2)}
-                  </pre>
-                  {conflict.serverUpdatedAt && (
-                    <div className="text-xs text-owl-text-muted mt-2">
-                      Güncellenme:{' '}
-                      {new Date(conflict.serverUpdatedAt).toLocaleString('tr-TR')}
-                    </div>
-                  )}
-                </div>
-              </div>
+              {/* Data Comparison */}
+              {renderDataComparison(conflict)}
 
               {/* Strategy Selection */}
               <div className="space-y-2">

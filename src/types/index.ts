@@ -55,6 +55,10 @@ export interface EmailSummary {
   isStarred: boolean;
   hasAttachments: boolean;
   hasInlineImages: boolean;
+  accountId?: string; // Account ID for unified inbox
+  accountEmail?: string; // Account email for display
+  accountName?: string; // Account name/label
+  accountColor?: string; // Account color badge (hex)
 }
 
 // Draft email for composing
@@ -259,6 +263,10 @@ export interface Settings {
   // Auto-Sync
   autoSyncEnabled: boolean;
   autoSyncInterval: number; // minutes (1-60)
+
+  // Multi-Account Priority Settings
+  accountPrioritySettings?: Record<string, boolean>; // accountId -> enabled
+  unifiedInboxSortBy?: 'date' | 'account' | 'unread' | 'priority';
 }
 
 // Default settings
@@ -285,6 +293,8 @@ export const DEFAULT_SETTINGS: Settings = {
   keyboardShortcutsEnabled: true,
   autoSyncEnabled: false,
   autoSyncInterval: 5,
+  accountPrioritySettings: {},
+  unifiedInboxSortBy: 'priority',
 };
 
 // Sync status
@@ -310,7 +320,7 @@ export interface ComposeProps {
 }
 
 // Settings page tab
-export type SettingsTab = 'accounts' | 'general' | 'ai' | 'shortcuts' | 'signatures' | 'sync';
+export type SettingsTab = 'accounts' | 'general' | 'ai' | 'shortcuts' | 'signatures' | 'sync' | 'filters' | 'templates' | 'security';
 
 // AI Reply request
 export interface AIReplyRequest {
@@ -352,19 +362,8 @@ export interface Toast {
   duration?: number;
 }
 
-// Search filters
-export interface SearchFilters {
-  query: string;
-  from?: string;
-  to?: string;
-  subject?: string;
-  hasAttachment?: boolean;
-  isUnread?: boolean;
-  isStarred?: boolean;
-  dateFrom?: string;
-  dateTo?: string;
-  folder?: string;
-}
+// Legacy search filters (deprecated - use new SearchFilters below)
+// Kept for backwards compatibility, will be removed in future
 
 // API response wrapper
 export interface ApiResponse<T> {
@@ -428,6 +427,7 @@ export interface ConflictInfo {
   conflictDetails: string;
   localData: any; // JSON representation of local data
   serverData: any; // JSON representation of server data
+  fieldChanges?: string[]; // List of field names that differ (e.g., ["imap_host", "smtp_port"])
 }
 
 /// Background scheduler configuration
@@ -611,3 +611,254 @@ export const createAction = {
     action: 'archive',
   }),
 };
+
+// ============================================================================
+// Advanced Search Types
+// ============================================================================
+
+// Date range preset types
+export type DateRangePreset = 'last_7_days' | 'last_30_days' | 'last_3_months' | 'last_year' | 'custom';
+
+// Date range filter
+export interface DateRange {
+  preset?: DateRangePreset;
+  startDate?: string; // ISO 8601 format (YYYY-MM-DD)
+  endDate?: string; // ISO 8601 format (YYYY-MM-DD)
+}
+
+// Advanced search filters
+export interface SearchFilters {
+  // Text search (FTS5)
+  query?: string;
+
+  // Date range
+  dateRange?: DateRange;
+
+  // Sender filter
+  fromEmail?: string;
+  fromDomain?: string;
+
+  // Folder filter
+  folderId?: number;
+  folderType?: FolderType;
+
+  // Attachment filter
+  hasAttachments?: boolean;
+  attachmentType?: string; // e.g., 'pdf', 'image', 'document'
+
+  // Read/unread filter
+  isRead?: boolean;
+
+  // Starred filter
+  isStarred?: boolean;
+
+  // Size filter (bytes)
+  minSize?: number;
+  maxSize?: number;
+
+  // Has inline images
+  hasInlineImages?: boolean;
+
+  // Labels
+  labels?: string[];
+}
+
+// Saved search
+export interface SavedSearch {
+  id: number;
+  accountId: number;
+  name: string;
+  filters: SearchFilters;
+  createdAt: string;
+  lastUsedAt?: string;
+  useCount: number;
+}
+
+// Search history item
+export interface SearchHistory {
+  id: number;
+  accountId: number;
+  filters: SearchFilters;
+  resultCount: number;
+  createdAt: string;
+}
+
+// Search result with metadata
+export interface SearchResult {
+  emails: EmailSummary[];
+  totalCount: number;
+  hasMore: boolean;
+  searchTime: number; // milliseconds
+}
+
+// ============================================================================
+// Multi-Account Inbox Types
+// ============================================================================
+
+// Multi-account fetch result with per-account status
+export interface MultiAccountFetchResult {
+  emails: EmailSummary[];
+  total: number;
+  hasMore: boolean;
+  accountResults: AccountFetchStatus[];
+}
+
+// Per-account fetch status
+export interface AccountFetchStatus {
+  accountId: string;
+  accountEmail: string;
+  accountName?: string;
+  emailCount: number;
+  success: boolean;
+  error?: string;
+  fetchTimeMs: number;
+}
+
+// ============================================================================
+// EMAIL TEMPLATES
+// ============================================================================
+
+export type TemplateCategory =
+  | 'business'
+  | 'personal'
+  | 'customer_support'
+  | 'sales'
+  | 'marketing'
+  | 'internal'
+  | 'custom';
+
+export interface EmailTemplate {
+  id: number;
+  accountId?: number;
+  name: string;
+  description?: string;
+  category: TemplateCategory;
+  subjectTemplate: string;
+  bodyHtmlTemplate: string;
+  bodyTextTemplate?: string;
+  tags: string[];
+  isEnabled: boolean;
+  isFavorite: boolean;
+  usageCount: number;
+  lastUsedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NewEmailTemplate {
+  accountId?: number;
+  name: string;
+  description?: string;
+  category: TemplateCategory;
+  subjectTemplate: string;
+  bodyHtmlTemplate: string;
+  bodyTextTemplate?: string;
+  tags: string[];
+  isEnabled: boolean;
+  isFavorite: boolean;
+}
+
+export interface TemplateContext {
+  sender_name?: string;
+  sender_email?: string;
+  sender_title?: string;
+  sender_phone?: string;
+  sender_company?: string;
+  sender_website?: string;
+  recipient_name?: string;
+  recipient_email?: string;
+  recipient_company?: string;
+  date?: string;
+  time?: string;
+  datetime?: string;
+  [key: string]: string | undefined;
+}
+
+export interface TemplateVariable {
+  key: string;
+  label: string;
+  description: string;
+  example: string;
+  category: 'sender' | 'recipient' | 'datetime' | 'custom';
+}
+
+// ============================================================================
+// Session Management & Security
+// ============================================================================
+
+export interface ActiveSession {
+  device_id: string;
+  device_name: string;
+  platform: string;
+  ip_address: string;
+  location: string;
+  user_agent: string;
+  created_at: string;
+  last_activity: string;
+  is_current: boolean;
+}
+
+export interface SecurityAlert {
+  id: string;
+  type: 'new_location' | 'unusual_time' | 'failed_attempts' | 'new_device';
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  details: {
+    message: string;
+    [key: string]: any;
+  };
+  created_at: string;
+}
+
+// ============================================================================
+// Audit Log
+// ============================================================================
+
+export interface AuditLog {
+  id: string;
+  device_id: string;
+  data_type: string;
+  action: string;
+  timestamp: string;
+  success: boolean;
+  error_message?: string;
+  ip_address?: string;
+  checksum?: string;
+}
+
+export interface AuditStats {
+  overall: {
+    total_operations: number;
+    successful: number;
+    failed: number;
+    unique_devices: number;
+    unique_ips: number;
+    first_activity: string;
+    last_activity: string;
+  };
+  by_data_type: Array<{
+    data_type: string;
+    count: number;
+  }>;
+  by_action: Array<{
+    action: string;
+    count: number;
+  }>;
+  recent_activity: Array<{
+    date: string;
+    count: number;
+    successful: number;
+    failed: number;
+  }>;
+  recent_failures: AuditLog[];
+}
+
+export interface AuditLogFilters {
+  page?: number;
+  limit?: number;
+  data_type?: string;
+  action?: string;
+  start_date?: string;
+  end_date?: string;
+  success?: boolean;
+  device_id?: string;
+}

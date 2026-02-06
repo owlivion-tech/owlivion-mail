@@ -12,6 +12,9 @@ import type {
   Email,
   DraftEmail,
   Settings,
+  SearchFilters,
+  SearchResult,
+  MultiAccountFetchResult,
 } from '../types';
 
 // ============================================================================
@@ -187,6 +190,23 @@ export async function listEmails(
 export const emailList = listEmails;
 
 /**
+ * Fetch emails from all active accounts (unified inbox)
+ */
+export async function listAllAccountsEmails(
+  page: number,
+  pageSize: number,
+  folder?: string,
+  sortBy?: 'date' | 'account' | 'unread' | 'priority'
+): Promise<MultiAccountFetchResult> {
+  return invoke('email_list_all_accounts', {
+    folder,
+    page,
+    pageSize,
+    sortBy: sortBy || 'priority'
+  });
+}
+
+/**
  * Sync emails with automatic filter application
  */
 export async function syncEmailsWithFilters(
@@ -218,6 +238,18 @@ export async function searchEmails(
   folder?: string
 ): Promise<EmailSummary[]> {
   return invoke<EmailSummary[]>('email_search', { accountId, query, folder });
+}
+
+/**
+ * Advanced email search with filters
+ */
+export async function searchEmailsAdvanced(
+  accountId: string,
+  filters: SearchFilters,
+  limit: number = 100,
+  offset: number = 0
+): Promise<SearchResult> {
+  return invoke('email_search_advanced', { accountId, filters, limit, offset });
 }
 
 /**
@@ -472,4 +504,22 @@ export async function getSyncStatus(
   accountId: string
 ): Promise<{ status: string; lastSync?: string; error?: string }> {
   return invoke('sync_status', { accountId });
+}
+
+// ============================================================================
+// Account Priority Settings
+// ============================================================================
+
+/**
+ * Get priority fetching setting for an account
+ */
+export async function getAccountPriorityFetch(accountId: number): Promise<boolean> {
+  return invoke<boolean>('account_get_priority_fetch', { accountId });
+}
+
+/**
+ * Set priority fetching setting for an account
+ */
+export async function setAccountPriorityFetch(accountId: number, enabled: boolean): Promise<void> {
+  return invoke('account_set_priority_fetch', { accountId, enabled });
 }

@@ -6,7 +6,7 @@
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
 // SECURITY: Maximum pagination limits
@@ -113,8 +113,10 @@ pub enum DbError {
 pub type DbResult<T> = Result<T, DbError>;
 
 /// Database manager for thread-safe SQLite access
+/// Uses Arc internally to allow cloning for parallel operations
+#[derive(Clone)]
 pub struct Database {
-    conn: Mutex<Connection>,
+    conn: Arc<Mutex<Connection>>,
 }
 
 impl Database {
@@ -136,7 +138,7 @@ impl Database {
         Self::run_migrations(&conn)?;
 
         Ok(Self {
-            conn: Mutex::new(conn),
+            conn: Arc::new(Mutex::new(conn)),
         })
     }
 
@@ -152,7 +154,7 @@ impl Database {
         Self::run_migrations(&conn)?;
 
         Ok(Self {
-            conn: Mutex::new(conn),
+            conn: Arc::new(Mutex::new(conn)),
         })
     }
 
@@ -272,6 +274,49 @@ impl Database {
             "#)?;
         }
 
+        // Migration 7: Add priority_enabled column to accounts table
+        let has_priority_enabled: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('accounts') WHERE name = 'priority_enabled'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_priority_enabled {
+            log::info!("Running migration: Adding priority_enabled column to accounts");
+            conn.execute("ALTER TABLE accounts ADD COLUMN priority_enabled INTEGER DEFAULT 1", [])?;
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_accounts_priority ON accounts(priority_enabled)", [])?;
+        }
+
+        // Migration 8: Email Templates - Create email_templates table
+        let has_templates: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='email_templates'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_templates {
+            log::info!("Running migration: Creating email_templates table");
+            conn.execute_batch(include_str!("migrations/007_add_email_templates.sql"))?;
+        }
+
+        // Migration 9: Add enable_priority_fetch column to accounts table
+        let has_enable_priority_fetch: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('accounts') WHERE name = 'enable_priority_fetch'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_enable_priority_fetch {
+            log::info!("Running migration: Adding enable_priority_fetch column to accounts");
+            conn.execute_batch(include_str!("migrations/008_add_account_priority_settings.sql"))?;
+        }
+
         Ok(())
     }
 
@@ -344,7 +389,7 @@ impl Database {
                    smtp_host, smtp_port, smtp_security, smtp_username,
                    oauth_provider, oauth_refresh_token, oauth_expires_at,
                    is_active, is_default, signature, sync_days,
-                   accept_invalid_certs, created_at, updated_at
+                   accept_invalid_certs, COALESCE(enable_priority_fetch, 1), created_at, updated_at
             FROM accounts
             ORDER BY is_default DESC, email ASC
             "#,
@@ -372,8 +417,9 @@ impl Database {
                     signature: row.get(16)?,
                     sync_days: row.get(17)?,
                     accept_invalid_certs: row.get(18)?,
-                    created_at: row.get(19)?,
-                    updated_at: row.get(20)?,
+                    enable_priority_fetch: row.get(19)?,
+                    created_at: row.get(20)?,
+                    updated_at: row.get(21)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -395,7 +441,7 @@ impl Database {
                    smtp_host, smtp_port, smtp_security, smtp_username,
                    oauth_provider, oauth_refresh_token, oauth_expires_at,
                    is_active, is_default, signature, sync_days,
-                   accept_invalid_certs, created_at, updated_at
+                   accept_invalid_certs, COALESCE(enable_priority_fetch, 1), created_at, updated_at
             FROM accounts WHERE id = ?1
             "#,
             [id],
@@ -420,13 +466,121 @@ impl Database {
                     signature: row.get(16)?,
                     sync_days: row.get(17)?,
                     accept_invalid_certs: row.get(18)?,
-                    created_at: row.get(19)?,
-                    updated_at: row.get(20)?,
+                    enable_priority_fetch: row.get(19)?,
+                    created_at: row.get(20)?,
+                    updated_at: row.get(21)?,
                 })
             },
         )?;
 
         Ok(account)
+    }
+
+    /// Get all active accounts
+    pub fn get_all_accounts(&self) -> DbResult<Vec<Account>> {
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id, email, display_name,
+                   imap_host, imap_port, imap_security, imap_username,
+                   smtp_host, smtp_port, smtp_security, smtp_username,
+                   oauth_provider, oauth_refresh_token, oauth_expires_at,
+                   is_active, is_default, signature, sync_days,
+                   accept_invalid_certs, COALESCE(enable_priority_fetch, 1), created_at, updated_at
+            FROM accounts
+            WHERE is_active = 1
+            ORDER BY is_default DESC, email ASC
+            "#,
+        )?;
+
+        let accounts = stmt.query_map([], |row| {
+            Ok(Account {
+                id: row.get(0)?,
+                email: row.get(1)?,
+                display_name: row.get(2)?,
+                imap_host: row.get(3)?,
+                imap_port: row.get(4)?,
+                imap_security: row.get(5)?,
+                imap_username: row.get(6)?,
+                smtp_host: row.get(7)?,
+                smtp_port: row.get(8)?,
+                smtp_security: row.get(9)?,
+                smtp_username: row.get(10)?,
+                oauth_provider: row.get(11)?,
+                oauth_refresh_token: row.get(12)?,
+                oauth_expires_at: row.get(13)?,
+                is_active: row.get(14)?,
+                is_default: row.get(15)?,
+                signature: row.get(16)?,
+                sync_days: row.get(17)?,
+                accept_invalid_certs: row.get(18)?,
+                enable_priority_fetch: row.get(19)?,
+                created_at: row.get(20)?,
+                updated_at: row.get(21)?,
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        Ok(accounts)
+    }
+
+    /// Get account by email address
+    pub fn get_account_by_email(&self, email: &str) -> DbResult<Option<Account>> {
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id, email, display_name,
+                   imap_host, imap_port, imap_security, imap_username,
+                   smtp_host, smtp_port, smtp_security, smtp_username,
+                   oauth_provider, oauth_refresh_token, oauth_expires_at,
+                   is_active, is_default, signature, sync_days,
+                   accept_invalid_certs, COALESCE(enable_priority_fetch, 1), created_at, updated_at
+            FROM accounts
+            WHERE email = ?1 AND is_active = 1
+            "#,
+        )?;
+
+        let result = stmt.query_row([email], |row| {
+            Ok(Account {
+                id: row.get(0)?,
+                email: row.get(1)?,
+                display_name: row.get(2)?,
+                imap_host: row.get(3)?,
+                imap_port: row.get(4)?,
+                imap_security: row.get(5)?,
+                imap_username: row.get(6)?,
+                smtp_host: row.get(7)?,
+                smtp_port: row.get(8)?,
+                smtp_security: row.get(9)?,
+                smtp_username: row.get(10)?,
+                oauth_provider: row.get(11)?,
+                oauth_refresh_token: row.get(12)?,
+                oauth_expires_at: row.get(13)?,
+                is_active: row.get(14)?,
+                is_default: row.get(15)?,
+                signature: row.get(16)?,
+                sync_days: row.get(17)?,
+                accept_invalid_certs: row.get(18)?,
+                enable_priority_fetch: row.get(19)?,
+                created_at: row.get(20)?,
+                updated_at: row.get(21)?,
+            })
+        });
+
+        match result {
+            Ok(account) => Ok(Some(account)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(DbError::from(e)),
+        }
     }
 
     /// Get account password (encrypted)
@@ -572,6 +726,52 @@ impl Database {
         )?;
 
         Ok(())
+    }
+
+    /// Get priority fetching setting for an account
+    pub fn get_account_priority_setting(&self, account_id: i64) -> DbResult<bool> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let enabled: i32 = conn.query_row(
+            "SELECT COALESCE(enable_priority_fetch, 1) FROM accounts WHERE id = ?1",
+            [account_id],
+            |row| row.get(0),
+        )?;
+
+        Ok(enabled != 0)
+    }
+
+    /// Set priority fetching setting for an account
+    pub fn set_account_priority_setting(&self, account_id: i64, enabled: bool) -> DbResult<()> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        conn.execute(
+            "UPDATE accounts SET enable_priority_fetch = ?1, updated_at = datetime('now') WHERE id = ?2",
+            params![enabled as i32, account_id],
+        )?;
+
+        Ok(())
+    }
+
+    /// Get account metadata (display_name and email) for badge generation
+    pub fn get_account_metadata(&self, account_id: i64) -> DbResult<(String, String)> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        conn.query_row(
+            "SELECT display_name, email FROM accounts WHERE id = ?1",
+            [account_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(DbError::from)
     }
 
     // =========================================================================
@@ -954,6 +1154,190 @@ impl Database {
         Ok(emails)
     }
 
+    /// Advanced search with filters
+    /// SECURITY: Validates all inputs, builds safe SQL queries
+    pub fn search_emails_advanced(
+        &self,
+        account_id: i64,
+        filters: &SearchFilters,
+        limit: i32,
+        offset: i32,
+    ) -> DbResult<SearchResult> {
+        // SECURITY: Validate account_id
+        if account_id <= 0 {
+            return Err(DbError::Constraint("Invalid account ID".to_string()));
+        }
+
+        // SECURITY: Enforce search limit
+        let safe_limit = limit.min(MAX_SEARCH_LIMIT).max(1);
+        let safe_offset = offset.max(0);
+
+        // Build WHERE clauses
+        let mut where_clauses = vec!["e.account_id = ?1".to_string()];
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(account_id)];
+        let mut param_index = 2;
+
+        // FTS5 query (if provided)
+        let use_fts = if let Some(ref query) = filters.query {
+            if !query.is_empty() && query.len() <= 500 {
+                let sanitized = sanitize_fts5_query(query);
+                if !sanitized.is_empty() {
+                    params.push(Box::new(sanitized));
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        // Date range filter
+        if let Some(ref date_range) = filters.date_range {
+            if let Some(ref start) = date_range.start_date {
+                where_clauses.push(format!("e.date >= ?{}", param_index));
+                params.push(Box::new(start.clone()));
+                param_index += 1;
+            }
+            if let Some(ref end) = date_range.end_date {
+                where_clauses.push(format!("e.date <= ?{}", param_index));
+                params.push(Box::new(end.clone()));
+                param_index += 1;
+            }
+        }
+
+        // Sender filter
+        if let Some(ref from_email) = filters.from_email {
+            where_clauses.push(format!("e.from_address LIKE ?{} ESCAPE '\\'", param_index));
+            let pattern = format!("%{}%", escape_like_pattern(from_email));
+            params.push(Box::new(pattern));
+            param_index += 1;
+        }
+
+        if let Some(ref from_domain) = filters.from_domain {
+            where_clauses.push(format!("e.from_address LIKE ?{} ESCAPE '\\'", param_index));
+            let pattern = format!("%@{}%", escape_like_pattern(from_domain));
+            params.push(Box::new(pattern));
+            param_index += 1;
+        }
+
+        // Folder filter
+        if let Some(folder_id) = filters.folder_id {
+            where_clauses.push(format!("e.folder_id = ?{}", param_index));
+            params.push(Box::new(folder_id));
+            param_index += 1;
+        }
+
+        // Attachment filter
+        if let Some(has_attachments) = filters.has_attachments {
+            where_clauses.push(format!("e.has_attachments = ?{}", param_index));
+            params.push(Box::new(has_attachments));
+            param_index += 1;
+        }
+
+        // Read/unread filter
+        if let Some(is_read) = filters.is_read {
+            where_clauses.push(format!("e.is_read = ?{}", param_index));
+            params.push(Box::new(is_read));
+            param_index += 1;
+        }
+
+        // Starred filter
+        if let Some(is_starred) = filters.is_starred {
+            where_clauses.push(format!("e.is_starred = ?{}", param_index));
+            params.push(Box::new(is_starred));
+            param_index += 1;
+        }
+
+        // Inline images filter
+        if let Some(has_inline_images) = filters.has_inline_images {
+            where_clauses.push(format!("e.has_inline_images = ?{}", param_index));
+            params.push(Box::new(has_inline_images));
+            param_index += 1;
+        }
+
+        // Build SQL query
+        let base_select = r#"
+            SELECT e.id, e.message_id, e.uid, e.from_address, e.from_name,
+                   e.subject, e.preview, e.date,
+                   e.is_read, e.is_starred, e.has_attachments, e.has_inline_images
+            FROM emails e
+        "#;
+
+        let fts_join = if use_fts {
+            "JOIN emails_fts fts ON fts.rowid = e.id"
+        } else {
+            ""
+        };
+
+        let fts_where = if use_fts {
+            "emails_fts MATCH ?2"
+        } else {
+            ""
+        };
+
+        let mut all_where_clauses = where_clauses.clone();
+        if use_fts {
+            all_where_clauses.push(fts_where.to_string());
+        }
+
+        let where_clause = if !all_where_clauses.is_empty() {
+            format!("WHERE {}", all_where_clauses.join(" AND "))
+        } else {
+            String::new()
+        };
+
+        let query = format!(
+            "{} {} {} ORDER BY e.date DESC LIMIT {} OFFSET {}",
+            base_select, fts_join, where_clause, safe_limit, safe_offset
+        );
+
+        // Execute query
+        let start_time = std::time::Instant::now();
+
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let mut stmt = conn.prepare(&query)?;
+
+        // Convert params to references for query_map
+        let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+
+        let emails = stmt
+            .query_map(&param_refs[..], |row| {
+                Ok(EmailSummary {
+                    id: row.get(0)?,
+                    message_id: row.get(1)?,
+                    uid: row.get(2)?,
+                    from_address: row.get(3)?,
+                    from_name: row.get(4)?,
+                    subject: row.get(5)?,
+                    preview: row.get(6)?,
+                    date: row.get(7)?,
+                    is_read: row.get(8)?,
+                    is_starred: row.get(9)?,
+                    has_attachments: row.get(10)?,
+                    has_inline_images: row.get(11)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let search_time = start_time.elapsed().as_millis() as i64;
+        let total_count = emails.len() as i64;
+        let has_more = emails.len() as i32 == safe_limit;
+
+        Ok(SearchResult {
+            emails,
+            total_count,
+            has_more,
+            search_time,
+        })
+    }
+
     // =========================================================================
     // SETTINGS
     // =========================================================================
@@ -1217,6 +1601,392 @@ impl Database {
         .collect::<Result<Vec<_>, _>>()?;
 
         Ok(contacts)
+    }
+
+    // =========================================================================
+    // EMAIL TEMPLATES
+    // =========================================================================
+
+    /// Add a new email template
+    pub fn add_template(&self, template: &NewEmailTemplate) -> DbResult<i64> {
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let tags_json = serde_json::to_string(&template.tags)
+            .unwrap_or_else(|_| "[]".to_string());
+
+        conn.execute(
+            r#"
+            INSERT INTO email_templates (
+                account_id, name, description, category, subject_template,
+                body_html_template, body_text_template, tags, is_enabled, is_favorite
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            "#,
+            params![
+                template.account_id,
+                template.name,
+                template.description,
+                template.category,
+                template.subject_template,
+                template.body_html_template,
+                template.body_text_template,
+                tags_json,
+                template.is_enabled,
+                template.is_favorite,
+            ],
+        )?;
+
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Get all templates for an account (or global templates if account_id is None)
+    pub fn get_templates(&self, account_id: i64) -> DbResult<Vec<EmailTemplate>> {
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id, account_id, name, description, category, subject_template,
+                   body_html_template, body_text_template, tags, is_enabled,
+                   is_favorite, usage_count, last_used_at, created_at, updated_at
+            FROM email_templates
+            WHERE account_id = ?1 OR account_id IS NULL
+            ORDER BY is_favorite DESC, usage_count DESC, updated_at DESC
+            "#,
+        )?;
+
+        let templates = stmt.query_map(params![account_id], |row| {
+            let tags_json: String = row.get(8)?;
+            let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+
+            Ok(EmailTemplate {
+                id: row.get(0)?,
+                account_id: row.get(1)?,
+                name: row.get(2)?,
+                description: row.get(3)?,
+                category: row.get(4)?,
+                subject_template: row.get(5)?,
+                body_html_template: row.get(6)?,
+                body_text_template: row.get(7)?,
+                tags,
+                is_enabled: row.get(9)?,
+                is_favorite: row.get(10)?,
+                usage_count: row.get(11)?,
+                last_used_at: row.get(12)?,
+                created_at: row.get(13)?,
+                updated_at: row.get(14)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(templates)
+    }
+
+    /// Get a single template by ID
+    pub fn get_template(&self, id: i64) -> DbResult<EmailTemplate> {
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let template = conn.query_row(
+            r#"
+            SELECT id, account_id, name, description, category, subject_template,
+                   body_html_template, body_text_template, tags, is_enabled,
+                   is_favorite, usage_count, last_used_at, created_at, updated_at
+            FROM email_templates
+            WHERE id = ?1
+            "#,
+            params![id],
+            |row| {
+                let tags_json: String = row.get(8)?;
+                let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+
+                Ok(EmailTemplate {
+                    id: row.get(0)?,
+                    account_id: row.get(1)?,
+                    name: row.get(2)?,
+                    description: row.get(3)?,
+                    category: row.get(4)?,
+                    subject_template: row.get(5)?,
+                    body_html_template: row.get(6)?,
+                    body_text_template: row.get(7)?,
+                    tags,
+                    is_enabled: row.get(9)?,
+                    is_favorite: row.get(10)?,
+                    usage_count: row.get(11)?,
+                    last_used_at: row.get(12)?,
+                    created_at: row.get(13)?,
+                    updated_at: row.get(14)?,
+                })
+            },
+        )?;
+
+        Ok(template)
+    }
+
+    /// Update an existing template
+    pub fn update_template(&self, id: i64, template: &NewEmailTemplate) -> DbResult<()> {
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let tags_json = serde_json::to_string(&template.tags)
+            .unwrap_or_else(|_| "[]".to_string());
+
+        conn.execute(
+            r#"
+            UPDATE email_templates
+            SET account_id = ?1, name = ?2, description = ?3, category = ?4,
+                subject_template = ?5, body_html_template = ?6, body_text_template = ?7,
+                tags = ?8, is_enabled = ?9, is_favorite = ?10
+            WHERE id = ?11
+            "#,
+            params![
+                template.account_id,
+                template.name,
+                template.description,
+                template.category,
+                template.subject_template,
+                template.body_html_template,
+                template.body_text_template,
+                tags_json,
+                template.is_enabled,
+                template.is_favorite,
+                id,
+            ],
+        )?;
+
+        Ok(())
+    }
+
+    /// Delete a template
+    pub fn delete_template(&self, id: i64) -> DbResult<()> {
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        conn.execute("DELETE FROM email_templates WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    /// Toggle template enabled status
+    pub fn toggle_template(&self, id: i64) -> DbResult<()> {
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        conn.execute(
+            "UPDATE email_templates SET is_enabled = NOT is_enabled WHERE id = ?1",
+            params![id],
+        )?;
+
+        Ok(())
+    }
+
+    /// Toggle template favorite status
+    pub fn toggle_template_favorite(&self, id: i64) -> DbResult<()> {
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        conn.execute(
+            "UPDATE email_templates SET is_favorite = NOT is_favorite WHERE id = ?1",
+            params![id],
+        )?;
+
+        Ok(())
+    }
+
+    /// Increment template usage count and update last_used_at
+    pub fn increment_template_usage(&self, id: i64) -> DbResult<()> {
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        conn.execute(
+            r#"
+            UPDATE email_templates
+            SET usage_count = usage_count + 1,
+                last_used_at = datetime('now')
+            WHERE id = ?1
+            "#,
+            params![id],
+        )?;
+
+        Ok(())
+    }
+
+    /// Search templates using FTS5
+    pub fn search_templates(&self, account_id: i64, query: &str, limit: i32) -> DbResult<Vec<EmailTemplate>> {
+        const MAX_SEARCH_LIMIT: i32 = 200;
+        let safe_limit = limit.clamp(1, MAX_SEARCH_LIMIT);
+
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        // Escape FTS5 special characters and build search query
+        let search_query = query
+            .replace('"', "\"\"")
+            .split_whitespace()
+            .map(|word| format!("\"{}\"*", word))
+            .collect::<Vec<_>>()
+            .join(" OR ");
+
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT t.id, t.account_id, t.name, t.description, t.category,
+                   t.subject_template, t.body_html_template, t.body_text_template,
+                   t.tags, t.is_enabled, t.is_favorite, t.usage_count,
+                   t.last_used_at, t.created_at, t.updated_at
+            FROM email_templates t
+            INNER JOIN templates_fts f ON t.id = f.rowid
+            WHERE (t.account_id = ?1 OR t.account_id IS NULL)
+              AND f.templates_fts MATCH ?2
+            ORDER BY t.is_favorite DESC, t.usage_count DESC, f.rank
+            LIMIT ?3
+            "#,
+        )?;
+
+        let templates = stmt.query_map(params![account_id, search_query, safe_limit], |row| {
+            let tags_json: String = row.get(8)?;
+            let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+
+            Ok(EmailTemplate {
+                id: row.get(0)?,
+                account_id: row.get(1)?,
+                name: row.get(2)?,
+                description: row.get(3)?,
+                category: row.get(4)?,
+                subject_template: row.get(5)?,
+                body_html_template: row.get(6)?,
+                body_text_template: row.get(7)?,
+                tags,
+                is_enabled: row.get(9)?,
+                is_favorite: row.get(10)?,
+                usage_count: row.get(11)?,
+                last_used_at: row.get(12)?,
+                created_at: row.get(13)?,
+                updated_at: row.get(14)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(templates)
+    }
+
+    /// Get templates by category
+    pub fn get_templates_by_category(&self, account_id: i64, category: &str) -> DbResult<Vec<EmailTemplate>> {
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id, account_id, name, description, category, subject_template,
+                   body_html_template, body_text_template, tags, is_enabled,
+                   is_favorite, usage_count, last_used_at, created_at, updated_at
+            FROM email_templates
+            WHERE (account_id = ?1 OR account_id IS NULL)
+              AND category = ?2
+            ORDER BY is_favorite DESC, usage_count DESC, updated_at DESC
+            "#,
+        )?;
+
+        let templates = stmt.query_map(params![account_id, category], |row| {
+            let tags_json: String = row.get(8)?;
+            let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+
+            Ok(EmailTemplate {
+                id: row.get(0)?,
+                account_id: row.get(1)?,
+                name: row.get(2)?,
+                description: row.get(3)?,
+                category: row.get(4)?,
+                subject_template: row.get(5)?,
+                body_html_template: row.get(6)?,
+                body_text_template: row.get(7)?,
+                tags,
+                is_enabled: row.get(9)?,
+                is_favorite: row.get(10)?,
+                usage_count: row.get(11)?,
+                last_used_at: row.get(12)?,
+                created_at: row.get(13)?,
+                updated_at: row.get(14)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(templates)
+    }
+
+    /// Get favorite templates
+    pub fn get_favorite_templates(&self, account_id: i64) -> DbResult<Vec<EmailTemplate>> {
+        // SECURITY: Handle mutex poisoning gracefully
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("Database mutex was poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id, account_id, name, description, category, subject_template,
+                   body_html_template, body_text_template, tags, is_enabled,
+                   is_favorite, usage_count, last_used_at, created_at, updated_at
+            FROM email_templates
+            WHERE (account_id = ?1 OR account_id IS NULL)
+              AND is_favorite = 1
+            ORDER BY usage_count DESC, updated_at DESC
+            "#,
+        )?;
+
+        let templates = stmt.query_map(params![account_id], |row| {
+            let tags_json: String = row.get(8)?;
+            let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+
+            Ok(EmailTemplate {
+                id: row.get(0)?,
+                account_id: row.get(1)?,
+                name: row.get(2)?,
+                description: row.get(3)?,
+                category: row.get(4)?,
+                subject_template: row.get(5)?,
+                body_html_template: row.get(6)?,
+                body_text_template: row.get(7)?,
+                tags,
+                is_enabled: row.get(9)?,
+                is_favorite: row.get(10)?,
+                usage_count: row.get(11)?,
+                last_used_at: row.get(12)?,
+                created_at: row.get(13)?,
+                updated_at: row.get(14)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(templates)
     }
 
     // =========================================================================
@@ -1771,8 +2541,14 @@ pub struct Account {
     pub sync_days: i32,
     #[serde(default)]
     pub accept_invalid_certs: bool,
+    #[serde(default = "default_priority_fetch")]
+    pub enable_priority_fetch: bool,
     pub created_at: String,
     pub updated_at: String,
+}
+
+fn default_priority_fetch() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1849,6 +2625,34 @@ pub struct EmailSummary {
     pub is_starred: bool,
     pub has_attachments: bool,
     pub has_inline_images: bool,
+}
+
+// Advanced search types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DateRange {
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchFilters {
+    pub query: Option<String>,
+    pub date_range: Option<DateRange>,
+    pub from_email: Option<String>,
+    pub from_domain: Option<String>,
+    pub folder_id: Option<i64>,
+    pub has_attachments: Option<bool>,
+    pub is_read: Option<bool>,
+    pub is_starred: Option<bool>,
+    pub has_inline_images: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchResult {
+    pub emails: Vec<EmailSummary>,
+    pub total_count: i64,
+    pub has_more: bool,
+    pub search_time: i64, // milliseconds
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1971,6 +2775,41 @@ pub struct Attachment {
     pub local_path: Option<String>,
     pub is_downloaded: bool,
     pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmailTemplate {
+    pub id: i64,
+    pub account_id: Option<i64>,
+    pub name: String,
+    pub description: Option<String>,
+    pub category: String,
+    pub subject_template: String,
+    pub body_html_template: String,
+    pub body_text_template: Option<String>,
+    pub tags: Vec<String>,
+    pub is_enabled: bool,
+    pub is_favorite: bool,
+    pub usage_count: i64,
+    pub last_used_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewEmailTemplate {
+    pub account_id: Option<i64>,
+    pub name: String,
+    pub description: Option<String>,
+    pub category: String,
+    pub subject_template: String,
+    pub body_html_template: String,
+    pub body_text_template: Option<String>,
+    pub tags: Vec<String>,
+    pub is_enabled: bool,
+    pub is_favorite: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2105,7 +2944,7 @@ impl Database {
                    smtp_host, smtp_port, smtp_security, smtp_username,
                    oauth_provider, oauth_refresh_token, oauth_expires_at,
                    is_active, is_default, signature, sync_days, accept_invalid_certs,
-                   created_at, updated_at
+                   COALESCE(enable_priority_fetch, 1), created_at, updated_at
             FROM accounts
             WHERE deleted = 0
         "#;
@@ -2140,8 +2979,9 @@ impl Database {
                 signature: row.get(16)?,
                 sync_days: row.get(17)?,
                 accept_invalid_certs: row.get(18)?,
-                created_at: row.get(19)?,
-                updated_at: row.get(20)?,
+                enable_priority_fetch: row.get(19)?,
+                created_at: row.get(20)?,
+                updated_at: row.get(21)?,
             })
         };
 
@@ -2360,5 +3200,159 @@ mod tests {
             .expect("Failed to add trusted domain");
 
         assert!(db.is_trusted_sender("anyone@trusteddomain.com").unwrap());
+    }
+
+    #[test]
+    fn test_filter_crud() {
+        use crate::filters::{
+            ConditionField, ConditionOperator, FilterAction, FilterActionType, FilterCondition,
+            MatchLogic, NewEmailFilter,
+        };
+
+        let db = Database::in_memory().expect("Failed to create database");
+
+        // Create account first
+        let account = NewAccount {
+            email: "test@example.com".to_string(),
+            display_name: "Test User".to_string(),
+            imap_host: "imap.example.com".to_string(),
+            imap_port: 993,
+            imap_security: "SSL".to_string(),
+            imap_username: None,
+            smtp_host: "smtp.example.com".to_string(),
+            smtp_port: 587,
+            smtp_security: "STARTTLS".to_string(),
+            smtp_username: None,
+            password_encrypted: Some("password".to_string()),
+            oauth_provider: None,
+            oauth_access_token: None,
+            oauth_refresh_token: None,
+            oauth_expires_at: None,
+            is_default: true,
+            signature: "".to_string(),
+            sync_days: 30,
+            accept_invalid_certs: false,
+        };
+        let account_id = db.add_account(&account).expect("Failed to add account");
+
+        // Create filter
+        let new_filter = NewEmailFilter {
+            account_id,
+            name: "Test Filter".to_string(),
+            description: Some("Test description".to_string()),
+            is_enabled: true,
+            priority: 10,
+            match_logic: MatchLogic::All,
+            conditions: vec![FilterCondition {
+                field: ConditionField::From,
+                operator: ConditionOperator::Contains,
+                value: "example.com".to_string(),
+            }],
+            actions: vec![FilterAction {
+                action: FilterActionType::MarkAsRead,
+                folder_id: None,
+                label: None,
+            }],
+        };
+
+        // Test add_filter
+        let filter_id = db.add_filter(&new_filter).expect("Failed to add filter");
+        assert!(filter_id > 0);
+
+        // Test get_filter
+        let filter = db.get_filter(filter_id).expect("Failed to get filter");
+        assert_eq!(filter.name, "Test Filter");
+        assert_eq!(filter.description, Some("Test description".to_string()));
+        assert_eq!(filter.is_enabled, true);
+        assert_eq!(filter.priority, 10);
+        assert_eq!(filter.conditions.len(), 1);
+        assert_eq!(filter.actions.len(), 1);
+
+        // Test get_filters (list)
+        let filters = db.get_filters(account_id).expect("Failed to get filters");
+        assert_eq!(filters.len(), 1);
+        assert_eq!(filters[0].id, filter_id);
+
+        // Test update_filter
+        let updated_filter = NewEmailFilter {
+            account_id,
+            name: "Updated Filter".to_string(),
+            description: Some("Updated description".to_string()),
+            is_enabled: false,
+            priority: 20,
+            match_logic: MatchLogic::Any,
+            conditions: vec![],
+            actions: vec![],
+        };
+        db.update_filter(filter_id, &updated_filter)
+            .expect("Failed to update filter");
+
+        let filter = db.get_filter(filter_id).expect("Failed to get filter after update");
+        assert_eq!(filter.name, "Updated Filter");
+        assert_eq!(filter.is_enabled, false);
+        assert_eq!(filter.priority, 20);
+
+        // Test toggle_filter
+        db.toggle_filter(filter_id).expect("Failed to toggle filter");
+        let filter = db.get_filter(filter_id).expect("Failed to get filter after toggle");
+        assert_eq!(filter.is_enabled, true); // Should be enabled now
+
+        // Test delete_filter
+        db.delete_filter(filter_id).expect("Failed to delete filter");
+        let filters = db.get_filters(account_id).expect("Failed to get filters after delete");
+        assert_eq!(filters.len(), 0);
+    }
+
+    #[test]
+    fn test_filter_priority_ordering() {
+        use crate::filters::{MatchLogic, NewEmailFilter};
+
+        let db = Database::in_memory().expect("Failed to create database");
+
+        // Create account
+        let account = NewAccount {
+            email: "test@example.com".to_string(),
+            display_name: "Test User".to_string(),
+            imap_host: "imap.example.com".to_string(),
+            imap_port: 993,
+            imap_security: "SSL".to_string(),
+            imap_username: None,
+            smtp_host: "smtp.example.com".to_string(),
+            smtp_port: 587,
+            smtp_security: "STARTTLS".to_string(),
+            smtp_username: None,
+            password_encrypted: Some("password".to_string()),
+            oauth_provider: None,
+            oauth_access_token: None,
+            oauth_refresh_token: None,
+            oauth_expires_at: None,
+            is_default: true,
+            signature: "".to_string(),
+            sync_days: 30,
+            accept_invalid_certs: false,
+        };
+        let account_id = db.add_account(&account).expect("Failed to add account");
+
+        // Create filters with different priorities
+        for i in [30, 10, 20] {
+            let filter = NewEmailFilter {
+                account_id,
+                name: format!("Filter {}", i),
+                description: None,
+                is_enabled: true,
+                priority: i,
+                match_logic: MatchLogic::All,
+                conditions: vec![],
+                actions: vec![],
+            };
+            db.add_filter(&filter).expect("Failed to add filter");
+        }
+
+        // Get filters - should be ordered by priority (ascending)
+        let filters = db.get_filters(account_id).expect("Failed to get filters");
+        assert_eq!(filters.len(), 3);
+        assert_eq!(filters[0].priority, 10);
+        assert_eq!(filters[1].priority, 20);
+        assert_eq!(filters[2].priority, 30);
     }
 }

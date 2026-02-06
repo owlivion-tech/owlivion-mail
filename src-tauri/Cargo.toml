@@ -48,6 +48,7 @@ regex-lite = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 base64 = "0.22"
 log = "0.4"
+dirs = "5.0"
 dotenvy = "0.15"
 env_logger = "0.11"
 uuid = { version = "1.0", features = ["v4"] }
