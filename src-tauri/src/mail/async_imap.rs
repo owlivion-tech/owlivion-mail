@@ -699,6 +699,10 @@ impl AsyncImapClient {
                             is_read,
                             is_starred,
                             has_attachments: false,
+                            account_id: None, // Will be set by fetch_emails_with_account_metadata
+                            account_email: None,
+                            account_name: None,
+                            account_color: None,
                         });
                     }
                 }
@@ -835,6 +839,10 @@ impl AsyncImapClient {
                     is_read,
                     is_starred,
                     has_attachments: false,
+                    account_id: None,
+                    account_email: None,
+                    account_name: None,
+                    account_color: None,
                 });
             }
         }
@@ -851,6 +859,50 @@ impl AsyncImapClient {
             total,
             has_more,
         })
+    }
+
+    /// Fetch emails with account metadata attached (for unified inbox)
+    pub async fn fetch_emails_with_account_metadata(
+        &mut self,
+        account_id: String,
+        account_email: String,
+        account_name: Option<String>,
+        account_color: Option<String>,
+        folder: &str,
+        page: u32,
+        page_size: u32,
+    ) -> MailResult<FetchResult> {
+        let mut result = self.fetch_emails(folder, page, page_size).await?;
+
+        // Add account metadata to all emails
+        for email in &mut result.emails {
+            email.account_id = Some(account_id.clone());
+            email.account_email = Some(account_email.clone());
+            email.account_name = account_name.clone();
+            email.account_color = account_color.clone();
+        }
+
+        Ok(result)
+    }
+
+    /// Fetch emails with account_id attached (for unified inbox)
+    /// DEPRECATED: Use fetch_emails_with_account_metadata instead
+    pub async fn fetch_emails_with_account_id(
+        &mut self,
+        account_id: String,
+        folder: &str,
+        page: u32,
+        page_size: u32,
+    ) -> MailResult<FetchResult> {
+        self.fetch_emails_with_account_metadata(
+            account_id,
+            "".to_string(),
+            None,
+            None,
+            folder,
+            page,
+            page_size
+        ).await
     }
 
     /// Fetch a single email with full content
@@ -1238,7 +1290,7 @@ impl AsyncImapClient {
 
     /// Fetch emails with priority (unread first)
     /// Returns error if SEARCH commands fail, fallback to sequence-based fetch
-    async fn fetch_emails_with_priority(
+    pub async fn fetch_emails_with_priority(
         &mut self,
         folder: &str,
         page: u32,
@@ -1398,6 +1450,10 @@ impl AsyncImapClient {
                             is_read,
                             is_starred,
                             has_attachments: false,
+                            account_id: None, // Will be set by fetch_emails_with_account_metadata
+                            account_email: None,
+                            account_name: None,
+                            account_color: None,
                         });
                     }
                 }
@@ -1485,6 +1541,10 @@ impl AsyncImapClient {
                     is_read,
                     is_starred,
                     has_attachments: false,
+                    account_id: None,
+                    account_email: None,
+                    account_name: None,
+                    account_color: None,
                 });
             }
         }

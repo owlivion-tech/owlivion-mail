@@ -9,10 +9,11 @@ import { Compose } from "./components/Compose";
 import { ShortcutsHelp } from "./components/ShortcutsHelp";
 import { Welcome } from "./components/Welcome";
 import { AddAccountModal } from "./components/settings/AddAccountModal";
+import SearchFiltersComponent from "./components/SearchFilters";
 import { summarizeEmail, analyzePhishing, detectEmailTracking, type PhishingAnalysis, type TrackingAnalysis } from "./services/geminiService";
 import { requestNotificationPermission, showNewEmailNotification, playNotificationSound } from "./services/notificationService";
 import { listDrafts, getDraft, deleteDraft } from "./services/draftService";
-import type { DraftEmail, EmailAddress, Account, ImapFolder, DraftListItem } from "./types";
+import type { DraftEmail, EmailAddress, Account, ImapFolder, DraftListItem, SearchFilters } from "./types";
 
 // Configure DOMPurify to remove dangerous content
 // SECURITY: 'style' attribute removed to prevent CSS injection attacks (e.g., expression(), url(javascript:))
@@ -98,6 +99,7 @@ interface Email {
   starred: boolean;
   hasAttachments: boolean;
   hasImages: boolean;
+  accountId?: string; // NEW: Account ID for unified inbox
   attachments?: Array<{
     index: number;
     filename: string;
@@ -133,6 +135,22 @@ function getEmailDomain(email: string): string {
   return match ? match[1].toLowerCase() : '';
 }
 
+// Generate consistent color from email address (for account badges)
+function getAccountColor(email: string): string {
+  // Hash function for consistent color generation
+  let hash = 0;
+  for (let i = 0; i < email.length; i++) {
+    hash = email.charCodeAt(i) + ((hash << 5) - hash);
+  }
+
+  // Convert to HSL for better color distribution
+  const hue = Math.abs(hash) % 360;
+  const saturation = 65; // Medium saturation
+  const lightness = 55; // Medium lightness
+
+  return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+}
+
 // Get company logo URL from domain
 function getCompanyLogoUrl(email: string): string | null {
   const domain = getEmailDomain(email);
@@ -149,6 +167,57 @@ function getCompanyLogoUrl(email: string): string | null {
 
   // Use Google Favicon API (reliable and free)
   return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+}
+
+// Account Badge Component (for unified inbox) - Gradient Style
+function AccountBadge({
+  accountEmail,
+  accountName: _accountName,
+  size = 'sm'
+}: {
+  accountEmail: string;
+  accountName?: string;
+  size?: 'xs' | 'sm';
+}) {
+  const color = getAccountColor(accountEmail);
+  // Extract domain name: info@owlivion.com → "owlivion"
+  const displayText = accountEmail.split('@')[1]?.split('.')[0] || accountEmail.split('@')[0];
+
+  const sizeClasses = {
+    xs: 'text-[10px] px-2 py-0.5 gap-1',
+    sm: 'text-xs px-2.5 py-1 gap-1.5'
+  };
+
+  // Generate lighter color for gradient
+  const lighterColor = (() => {
+    const hslMatch = color.match(/hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/);
+    if (hslMatch) {
+      const [, h, s, l] = hslMatch;
+      return `hsl(${h}, ${s}%, ${Math.min(parseInt(l) + 15, 75)}%)`;
+    }
+    return color;
+  })();
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-full font-semibold transition-all hover:scale-105 ${sizeClasses[size]}`}
+      style={{
+        background: `linear-gradient(135deg, ${color}18 0%, ${lighterColor}25 100%)`,
+        color: color,
+        boxShadow: `0 1px 3px ${color}20, 0 0 0 1px ${color}15 inset`
+      }}
+    >
+      {/* Dot indicator with subtle glow */}
+      <span
+        className="w-1.5 h-1.5 rounded-full"
+        style={{
+          backgroundColor: color,
+          boxShadow: `0 0 4px ${color}60`
+        }}
+      />
+      <span className="truncate max-w-[100px]">{displayText}</span>
+    </span>
+  );
 }
 
 // Company Avatar Component with logo fallback
@@ -324,6 +393,9 @@ function MailPanel({
   isSyncing,
   searchQuery,
   onSearchChange,
+  searchFilters,
+  onSearchFiltersChange,
+  onAdvancedSearch,
   accounts,
   selectedAccountId,
   onAccountChange,
@@ -336,6 +408,10 @@ function MailPanel({
   onFiltersClick,
   isSearching,
   searchResultsCount,
+  unifiedInboxMode,
+  onToggleUnifiedInbox,
+  sortBy,
+  onSortByChange,
 }: {
   emails: Email[];
   selectedId: string | null;
@@ -349,21 +425,28 @@ function MailPanel({
   isSyncing: boolean;
   searchQuery: string;
   onSearchChange: (query: string) => void;
+  searchFilters: SearchFilters;
+  onSearchFiltersChange: (filters: SearchFilters) => void;
+  onAdvancedSearch: () => void;
   isSearching?: boolean;
   searchResultsCount?: number;
   accounts: Account[];
-  selectedAccountId: number | null;
-  onAccountChange: (id: number) => void;
+  selectedAccountId: number | null | 'all';
+  onAccountChange: (id: number | 'all') => void;
   imapFolders: ImapFolder[];
   isLoadingFolders: boolean;
   onToggleStar: (emailId: string) => void;
   onDeleteDraft?: (draftId: number) => void;
   drafts: DraftListItem[];
   isLoadingDrafts: boolean;
+  unifiedInboxMode: boolean;
+  onToggleUnifiedInbox: () => void;
+  sortBy: 'date' | 'account' | 'unread' | 'priority';
+  onSortByChange: (sort: 'date' | 'account' | 'unread' | 'priority') => void;
 }) {
   const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
   const [showAllFolders, setShowAllFolders] = useState(false);
-  const selectedAccount = accounts.find(a => a.id === selectedAccountId);
+  const selectedAccount = typeof selectedAccountId === 'number' ? accounts.find(a => a.id === selectedAccountId) : undefined;
 
   // Build folder tree
   const folderTree = useMemo(() => buildFolderTree(imapFolders), [imapFolders]);
@@ -531,18 +614,82 @@ function MailPanel({
           <kbd className="text-xs text-owl-text-secondary">/</kbd>
         </div>
 
-        {/* Account Selector */}
+        {/* Advanced Search Filters */}
+        <SearchFiltersComponent
+          filters={searchFilters}
+          onChange={onSearchFiltersChange}
+          onSearch={onAdvancedSearch}
+          folders={imapFolders.map(f => ({
+            id: 0,
+            name: f.name,
+            folderType: f.folder_type
+          }))}
+        />
+
+        {/* Unified Inbox Toggle (only if multiple accounts) */}
         {accounts.length > 1 && (
+          <div className="mt-3 flex items-center justify-between px-3 py-2 bg-owl-bg rounded-lg">
+            <div className="flex items-center gap-2">
+              <Icons.Mail />
+              <span className="text-sm text-owl-text">Birleşik Gelen Kutusu</span>
+            </div>
+            <button
+              onClick={onToggleUnifiedInbox}
+              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                unifiedInboxMode ? 'bg-owl-accent' : 'bg-owl-surface-2'
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  unifiedInboxMode ? 'translate-x-5' : 'translate-x-0.5'
+                }`}
+              />
+            </button>
+          </div>
+        )}
+
+        {/* Sort Dropdown (only in unified mode) */}
+        {unifiedInboxMode && accounts.length > 1 && (
+          <div className="mt-2 flex items-center gap-2 px-3">
+            <span className="text-xs text-owl-text-secondary">Sıralama:</span>
+            <select
+              value={sortBy}
+              onChange={(e) => onSortByChange(e.target.value as 'date' | 'account' | 'unread' | 'priority')}
+              className="flex-1 bg-owl-bg text-sm text-owl-text rounded px-2 py-1 border border-owl-border focus:outline-none focus:border-owl-accent"
+            >
+              <option value="priority">Öncelik (Önerilen)</option>
+              <option value="date">Tarihe Göre</option>
+              <option value="account">Hesaba Göre</option>
+              <option value="unread">Okunmamışlar Önce</option>
+            </select>
+          </div>
+        )}
+
+        {/* Account Selector (hidden in unified mode) */}
+        {!unifiedInboxMode && accounts.length > 1 && (
           <div className="relative mt-3">
             <button
               onClick={() => setAccountDropdownOpen(!accountDropdownOpen)}
               className="w-full flex items-center justify-between px-3 py-2 bg-owl-bg rounded-lg text-sm text-owl-text hover:bg-owl-surface-2 transition-colors"
             >
               <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-full bg-owl-accent/20 flex items-center justify-center text-xs text-owl-accent font-medium">
-                  {selectedAccount?.email?.charAt(0).toUpperCase() || '?'}
-                </div>
-                <span className="truncate">{selectedAccount?.email || 'Hesap Seç'}</span>
+                {selectedAccountId === 'all' ? (
+                  <>
+                    <div className="w-6 h-6 rounded-full bg-owl-accent/20 flex items-center justify-center text-xs text-owl-accent">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                      </svg>
+                    </div>
+                    <span className="truncate font-medium">Tüm Hesaplar</span>
+                  </>
+                ) : (
+                  <>
+                    <div className="w-6 h-6 rounded-full bg-owl-accent/20 flex items-center justify-center text-xs text-owl-accent font-medium">
+                      {selectedAccount?.email?.charAt(0).toUpperCase() || '?'}
+                    </div>
+                    <span className="truncate">{selectedAccount?.email || 'Hesap Seç'}</span>
+                  </>
+                )}
               </div>
               <svg className={`w-4 h-4 text-owl-text-secondary transition-transform ${accountDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -550,6 +697,44 @@ function MailPanel({
             </button>
             {accountDropdownOpen && (
               <div className="absolute top-full left-0 right-0 mt-1 bg-owl-surface border border-owl-border rounded-lg shadow-lg z-50 overflow-hidden">
+                {/* All Accounts Option */}
+                {accounts.length > 1 && (
+                  <>
+                    <button
+                      onClick={() => {
+                        onAccountChange('all');
+                        setAccountDropdownOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors ${
+                        selectedAccountId === 'all'
+                          ? 'bg-owl-accent/10 text-owl-accent'
+                          : 'text-owl-text hover:bg-owl-bg'
+                      }`}
+                    >
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
+                        selectedAccountId === 'all'
+                          ? 'bg-owl-accent/20 text-owl-accent'
+                          : 'bg-owl-surface-2 text-owl-text-secondary'
+                      }`}>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                        </svg>
+                      </div>
+                      <div className="flex-1">
+                        <div className="font-medium">Tüm Hesaplar</div>
+                        <div className="text-xs text-owl-text-secondary">{accounts.length} hesap birleşik görünüm</div>
+                      </div>
+                      {selectedAccountId === 'all' && (
+                        <svg className="w-4 h-4 text-owl-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </button>
+                    <div className="border-t border-owl-border my-1"></div>
+                  </>
+                )}
+
+                {/* Individual Accounts */}
                 {accounts.map(account => (
                   <button
                     key={account.id}
@@ -703,7 +888,7 @@ function MailPanel({
           </div>
           {filteredEmails.map((email) => (
             <button
-              key={email.id}
+              key={email.accountId ? `${email.accountId}-${email.id}` : email.id}
               onClick={() => onSelect(email.id)}
               className={`w-full text-left p-3 rounded-lg transition-all mb-1 ${
                 selectedId === email.id
@@ -720,9 +905,29 @@ function MailPanel({
                 />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-1">
-                    <span className={`text-sm truncate ${!email.read ? "font-semibold text-owl-text" : "text-owl-text"}`}>
-                      {email.from.name}
-                    </span>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className={`text-sm truncate ${!email.read ? "font-semibold text-owl-text" : "text-owl-text"}`}>
+                        {email.from.name}
+                      </span>
+                      {/* Only show badge in unified inbox mode */}
+                      {(() => {
+                        const isUnifiedMode = selectedAccountId === 'all';
+                        if (!isUnifiedMode) return null;
+
+                        if (!email.accountId) return null;
+
+                        const account = accounts.find(a => a.id.toString() === email.accountId || a.id === parseInt(email.accountId || '0'));
+                        if (!account) return null;
+
+                        return (
+                          <AccountBadge
+                            accountEmail={account.email}
+                            accountName={account.displayName}
+                            size="xs"
+                          />
+                        );
+                      })()}
+                    </div>
                     <span className="text-xs text-owl-text-secondary ml-2 shrink-0">{formatDate(email.date)}</span>
                   </div>
                   <div className={`text-sm truncate mb-1 ${!email.read ? "font-medium text-owl-text" : "text-owl-text-secondary"}`}>
@@ -732,7 +937,7 @@ function MailPanel({
                 </div>
                 <div className="flex flex-col items-center gap-1 shrink-0">
                   {email.isDraft ? (
-                    <button
+                    <div
                       onClick={(e) => {
                         e.stopPropagation();
                         const draftId = parseInt(email.id.replace('draft-', ''));
@@ -740,18 +945,18 @@ function MailPanel({
                           onDeleteDraft(draftId);
                         }
                       }}
-                      className="p-1 rounded transition-colors text-owl-text-secondary/50 hover:text-red-500"
+                      className="p-1 rounded transition-colors cursor-pointer text-owl-text-secondary/50 hover:text-red-500"
                       title="Taslağı sil"
                     >
                       <Icons.Trash />
-                    </button>
+                    </div>
                   ) : (
-                    <button
+                    <div
                       onClick={(e) => {
                         e.stopPropagation();
                         onToggleStar(email.id);
                       }}
-                      className={`p-1 rounded transition-colors ${
+                      className={`p-1 rounded transition-colors cursor-pointer ${
                         email.starred
                           ? 'text-yellow-500 hover:text-yellow-400'
                           : 'text-owl-text-secondary/50 hover:text-yellow-500'
@@ -759,7 +964,7 @@ function MailPanel({
                       title={email.starred ? "Yıldızı kaldır" : "Yıldızla"}
                     >
                       {email.starred ? <Icons.StarFilled /> : <Icons.Star />}
-                    </button>
+                    </div>
                   )}
                   {email.hasAttachments && <Icons.Paperclip />}
                 </div>
@@ -829,6 +1034,8 @@ function EmailView({
   isAnalyzingPhishing,
   trackingAnalysis,
   onDownloadAttachment,
+  selectedAccountId,
+  accounts,
 }: {
   email: Email | null;
   accountId: string | null;
@@ -852,6 +1059,8 @@ function EmailView({
   isAnalyzingPhishing: boolean;
   trackingAnalysis: TrackingAnalysis | null;
   onDownloadAttachment: (attachmentIndex: number, filename: string) => void;
+  selectedAccountId: number | null | 'all';
+  accounts: Account[];
 }) {
   const [showSummary, setShowSummary] = useState(false);
   const [processedHtml, setProcessedHtml] = useState<string | null>(null);
@@ -960,7 +1169,7 @@ function EmailView({
               size="lg"
             />
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-semibold text-owl-text">{email.from.name}</span>
                 <span className="text-sm text-owl-text-secondary">&lt;{email.from.email}&gt;</span>
                 {isTrustedSender && (
@@ -969,6 +1178,24 @@ function EmailView({
                     Güvenilir
                   </span>
                 )}
+                {/* Only show badge in unified inbox mode */}
+                {(() => {
+                  const isUnifiedMode = selectedAccountId === 'all';
+                  if (!isUnifiedMode) return null;
+
+                  if (!email.accountId) return null;
+
+                  const account = accounts.find(a => a.id.toString() === email.accountId);
+                  if (!account) return null;
+
+                  return (
+                    <AccountBadge
+                      accountEmail={account.email}
+                      accountName={account.displayName}
+                      size="sm"
+                    />
+                  );
+                })()}
               </div>
               <div className="text-sm text-owl-text-secondary mt-0.5">To: {email.to.map(t => t.email).join(", ")}</div>
             </div>
@@ -1342,13 +1569,28 @@ function App() {
   const [selectedEmail, setSelectedEmail] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Search state (FTS5 backend)
+  // Search state (FTS5 backend + Advanced Filters)
   const [searchResults, setSearchResults] = useState<Email[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchFilters, setSearchFilters] = useState<SearchFilters>({});
+  const [, setSearchTime] = useState<number>(0); // Track search performance
+
+  // Unified Inbox state
+  const [unifiedInboxMode, setUnifiedInboxMode] = useState(true); // DEFAULT: true (user preference)
+  const [sortBy, setSortBy] = useState<'date' | 'account' | 'unread' | 'priority'>('priority'); // DEFAULT: priority
+  const [accountFetchStatuses, setAccountFetchStatuses] = useState<any[]>([]); // Track account fetch status for error display
+
+  // Log account fetch errors (TODO: Add UI banner for failed accounts)
+  useEffect(() => {
+    const failedAccounts = accountFetchStatuses.filter(s => !s.success);
+    if (failedAccounts.length > 0) {
+      console.warn('[Multi-Account] Some accounts failed to fetch:', failedAccounts);
+    }
+  }, [accountFetchStatuses]);
 
   // Account state
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
+  const [selectedAccountId, setSelectedAccountId] = useState<number | null | 'all'>(null);
   const [addAccountModalOpen, setAddAccountModalOpen] = useState(false);
   const [_isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -1445,6 +1687,61 @@ function App() {
       setIsSearching(false);
     }
   }, [activeFolder]);
+
+  // Advanced search handler with filters
+  const handleAdvancedSearch = useCallback(async () => {
+    if (!selectedAccountId) return;
+
+    // Check if there are any filters (query or other filters)
+    const hasFilters = searchFilters.query?.trim() ||
+                      Object.keys(searchFilters).some(key =>
+                        key !== 'query' && searchFilters[key as keyof SearchFilters] !== undefined
+                      );
+
+    if (!hasFilters) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      const { searchEmailsAdvanced } = await import('./services/mailService');
+      const result = await searchEmailsAdvanced(
+        selectedAccountId.toString(),
+        searchFilters,
+        100,
+        0
+      );
+
+      // Convert EmailSummary[] to Email[] format
+      const mappedResults: Email[] = result.emails.map(email => ({
+        id: email.uid.toString(),
+        from: {
+          name: email.fromName || email.fromAddress,
+          email: email.fromAddress,
+        },
+        to: [],
+        subject: email.subject,
+        preview: email.preview,
+        body: email.preview,
+        date: new Date(email.date),
+        read: email.isRead,
+        starred: email.isStarred,
+        hasAttachments: email.hasAttachments,
+        hasImages: email.hasInlineImages,
+      }));
+
+      setSearchResults(mappedResults);
+      setSearchTime(result.searchTime);
+      console.log(`Advanced search returned ${mappedResults.length} results (${result.searchTime}ms)`);
+    } catch (error) {
+      console.error('Advanced search failed:', error);
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  }, [selectedAccountId, searchFilters]);
 
   // Debounced search (wait 300ms after user stops typing)
   const debouncedSearch = useMemo(() => {
@@ -1726,8 +2023,8 @@ function App() {
             const existingIds = new Set(prev.map(e => e.id));
             const uniqueNewEmails = newEmails.filter(e => !existingIds.has(e.id));
             const updatedEmails = [...uniqueNewEmails, ...prev];
-            // Update cache
-            if (selectedAccountId) {
+            // Update cache (only for single account)
+            if (selectedAccountId && typeof selectedAccountId === 'number') {
               emailCache.current.set(selectedAccountId, updatedEmails);
             }
             return updatedEmails;
@@ -1811,8 +2108,8 @@ function App() {
             hasImages: false,
           };
         });
-        // Update cache
-        if (selectedAccountId) {
+        // Update cache (only for single account)
+        if (selectedAccountId && typeof selectedAccountId === 'number') {
           emailCache.current.set(selectedAccountId, loadedEmails);
         }
         setEmails(loadedEmails);
@@ -1829,7 +2126,7 @@ function App() {
   }, [accounts, isSyncing, selectedAccountId, notificationsEnabled, activeFolder]);
 
   // Handle account change
-  const handleAccountChange = useCallback(async (accountId: number) => {
+  const handleAccountChange = useCallback(async (accountId: number | 'all') => {
     if (accountId === selectedAccountId) return;
 
     setSelectedAccountId(accountId);
@@ -1837,13 +2134,70 @@ function App() {
     setFetchedEmailIds(new Set());
     setActiveFolder('INBOX'); // Reset to inbox when switching accounts
 
+    // Handle "All Accounts" unified inbox
+    if (accountId === 'all') {
+      setEmails([]); // Clear current emails
+      knownEmailIds.current = new Set();
+      isInitialLoad.current = true;
+      setImapFolders([]); // Clear folders for unified view
+
+      try {
+        setIsSyncing(true);
+        const { listAllAccountsEmails } = await import('./services/mailService');
+
+        const result = await listAllAccountsEmails(0, 500, 'INBOX', sortBy);
+        console.log('Unified inbox - listAllAccountsEmails result:', result);
+
+        if (result && result.emails) {
+          const loadedEmails: Email[] = result.emails.map((e: any) => {
+            const emailId = e.uid?.toString() || e.id?.toString();
+            // Make ID unique across accounts in unified inbox
+            const uniqueId = e.accountId ? `${e.accountId}-${emailId}` : emailId;
+            knownEmailIds.current.add(uniqueId);
+            return {
+              id: uniqueId,
+              from: { name: e.fromName || e.from || '', email: e.from || '' },
+              to: [{ name: '', email: '' }],
+              subject: e.subject || '(Konu yok)',
+              preview: e.preview || '',
+              body: e.bodyText || '',
+              bodyHtml: e.bodyHtml,
+              bodyText: e.bodyText,
+              date: new Date(e.date || Date.now()),
+              read: e.isRead ?? false,
+              starred: e.isStarred ?? false,
+              hasAttachments: e.hasAttachments ?? false,
+              hasImages: false,
+              accountId: e.accountId, // Preserve account ID for badges
+            };
+          });
+
+          setEmails(loadedEmails);
+          setAccountFetchStatuses(result.accountResults || []);
+          console.log('Unified inbox loaded:', loadedEmails.length, 'emails from', result.accountResults?.length || 0, 'accounts');
+          isInitialLoad.current = false;
+        }
+      } catch (err) {
+        console.error('Failed to load unified inbox:', err);
+      } finally {
+        setIsSyncing(false);
+      }
+      return;
+    }
+
+    // Single account logic
     // Check if we have cached emails for this account
     const cachedEmails = emailCache.current.get(accountId);
     if (cachedEmails && cachedEmails.length > 0) {
       console.log('Using cached emails for account:', accountId, 'count:', cachedEmails.length);
-      setEmails(cachedEmails);
+      // Ensure all cached emails have accountId (for backward compatibility with old cache)
+      const emailsWithAccountId = cachedEmails.map(email => ({
+        ...email,
+        accountId: email.accountId || accountId.toString()
+      }));
+      setEmails(emailsWithAccountId);
       // Update known email IDs from cache
-      knownEmailIds.current = new Set(cachedEmails.map(e => e.id));
+      knownEmailIds.current = new Set(emailsWithAccountId.map(e => e.id));
       isInitialLoad.current = false;
       // Still fetch folders for the new account
       fetchFolders(accountId);
@@ -1892,6 +2246,7 @@ function App() {
             starred: e.isStarred ?? false,
             hasAttachments: e.hasAttachments ?? false,
             hasImages: false,
+            accountId: accountId.toString(), // Add accountId for unique keys and badges
           };
         });
         // Save to cache
@@ -1934,7 +2289,13 @@ function App() {
       console.log('Loading drafts from database...');
       try {
         setIsLoadingDrafts(true);
-        const draftList = await listDrafts(selectedAccountId);
+        // Cannot load drafts for "All Accounts" - use first account
+        const accountToUse = typeof selectedAccountId === 'number' ? selectedAccountId : accounts[0]?.id;
+        if (!accountToUse) {
+          setDrafts([]);
+          return;
+        }
+        const draftList = await listDrafts(accountToUse);
         setDrafts(draftList);
         setEmails([]); // Clear regular emails
         console.log('Loaded drafts:', draftList.length);
@@ -2085,8 +2446,11 @@ function App() {
   const handleSearchChange = useCallback((query: string) => {
     setSearchQuery(query);
 
-    // Trigger debounced backend search
-    if (selectedAccountId && query.trim()) {
+    // Update search filters with new query
+    setSearchFilters(prev => ({ ...prev, query: query.trim() || undefined }));
+
+    // Trigger debounced backend search (only for single account)
+    if (selectedAccountId && typeof selectedAccountId === 'number' && query.trim()) {
       debouncedSearch(query, selectedAccountId);
     } else {
       // Clear search results if query is empty
@@ -2330,10 +2694,14 @@ function App() {
     console.log("Sending email:", draft);
     try {
       const { sendEmail } = await import('./services/mailService');
-      // Use the selected account ID
+      // Use the selected account ID (cannot send from "All Accounts")
+      const accountId = typeof selectedAccountId === 'number' ? selectedAccountId : draft.accountId;
+      if (!accountId || typeof accountId !== 'number') {
+        throw new Error('Lütfen göndermek için bir hesap seçin');
+      }
       const emailToSend = {
         ...draft,
-        accountId: selectedAccountId || draft.accountId,
+        accountId,
       };
       await sendEmail(emailToSend);
       console.log("Email sent successfully");
@@ -2554,6 +2922,7 @@ function App() {
           starred: e.isStarred ?? false,
           hasAttachments: e.hasAttachments ?? false,
           hasImages: false,
+          accountId: account.id.toString(), // Add accountId for unique keys
         }));
         setEmails(loadedEmails);
         console.log('Mapped emails after add:', loadedEmails.length, loadedEmails);
@@ -2587,7 +2956,7 @@ function App() {
 
   // Show Filters page
   if (currentPage === 'filters') {
-    return <Filters onBack={() => setCurrentPage('mail')} defaultAccountId={selectedAccountId || undefined} />;
+    return <Filters onBack={() => setCurrentPage('mail')} defaultAccountId={typeof selectedAccountId === 'number' ? selectedAccountId : undefined} />;
   }
 
   return (
@@ -2605,6 +2974,9 @@ function App() {
         isSyncing={isSyncing}
         searchQuery={searchQuery}
         onSearchChange={handleSearchChange}
+        searchFilters={searchFilters}
+        onSearchFiltersChange={setSearchFilters}
+        onAdvancedSearch={handleAdvancedSearch}
         accounts={accounts}
         selectedAccountId={selectedAccountId}
         onAccountChange={handleAccountChange}
@@ -2616,6 +2988,10 @@ function App() {
         isLoadingDrafts={isLoadingDrafts}
         isSearching={isSearching}
         searchResultsCount={searchResults.length}
+        unifiedInboxMode={unifiedInboxMode}
+        onToggleUnifiedInbox={() => setUnifiedInboxMode(!unifiedInboxMode)}
+        sortBy={sortBy}
+        onSortByChange={setSortBy}
       />
       <EmailView
         email={currentEmail}
@@ -2640,6 +3016,8 @@ function App() {
         isAnalyzingPhishing={analyzingPhishingId === selectedEmail}
         trackingAnalysis={selectedEmail ? trackingResults[selectedEmail] || null : null}
         onDownloadAttachment={handleDownloadAttachment}
+        selectedAccountId={selectedAccountId}
+        accounts={accounts}
       />
 
       {/* Modals */}

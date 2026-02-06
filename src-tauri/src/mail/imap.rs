@@ -322,6 +322,10 @@ impl ImapClient {
                     is_read,
                     is_starred,
                     has_attachments: false, // Would need BODYSTRUCTURE to detect
+                    account_id: None, // Not used in sync imap client
+                    account_email: None,
+                    account_name: None,
+                    account_color: None,
                 });
             }
         }

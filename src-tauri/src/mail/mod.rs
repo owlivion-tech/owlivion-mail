@@ -138,6 +138,14 @@ pub struct EmailSummary {
     pub is_read: bool,
     pub is_starred: bool,
     pub has_attachments: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,  // Account ID for unified inbox
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account_email: Option<String>,  // Account email for display
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account_name: Option<String>,  // Account name/label
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account_color: Option<String>,  // Account color badge (hex)
 }
 
 /// Fetch result with pagination
@@ -147,6 +155,36 @@ pub struct FetchResult {
     pub emails: Vec<EmailSummary>,
     pub total: u32,
     pub has_more: bool,
+}
+
+/// Multi-account fetch result with per-account status
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MultiAccountFetchResult {
+    pub emails: Vec<EmailSummary>,
+    pub total: u32,
+    pub has_more: bool,
+    pub account_results: Vec<AccountFetchStatus>,
+}
+
+/// Per-account fetch status
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountFetchStatus {
+    pub account_id: String,
+    pub account_email: String,
+    pub account_name: Option<String>,
+    pub email_count: u32,
+    pub success: bool,
+    pub error: Option<String>,
+    pub fetch_time_ms: u64,
+}
+
+/// Result from a parallel account fetch task (includes emails + status)
+#[derive(Debug)]
+pub struct AccountFetchTaskResult {
+    pub emails: Vec<EmailSummary>,
+    pub status: AccountFetchStatus,
 }
 
 /// Parsed email

@@ -2,9 +2,10 @@
 // Owlivion Mail - Account Settings Component
 // ============================================================================
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { AddAccountModal } from './AddAccountModal';
+import { getAccountPriorityFetch, setAccountPriorityFetch } from '../../services/mailService';
 import type { Account } from '../../types';
 
 interface AccountSettingsProps {
@@ -15,6 +16,38 @@ interface AccountSettingsProps {
 export function AccountSettings({ accounts, onAccountsChange }: AccountSettingsProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
+  const [accountPrioritySettings, setAccountPrioritySettings] = useState<Record<number, boolean>>({});
+
+  // Load priority settings for all accounts
+  useEffect(() => {
+    const loadPrioritySettings = async () => {
+      const settings: Record<number, boolean> = {};
+      for (const account of accounts) {
+        try {
+          const enabled = await getAccountPriorityFetch(account.id);
+          settings[account.id] = enabled;
+        } catch (error) {
+          console.error(`Failed to load priority setting for account ${account.id}:`, error);
+          settings[account.id] = true; // Default to true
+        }
+      }
+      setAccountPrioritySettings(settings);
+    };
+
+    if (accounts.length > 0) {
+      loadPrioritySettings();
+    }
+  }, [accounts]);
+
+  const handleTogglePriorityFetch = async (accountId: number, enabled: boolean) => {
+    try {
+      await setAccountPriorityFetch(accountId, enabled);
+      setAccountPrioritySettings(prev => ({ ...prev, [accountId]: enabled }));
+    } catch (error) {
+      console.error('Failed to update priority setting:', error);
+      alert('Öncelik ayarı güncellenirken bir hata oluştu: ' + error);
+    }
+  };
 
   const handleDeleteAccount = async (accountId: number) => {
     if (confirm('Bu hesabı silmek istediğinizden emin misiniz?')) {
@@ -186,6 +219,66 @@ export function AccountSettings({ accounts, onAccountsChange }: AccountSettingsP
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Priority Fetching Settings */}
+      {accounts.length > 1 && (
+        <div className="mt-8">
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold text-owl-text">Öncelikli E-posta Çekme</h3>
+            <p className="text-sm text-owl-text-secondary mt-1">
+              Etkinleştirildiğinde, okunmamış e-postalar her hesap için önce getirilir
+            </p>
+          </div>
+
+          <div className="bg-owl-surface border border-owl-border rounded-xl divide-y divide-owl-border">
+            {accounts.map((account) => (
+              <div key={account.id} className="p-4 flex items-center justify-between">
+                {/* Account Info */}
+                <div className="flex items-center gap-3">
+                  {/* Color Badge */}
+                  <div
+                    className="w-3 h-3 rounded-full"
+                    style={{
+                      backgroundColor: `hsl(${(account.email.charCodeAt(0) * 137.508) % 360}, 70%, 60%)`
+                    }}
+                  ></div>
+
+                  {/* Account Details */}
+                  <div>
+                    <p className="font-medium text-owl-text">{account.displayName}</p>
+                    <p className="text-sm text-owl-text-secondary">{account.email}</p>
+                  </div>
+                </div>
+
+                {/* Toggle Switch */}
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="sr-only peer"
+                    checked={accountPrioritySettings[account.id] ?? true}
+                    onChange={(e) => handleTogglePriorityFetch(account.id, e.target.checked)}
+                  />
+                  <div className="w-11 h-6 bg-owl-surface-2 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-owl-accent/20 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-owl-accent"></div>
+                  <span className="ms-3 text-sm font-medium text-owl-text-secondary">
+                    {accountPrioritySettings[account.id] ?? true ? 'Etkin' : 'Devre Dışı'}
+                  </span>
+                </label>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-3 p-3 bg-owl-info/10 border border-owl-info/30 rounded-lg">
+            <div className="flex gap-2">
+              <svg className="w-5 h-5 text-owl-info flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+              </svg>
+              <p className="text-sm text-owl-text-secondary">
+                <strong className="text-owl-text">İpucu:</strong> Öncelikli çekme, okunmamış e-postaları her hesap için önce getirir ve birleşik gelen kutusunda en üstte gösterir. Bu özellik devre dışı bırakılırsa, e-postalar standart sıralama ile (en yeni önce) gösterilir.
+              </p>
+            </div>
+          </div>
         </div>
       )}
 
