@@ -286,4 +286,265 @@ mod tests {
 
         assert!(engine.test_filter(&filter, &email));
     }
+
+    #[test]
+    fn test_filter_matching_any_conditions() {
+        let db = Database::in_memory().unwrap();
+        let engine = FilterEngine::new(Arc::new(db));
+
+        let filter = EmailFilter {
+            id: 1,
+            account_id: 1,
+            name: "Any Filter".to_string(),
+            description: None,
+            is_enabled: true,
+            priority: 0,
+            match_logic: MatchLogic::Any,
+            conditions: vec![
+                FilterCondition {
+                    field: ConditionField::From,
+                    operator: ConditionOperator::Contains,
+                    value: "example".to_string(),
+                },
+                FilterCondition {
+                    field: ConditionField::Subject,
+                    operator: ConditionOperator::Contains,
+                    value: "nonexistent".to_string(), // Won't match
+                },
+            ],
+            actions: vec![],
+            matched_count: 0,
+            last_matched_at: None,
+            created_at: "2024-01-01".to_string(),
+            updated_at: "2024-01-01".to_string(),
+        };
+
+        let email = Email {
+            id: 1,
+            account_id: 1,
+            folder_id: 1,
+            message_id: "test".to_string(),
+            uid: 1,
+            from_address: "user@example.com".to_string(),
+            from_name: None,
+            to_addresses: "".to_string(),
+            cc_addresses: "".to_string(),
+            bcc_addresses: "".to_string(),
+            reply_to: None,
+            subject: "Different subject".to_string(),
+            preview: "".to_string(),
+            body_text: None,
+            body_html: None,
+            date: "2024-01-01".to_string(),
+            is_read: false,
+            is_starred: false,
+            is_deleted: false,
+            is_spam: false,
+            is_draft: false,
+            is_answered: false,
+            is_forwarded: false,
+            has_attachments: false,
+            has_inline_images: false,
+            thread_id: None,
+            in_reply_to: None,
+            references_header: None,
+            priority: 3,
+            labels: "[]".to_string(),
+        };
+
+        // Should match because one condition (from) matches
+        assert!(engine.test_filter(&filter, &email));
+    }
+
+    #[test]
+    fn test_filter_all_conditions_fail() {
+        let db = Database::in_memory().unwrap();
+        let engine = FilterEngine::new(Arc::new(db));
+
+        let filter = EmailFilter {
+            id: 1,
+            account_id: 1,
+            name: "Failing Filter".to_string(),
+            description: None,
+            is_enabled: true,
+            priority: 0,
+            match_logic: MatchLogic::All,
+            conditions: vec![
+                FilterCondition {
+                    field: ConditionField::From,
+                    operator: ConditionOperator::Contains,
+                    value: "example".to_string(),
+                },
+                FilterCondition {
+                    field: ConditionField::Subject,
+                    operator: ConditionOperator::Contains,
+                    value: "nonexistent".to_string(), // Won't match
+                },
+            ],
+            actions: vec![],
+            matched_count: 0,
+            last_matched_at: None,
+            created_at: "2024-01-01".to_string(),
+            updated_at: "2024-01-01".to_string(),
+        };
+
+        let email = Email {
+            id: 1,
+            account_id: 1,
+            folder_id: 1,
+            message_id: "test".to_string(),
+            uid: 1,
+            from_address: "user@example.com".to_string(),
+            from_name: None,
+            to_addresses: "".to_string(),
+            cc_addresses: "".to_string(),
+            bcc_addresses: "".to_string(),
+            reply_to: None,
+            subject: "Different subject".to_string(),
+            preview: "".to_string(),
+            body_text: None,
+            body_html: None,
+            date: "2024-01-01".to_string(),
+            is_read: false,
+            is_starred: false,
+            is_deleted: false,
+            is_spam: false,
+            is_draft: false,
+            is_answered: false,
+            is_forwarded: false,
+            has_attachments: false,
+            has_inline_images: false,
+            thread_id: None,
+            in_reply_to: None,
+            references_header: None,
+            priority: 3,
+            labels: "[]".to_string(),
+        };
+
+        // Should NOT match because subject condition fails
+        assert!(!engine.test_filter(&filter, &email));
+    }
+
+    #[test]
+    fn test_filter_empty_conditions() {
+        let db = Database::in_memory().unwrap();
+        let engine = FilterEngine::new(Arc::new(db));
+
+        let filter = EmailFilter {
+            id: 1,
+            account_id: 1,
+            name: "Empty Filter".to_string(),
+            description: None,
+            is_enabled: true,
+            priority: 0,
+            match_logic: MatchLogic::All,
+            conditions: vec![],
+            actions: vec![],
+            matched_count: 0,
+            last_matched_at: None,
+            created_at: "2024-01-01".to_string(),
+            updated_at: "2024-01-01".to_string(),
+        };
+
+        let email = Email {
+            id: 1,
+            account_id: 1,
+            folder_id: 1,
+            message_id: "test".to_string(),
+            uid: 1,
+            from_address: "user@example.com".to_string(),
+            from_name: None,
+            to_addresses: "".to_string(),
+            cc_addresses: "".to_string(),
+            bcc_addresses: "".to_string(),
+            reply_to: None,
+            subject: "Subject".to_string(),
+            preview: "".to_string(),
+            body_text: None,
+            body_html: None,
+            date: "2024-01-01".to_string(),
+            is_read: false,
+            is_starred: false,
+            is_deleted: false,
+            is_spam: false,
+            is_draft: false,
+            is_answered: false,
+            is_forwarded: false,
+            has_attachments: false,
+            has_inline_images: false,
+            thread_id: None,
+            in_reply_to: None,
+            references_header: None,
+            priority: 3,
+            labels: "[]".to_string(),
+        };
+
+        // Should NOT match (empty conditions always fail)
+        assert!(!engine.test_filter(&filter, &email));
+    }
+
+    #[test]
+    fn test_filter_with_attachment_condition() {
+        let db = Database::in_memory().unwrap();
+        let engine = FilterEngine::new(Arc::new(db));
+
+        let filter = EmailFilter {
+            id: 1,
+            account_id: 1,
+            name: "Attachment Filter".to_string(),
+            description: None,
+            is_enabled: true,
+            priority: 0,
+            match_logic: MatchLogic::All,
+            conditions: vec![FilterCondition {
+                field: ConditionField::HasAttachment,
+                operator: ConditionOperator::Equals,
+                value: "true".to_string(),
+            }],
+            actions: vec![],
+            matched_count: 0,
+            last_matched_at: None,
+            created_at: "2024-01-01".to_string(),
+            updated_at: "2024-01-01".to_string(),
+        };
+
+        let mut email = Email {
+            id: 1,
+            account_id: 1,
+            folder_id: 1,
+            message_id: "test".to_string(),
+            uid: 1,
+            from_address: "user@example.com".to_string(),
+            from_name: None,
+            to_addresses: "".to_string(),
+            cc_addresses: "".to_string(),
+            bcc_addresses: "".to_string(),
+            reply_to: None,
+            subject: "Subject".to_string(),
+            preview: "".to_string(),
+            body_text: None,
+            body_html: None,
+            date: "2024-01-01".to_string(),
+            is_read: false,
+            is_starred: false,
+            is_deleted: false,
+            is_spam: false,
+            is_draft: false,
+            is_answered: false,
+            is_forwarded: false,
+            has_attachments: true,
+            has_inline_images: false,
+            thread_id: None,
+            in_reply_to: None,
+            references_header: None,
+            priority: 3,
+            labels: "[]".to_string(),
+        };
+
+        assert!(engine.test_filter(&filter, &email));
+
+        // Test with no attachment
+        email.has_attachments = false;
+        assert!(!engine.test_filter(&filter, &email));
+    }
 }

@@ -146,4 +146,122 @@ mod tests {
         };
         assert!(condition.matches(&email));
     }
+
+    #[test]
+    fn test_from_not_contains() {
+        let email = create_test_email();
+        let condition = FilterCondition {
+            field: ConditionField::From,
+            operator: ConditionOperator::NotContains,
+            value: "unknown".to_string(),
+        };
+        assert!(condition.matches(&email));
+
+        let condition_fail = FilterCondition {
+            field: ConditionField::From,
+            operator: ConditionOperator::NotContains,
+            value: "sender".to_string(),
+        };
+        assert!(!condition_fail.matches(&email));
+    }
+
+    #[test]
+    fn test_subject_starts_with() {
+        let email = create_test_email();
+        let condition = FilterCondition {
+            field: ConditionField::Subject,
+            operator: ConditionOperator::StartsWith,
+            value: "test".to_string(),
+        };
+        assert!(condition.matches(&email));
+
+        let condition_fail = FilterCondition {
+            field: ConditionField::Subject,
+            operator: ConditionOperator::StartsWith,
+            value: "subject".to_string(),
+        };
+        assert!(!condition_fail.matches(&email));
+    }
+
+    #[test]
+    fn test_subject_ends_with() {
+        let email = create_test_email();
+        let condition = FilterCondition {
+            field: ConditionField::Subject,
+            operator: ConditionOperator::EndsWith,
+            value: "subject".to_string(),
+        };
+        assert!(condition.matches(&email));
+
+        let condition_fail = FilterCondition {
+            field: ConditionField::Subject,
+            operator: ConditionOperator::EndsWith,
+            value: "test".to_string(),
+        };
+        assert!(!condition_fail.matches(&email));
+    }
+
+    #[test]
+    fn test_to_contains() {
+        let email = create_test_email();
+        let condition = FilterCondition {
+            field: ConditionField::To,
+            operator: ConditionOperator::Contains,
+            value: "recipient".to_string(),
+        };
+        assert!(condition.matches(&email));
+    }
+
+    #[test]
+    fn test_body_contains() {
+        let email = create_test_email();
+        let condition = FilterCondition {
+            field: ConditionField::Body,
+            operator: ConditionOperator::Contains,
+            value: "test email body".to_string(),
+        };
+        assert!(condition.matches(&email));
+    }
+
+    #[test]
+    fn test_case_insensitive() {
+        let email = create_test_email();
+        let condition = FilterCondition {
+            field: ConditionField::From,
+            operator: ConditionOperator::Contains,
+            value: "SENDER".to_string(), // Uppercase
+        };
+        assert!(condition.matches(&email)); // Should match (case-insensitive)
+    }
+
+    #[test]
+    fn test_not_equals() {
+        let email = create_test_email();
+        let condition = FilterCondition {
+            field: ConditionField::Subject,
+            operator: ConditionOperator::NotEquals,
+            value: "different subject".to_string(),
+        };
+        assert!(condition.matches(&email));
+
+        let condition_fail = FilterCondition {
+            field: ConditionField::Subject,
+            operator: ConditionOperator::NotEquals,
+            value: "test subject".to_string(),
+        };
+        assert!(!condition_fail.matches(&email));
+    }
+
+    #[test]
+    fn test_no_attachment() {
+        let mut email = create_test_email();
+        email.has_attachments = false;
+
+        let condition = FilterCondition {
+            field: ConditionField::HasAttachment,
+            operator: ConditionOperator::Equals,
+            value: "false".to_string(),
+        };
+        assert!(condition.matches(&email));
+    }
 }
