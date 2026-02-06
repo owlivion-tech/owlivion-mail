@@ -1032,6 +1032,8 @@ function EmailView({
   isSummarizing,
   phishingAnalysis,
   isAnalyzingPhishing,
+  phishingWarningCollapsed,
+  onTogglePhishingCollapse,
   trackingAnalysis,
   onDownloadAttachment,
   selectedAccountId,
@@ -1057,6 +1059,8 @@ function EmailView({
   isSummarizing: boolean;
   phishingAnalysis: PhishingAnalysis | null;
   isAnalyzingPhishing: boolean;
+  phishingWarningCollapsed: boolean;
+  onTogglePhishingCollapse: () => void;
   trackingAnalysis: TrackingAnalysis | null;
   onDownloadAttachment: (attachmentIndex: number, filename: string) => void;
   selectedAccountId: number | null | 'all';
@@ -1246,9 +1250,9 @@ function EmailView({
         </div>
       )}
 
-      {/* Phishing Warning Banner */}
+      {/* Phishing Warning Banner - Collapsible */}
       {(isAnalyzingPhishing || (phishingAnalysis && phishingAnalysis.score >= 20)) && (
-        <div className={`mx-4 mt-4 p-4 rounded-lg border ${
+        <div className={`mx-4 mt-4 rounded-lg border transition-all ${
           isAnalyzingPhishing ? 'bg-owl-surface border-owl-border' :
           phishingAnalysis?.riskLevel === 'critical' ? 'bg-red-500/20 border-red-500/50' :
           phishingAnalysis?.riskLevel === 'high' ? 'bg-orange-500/20 border-orange-500/50' :
@@ -1256,69 +1260,126 @@ function EmailView({
           'bg-owl-surface border-owl-border'
         }`}>
           {isAnalyzingPhishing ? (
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 p-3">
               <svg className="w-5 h-5 animate-spin text-owl-accent" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
-              <span className="text-owl-text-secondary">Phishing analizi yapılıyor...</span>
+              <span className="text-owl-text-secondary text-sm">Phishing analizi yapılıyor...</span>
             </div>
-          ) : phishingAnalysis && (
-            <div>
-              <div className="flex items-center gap-3 mb-2">
-                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                  phishingAnalysis.riskLevel === 'critical' ? 'bg-red-500/30 text-red-400' :
-                  phishingAnalysis.riskLevel === 'high' ? 'bg-orange-500/30 text-orange-400' :
-                  phishingAnalysis.riskLevel === 'medium' ? 'bg-yellow-500/30 text-yellow-400' :
-                  'bg-owl-surface-2 text-owl-text-secondary'
-                }`}>
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                </div>
-                <div>
-                  <p className={`font-medium ${
-                    phishingAnalysis.riskLevel === 'critical' ? 'text-red-400' :
-                    phishingAnalysis.riskLevel === 'high' ? 'text-orange-400' :
-                    phishingAnalysis.riskLevel === 'medium' ? 'text-yellow-400' :
-                    'text-owl-text'
-                  }`}>
-                    {phishingAnalysis.riskLevel === 'critical' ? '⚠️ Kritik Phishing Riski!' :
-                     phishingAnalysis.riskLevel === 'high' ? '⚠️ Yüksek Phishing Riski' :
-                     phishingAnalysis.riskLevel === 'medium' ? '⚠️ Orta Seviye Risk' :
-                     'ℹ️ Dikkat'}
-                  </p>
-                  <p className="text-xs text-owl-text-secondary">Risk skoru: {phishingAnalysis.score}/100</p>
-                </div>
+          ) : phishingAnalysis && (() => {
+            const isCollapsed = phishingWarningCollapsed; // Prop from parent
+
+            return (
+              <div>
+                {/* Collapsed: Compact badge */}
+                {isCollapsed ? (
+                  <button
+                    onClick={onTogglePhishingCollapse}
+                    className="w-full p-3 flex items-center justify-between hover:bg-white/5 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                        phishingAnalysis.riskLevel === 'critical' ? 'bg-red-500/30 text-red-400' :
+                        phishingAnalysis.riskLevel === 'high' ? 'bg-orange-500/30 text-orange-400' :
+                        phishingAnalysis.riskLevel === 'medium' ? 'bg-yellow-500/30 text-yellow-400' :
+                        'bg-owl-surface-2 text-owl-text-secondary'
+                      }`}>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                      </div>
+                      <div className="text-left">
+                        <p className={`text-sm font-medium ${
+                          phishingAnalysis.riskLevel === 'critical' ? 'text-red-400' :
+                          phishingAnalysis.riskLevel === 'high' ? 'text-orange-400' :
+                          phishingAnalysis.riskLevel === 'medium' ? 'text-yellow-400' :
+                          'text-owl-text'
+                        }`}>
+                          {phishingAnalysis.riskLevel === 'critical' ? 'Kritik Güvenlik Riski' :
+                           phishingAnalysis.riskLevel === 'high' ? 'Yüksek Güvenlik Riski' :
+                           phishingAnalysis.riskLevel === 'medium' ? 'Orta Seviye Risk' :
+                           'Dikkat Gerekli'}
+                        </p>
+                        <p className="text-xs text-owl-text-secondary">Risk skoru: {phishingAnalysis.score}/100 • Detaylar için tıkla</p>
+                      </div>
+                    </div>
+                    <svg className="w-5 h-5 text-owl-text-secondary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                ) : (
+                  /* Expanded: Full details */
+                  <div className="p-4">
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                          phishingAnalysis.riskLevel === 'critical' ? 'bg-red-500/30 text-red-400' :
+                          phishingAnalysis.riskLevel === 'high' ? 'bg-orange-500/30 text-orange-400' :
+                          phishingAnalysis.riskLevel === 'medium' ? 'bg-yellow-500/30 text-yellow-400' :
+                          'bg-owl-surface-2 text-owl-text-secondary'
+                        }`}>
+                          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                          </svg>
+                        </div>
+                        <div>
+                          <p className={`font-medium ${
+                            phishingAnalysis.riskLevel === 'critical' ? 'text-red-400' :
+                            phishingAnalysis.riskLevel === 'high' ? 'text-orange-400' :
+                            phishingAnalysis.riskLevel === 'medium' ? 'text-yellow-400' :
+                            'text-owl-text'
+                          }`}>
+                            {phishingAnalysis.riskLevel === 'critical' ? '⚠️ Kritik Phishing Riski!' :
+                             phishingAnalysis.riskLevel === 'high' ? '⚠️ Yüksek Phishing Riski' :
+                             phishingAnalysis.riskLevel === 'medium' ? '⚠️ Orta Seviye Risk' :
+                             'ℹ️ Dikkat'}
+                          </p>
+                          <p className="text-xs text-owl-text-secondary">Risk skoru: {phishingAnalysis.score}/100</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={onTogglePhishingCollapse}
+                        className="p-1 hover:bg-white/10 rounded transition-colors flex-shrink-0"
+                        title="Küçült"
+                      >
+                        <svg className="w-5 h-5 text-owl-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                        </svg>
+                      </button>
+                    </div>
+
+                    {phishingAnalysis.reasons.length > 0 && (
+                      <div className="mt-3 space-y-1">
+                        <p className="text-xs font-medium text-owl-text-secondary uppercase">Tespit edilen göstergeler:</p>
+                        <ul className="text-sm text-owl-text space-y-1">
+                          {phishingAnalysis.reasons.slice(0, 4).map((reason, i) => (
+                            <li key={i} className="flex items-start gap-2">
+                              <span className="text-owl-warning mt-0.5">•</span>
+                              {reason}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {phishingAnalysis.recommendations.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-owl-border/50">
+                        <p className="text-xs font-medium text-owl-text-secondary uppercase mb-1">Öneriler:</p>
+                        <ul className="text-sm text-owl-text space-y-1">
+                          {phishingAnalysis.recommendations.slice(0, 3).map((rec, i) => (
+                            <li key={i} className="flex items-start gap-2">
+                              <span className="text-owl-accent mt-0.5">→</span>
+                              {rec}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-              {phishingAnalysis.reasons.length > 0 && (
-                <div className="mt-3 space-y-1">
-                  <p className="text-xs font-medium text-owl-text-secondary uppercase">Tespit edilen göstergeler:</p>
-                  <ul className="text-sm text-owl-text space-y-1">
-                    {phishingAnalysis.reasons.slice(0, 4).map((reason, i) => (
-                      <li key={i} className="flex items-start gap-2">
-                        <span className="text-owl-warning mt-0.5">•</span>
-                        {reason}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {phishingAnalysis.recommendations.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-owl-border/50">
-                  <p className="text-xs font-medium text-owl-text-secondary uppercase mb-1">Öneriler:</p>
-                  <ul className="text-sm text-owl-text space-y-1">
-                    {phishingAnalysis.recommendations.slice(0, 3).map((rec, i) => (
-                      <li key={i} className="flex items-start gap-2">
-                        <span className="text-owl-accent mt-0.5">→</span>
-                        {rec}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
+            );
+          })()}
         </div>
       )}
 
@@ -2367,6 +2428,7 @@ function App() {
   const [fetchedEmailIds, setFetchedEmailIds] = useState<Set<string>>(new Set());
   const [phishingResults, setPhishingResults] = useState<Record<string, PhishingAnalysis>>({});
   const [analyzingPhishingId, setAnalyzingPhishingId] = useState<string | null>(null);
+  const [phishingWarningCollapsed, setPhishingWarningCollapsed] = useState<Record<string, boolean>>({}); // Track collapsed state per email
   const [trackingResults, setTrackingResults] = useState<Record<string, TrackingAnalysis>>({});
 
   // Check if user has any accounts configured
@@ -3018,6 +3080,15 @@ function App() {
         isSummarizing={summarizingId === selectedEmail}
         phishingAnalysis={selectedEmail ? phishingResults[selectedEmail] || null : null}
         isAnalyzingPhishing={analyzingPhishingId === selectedEmail}
+        phishingWarningCollapsed={selectedEmail ? (phishingWarningCollapsed[selectedEmail] ?? true) : true}
+        onTogglePhishingCollapse={() => {
+          if (selectedEmail) {
+            setPhishingWarningCollapsed(prev => ({
+              ...prev,
+              [selectedEmail]: !prev[selectedEmail]
+            }));
+          }
+        }}
         trackingAnalysis={selectedEmail ? trackingResults[selectedEmail] || null : null}
         onDownloadAttachment={handleDownloadAttachment}
         selectedAccountId={selectedAccountId}
