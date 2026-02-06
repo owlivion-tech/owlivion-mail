@@ -44,6 +44,9 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 r2d2 = "0.8"
 r2d2_sqlite = "0.24"
 
+# Cache
+moka = { version = "0.12", features = ["future"] }
+
 # Additional utilities
 thiserror = "1.0"
 regex-lite = "0.1"

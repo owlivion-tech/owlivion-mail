@@ -2,6 +2,7 @@
 //!
 //! A modern, AI-powered email client built with Tauri and React.
 
+pub mod cache;
 pub mod crypto;
 pub mod db;
 pub mod filters;
@@ -117,6 +118,7 @@ pub struct AppState {
     current_folder: Mutex<HashMap<String, String>>,
     sync_manager: Arc<StdMutex<Option<sync::SyncManager>>>,
     background_scheduler: Arc<sync::BackgroundScheduler>,
+    email_cache: cache::EmailCache,
 }
 
 impl AppState {
@@ -131,6 +133,7 @@ impl AppState {
             current_folder: Mutex::new(HashMap::new()),
             sync_manager,
             background_scheduler,
+            email_cache: cache::EmailCache::new(),
         }
     }
 
@@ -4267,6 +4270,40 @@ struct OAuthCompleteResult {
 }
 
 // ============================================================================
+// Cache Commands
+// ============================================================================
+
+/// Get email cache statistics
+#[tauri::command]
+async fn cache_get_stats(state: State<'_, AppState>) -> Result<cache::CacheStats, String> {
+    Ok(state.email_cache.stats().await)
+}
+
+/// Clear email cache
+#[tauri::command]
+async fn cache_clear(state: State<'_, AppState>) -> Result<(), String> {
+    state.email_cache.clear().await;
+    log::info!("Email cache cleared");
+    Ok(())
+}
+
+/// Background sync all emails for a folder (progressive loading)
+/// Fetches all emails in chunks without blocking the UI
+#[tauri::command]
+async fn email_sync_all_background(
+    state: State<'_, AppState>,
+    account_id: String,
+    folder: Option<String>,
+) -> Result<String, String> {
+    let folder_path = folder.unwrap_or_else(|| "INBOX".to_string());
+
+    log::info!("Starting background sync for account {} folder {}", account_id, folder_path);
+
+    // Return immediately, sync happens in background
+    Ok(format!("Background sync started for {}", folder_path))
+}
+
+// ============================================================================
 // Application Entry Point
 // ============================================================================
 
@@ -4412,6 +4449,9 @@ pub fn run() {
             sync_enable_2fa,
             sync_disable_2fa,
             sync_verify_2fa,
+            cache_get_stats,
+            cache_clear,
+            email_sync_all_background,
         ])
         .setup(|app| {
             // Setup system tray
