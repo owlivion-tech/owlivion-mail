@@ -155,6 +155,57 @@ export const deviceDeleteValidation = [
   validate,
 ];
 
+/**
+ * Validation rules for delta sync upload
+ */
+export const deltaSyncUploadValidation = [
+  param('data_type')
+    .isIn(['accounts', 'contacts', 'preferences', 'signatures'])
+    .withMessage('Invalid data type'),
+
+  body('changes')
+    .isArray({ min: 1, max: 1000 })
+    .withMessage('Changes must be an array with 1-1000 items'),
+
+  body('device_id')
+    .notEmpty()
+    .withMessage('Device ID is required'),
+
+  body('client_timestamp')
+    .optional()
+    .isISO8601()
+    .withMessage('Client timestamp must be ISO 8601 format'),
+
+  validate,
+];
+
+/**
+ * Validation rules for delta sync download
+ */
+export const deltaSyncDownloadValidation = [
+  param('data_type')
+    .isIn(['accounts', 'contacts', 'preferences', 'signatures'])
+    .withMessage('Invalid data type'),
+
+  query('since')
+    .notEmpty()
+    .withMessage('since parameter is required')
+    .isISO8601()
+    .withMessage('since must be ISO 8601 timestamp'),
+
+  query('limit')
+    .optional()
+    .isInt({ min: 1, max: 1000 })
+    .withMessage('limit must be between 1 and 1000'),
+
+  query('offset')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('offset must be a non-negative integer'),
+
+  validate,
+];
+
 export default {
   validate,
   registerValidation,
@@ -163,4 +214,6 @@ export default {
   syncUploadValidation,
   syncDownloadValidation,
   deviceDeleteValidation,
+  deltaSyncUploadValidation,
+  deltaSyncDownloadValidation,
 };

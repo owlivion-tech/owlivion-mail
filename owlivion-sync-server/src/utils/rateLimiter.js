@@ -89,10 +89,48 @@ export const syncDownloadLimiter = rateLimit({
   },
 });
 
+/**
+ * Delta sync upload rate limiter
+ * 20 delta uploads per minute per user (more frequent than full sync)
+ */
+export const deltaSyncUploadLimiter = rateLimit({
+  windowMs: 60000, // 1 minute
+  max: 20,
+  message: {
+    success: false,
+    error: 'Too many delta sync uploads, please try again later',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    return req.user?.userId || req.ip;
+  },
+});
+
+/**
+ * Delta sync download rate limiter
+ * 30 delta downloads per minute per user (more frequent than full sync)
+ */
+export const deltaSyncDownloadLimiter = rateLimit({
+  windowMs: 60000, // 1 minute
+  max: 30,
+  message: {
+    success: false,
+    error: 'Too many delta sync downloads, please try again later',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    return req.user?.userId || req.ip;
+  },
+});
+
 export default {
   generalLimiter,
   authLimiter,
   registerLimiter,
   syncUploadLimiter,
   syncDownloadLimiter,
+  deltaSyncUploadLimiter,
+  deltaSyncDownloadLimiter,
 };
