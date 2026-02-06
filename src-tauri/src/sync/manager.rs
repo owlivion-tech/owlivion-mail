@@ -668,7 +668,20 @@ impl SyncManager {
         // 2. Download server data
         let server_data: Option<AccountSyncData> = self.download(SyncDataType::Accounts, master_password).await?;
 
-        // 3. Merge or upload
+        // 3. Detect conflicts before merging
+        let conflicts = if let Some(ref server_data) = server_data {
+            self.detect_accounts_conflicts(&local_data, server_data).await
+        } else {
+            Vec::new()
+        };
+
+        // 4. If conflicts exist, return them for user resolution
+        if !conflicts.is_empty() {
+            log::warn!("Account conflicts detected: {}", conflicts.len());
+            return Ok(Some(conflicts));
+        }
+
+        // 5. Merge or upload (no conflicts)
         let data_to_upload = if let Some(server_data) = server_data {
             // Server has data - merge using LWW
             log::info!("Server has account data, merging with LWW strategy");
@@ -679,11 +692,11 @@ impl SyncManager {
             local_data
         };
 
-        // 4. Upload merged data
+        // 6. Upload merged data
         let version = self.upload(SyncDataType::Accounts, &data_to_upload, master_password).await?;
         log::info!("Accounts synced successfully (version: {})", version);
 
-        Ok(None) // No conflicts for accounts (using LWW)
+        Ok(None) // No conflicts (all resolved)
     }
 
     /// Bidirectional sync for contacts with conflict detection
@@ -833,7 +846,20 @@ impl SyncManager {
         // 2. Download server data
         let server_data: Option<PreferencesSyncData> = self.download(SyncDataType::Preferences, master_password).await?;
 
-        // 3. Merge or upload
+        // 3. Detect conflicts before merging
+        let conflicts = if let Some(ref server_data) = server_data {
+            self.detect_preferences_conflicts(&local_data, server_data).await
+        } else {
+            Vec::new()
+        };
+
+        // 4. If conflicts exist, return them for user resolution
+        if !conflicts.is_empty() {
+            log::warn!("Preferences conflicts detected: {}", conflicts.len());
+            return Ok(Some(conflicts));
+        }
+
+        // 5. Merge or upload (no conflicts)
         let data_to_upload = if let Some(server_data) = server_data {
             log::info!("Server has preferences data, merging with LWW strategy");
             self.merge_preferences(local_data, server_data)
@@ -842,11 +868,11 @@ impl SyncManager {
             local_data
         };
 
-        // 4. Upload merged data
+        // 6. Upload merged data
         let version = self.upload(SyncDataType::Preferences, &data_to_upload, master_password).await?;
         log::info!("Preferences synced successfully (version: {})", version);
 
-        Ok(None) // No conflicts for preferences (using LWW)
+        Ok(None) // No conflicts (all resolved)
     }
 
     /// Bidirectional sync for signatures with conflict detection
@@ -872,7 +898,20 @@ impl SyncManager {
         // 2. Download server data
         let server_data: Option<SignatureSyncData> = self.download(SyncDataType::Signatures, master_password).await?;
 
-        // 3. Merge or upload
+        // 3. Detect conflicts before merging
+        let conflicts = if let Some(ref server_data) = server_data {
+            self.detect_signatures_conflicts(&local_data, server_data).await
+        } else {
+            Vec::new()
+        };
+
+        // 4. If conflicts exist, return them for user resolution
+        if !conflicts.is_empty() {
+            log::warn!("Signature conflicts detected: {}", conflicts.len());
+            return Ok(Some(conflicts));
+        }
+
+        // 5. Merge or upload (no conflicts)
         let data_to_upload = if let Some(server_data) = server_data {
             log::info!("Server has signature data, merging with LWW strategy");
             self.merge_signatures(local_data, server_data)
@@ -881,11 +920,11 @@ impl SyncManager {
             local_data
         };
 
-        // 4. Upload merged data
+        // 6. Upload merged data
         let version = self.upload(SyncDataType::Signatures, &data_to_upload, master_password).await?;
         log::info!("Signatures synced successfully (version: {})", version);
 
-        Ok(None) // No conflicts for signatures (using LWW)
+        Ok(None) // No conflicts (all resolved)
     }
 
     /// Download and decrypt data from server
@@ -1314,6 +1353,7 @@ impl SyncManager {
                                 ),
                                 local_data: serde_json::to_value(local_contact).unwrap_or_default(),
                                 server_data: serde_json::to_value(server_contact).unwrap_or_default(),
+                                field_changes: None, // Field-level diff not needed for contacts
                             });
                         }
                         // If timestamps differ, LWW will handle it automatically
@@ -1335,6 +1375,341 @@ impl SyncManager {
                             ),
                             local_data: serde_json::to_value(local_contact).unwrap_or_default(),
                             server_data: serde_json::to_value(server_contact).unwrap_or_default(),
+                            field_changes: None, // Field-level diff not needed for contacts
+                        });
+                    }
+                }
+            }
+        }
+
+        conflicts
+    }
+
+    /// Detect conflicts between local and server account data
+    async fn detect_accounts_conflicts(
+        &self,
+        local: &AccountSyncData,
+        server: &AccountSyncData,
+    ) -> Vec<super::models::ConflictInfo> {
+        let mut conflicts = Vec::new();
+
+        for local_account in &local.accounts {
+            if let Some(server_account) = server.accounts.iter()
+                .find(|a| a.email == local_account.email)
+            {
+                // Skip if accounts are identical
+                if local_account == server_account {
+                    continue;
+                }
+
+                // Detect field-level differences
+                let mut field_changes = Vec::new();
+
+                if local_account.display_name != server_account.display_name {
+                    field_changes.push("display_name".to_string());
+                }
+                if local_account.imap_host != server_account.imap_host {
+                    field_changes.push("imap_host".to_string());
+                }
+                if local_account.imap_port != server_account.imap_port {
+                    field_changes.push("imap_port".to_string());
+                }
+                if local_account.imap_security != server_account.imap_security {
+                    field_changes.push("imap_security".to_string());
+                }
+                if local_account.smtp_host != server_account.smtp_host {
+                    field_changes.push("smtp_host".to_string());
+                }
+                if local_account.smtp_port != server_account.smtp_port {
+                    field_changes.push("smtp_port".to_string());
+                }
+                if local_account.smtp_security != server_account.smtp_security {
+                    field_changes.push("smtp_security".to_string());
+                }
+                if local_account.signature != server_account.signature {
+                    field_changes.push("signature".to_string());
+                }
+                if local_account.sync_days != server_account.sync_days {
+                    field_changes.push("sync_days".to_string());
+                }
+                if local_account.is_default != server_account.is_default {
+                    field_changes.push("is_default".to_string());
+                }
+                if local_account.oauth_provider != server_account.oauth_provider {
+                    field_changes.push("oauth_provider".to_string());
+                }
+
+                // If no field changes detected, skip (shouldn't happen but safety check)
+                if field_changes.is_empty() {
+                    continue;
+                }
+
+                // Compare timestamps to determine if manual resolution needed
+                match (local_account.updated_at, server_account.updated_at) {
+                    (Some(local_time), Some(server_time)) => {
+                        if local_time == server_time {
+                            // Same timestamp but different data = conflict!
+                            log::warn!("Account conflict detected for {}: same timestamp, different data (fields: {:?})",
+                                       local_account.email, field_changes);
+
+                            conflicts.push(super::models::ConflictInfo {
+                                data_type: "accounts".to_string(),
+                                local_version: 0,
+                                server_version: 0,
+                                local_updated_at: Some(local_time),
+                                server_updated_at: Some(server_time),
+                                strategy: super::models::ConflictStrategy::Manual,
+                                conflict_details: format!(
+                                    "Account '{}' has conflicting changes: {} field(s) differ",
+                                    local_account.email,
+                                    field_changes.len()
+                                ),
+                                local_data: serde_json::to_value(local_account).unwrap_or_default(),
+                                server_data: serde_json::to_value(server_account).unwrap_or_default(),
+                                field_changes: Some(field_changes),
+                            });
+                        }
+                        // If timestamps differ, LWW will handle it automatically
+                    }
+                    _ => {
+                        // Missing timestamps - require manual resolution
+                        log::warn!("Account conflict detected for {}: missing timestamps (fields: {:?})",
+                                   local_account.email, field_changes);
+
+                        conflicts.push(super::models::ConflictInfo {
+                            data_type: "accounts".to_string(),
+                            local_version: 0,
+                            server_version: 0,
+                            local_updated_at: local_account.updated_at,
+                            server_updated_at: server_account.updated_at,
+                            strategy: super::models::ConflictStrategy::Manual,
+                            conflict_details: format!(
+                                "Account '{}' has no timestamp information for conflict resolution ({} field(s) differ)",
+                                local_account.email,
+                                field_changes.len()
+                            ),
+                            local_data: serde_json::to_value(local_account).unwrap_or_default(),
+                            server_data: serde_json::to_value(server_account).unwrap_or_default(),
+                            field_changes: Some(field_changes),
+                        });
+                    }
+                }
+            }
+        }
+
+        conflicts
+    }
+
+    /// Detect conflicts between local and server preferences data
+    async fn detect_preferences_conflicts(
+        &self,
+        local: &PreferencesSyncData,
+        server: &PreferencesSyncData,
+    ) -> Vec<super::models::ConflictInfo> {
+        let mut conflicts = Vec::new();
+        let mut field_changes = Vec::new();
+
+        // Compare each preference field
+        if local.theme != server.theme {
+            field_changes.push("theme".to_string());
+        }
+        if local.language != server.language {
+            field_changes.push("language".to_string());
+        }
+        if local.notifications_enabled != server.notifications_enabled {
+            field_changes.push("notifications_enabled".to_string());
+        }
+        if local.notification_sound != server.notification_sound {
+            field_changes.push("notification_sound".to_string());
+        }
+        if local.notification_badge != server.notification_badge {
+            field_changes.push("notification_badge".to_string());
+        }
+        if local.auto_mark_read != server.auto_mark_read {
+            field_changes.push("auto_mark_read".to_string());
+        }
+        if local.auto_mark_read_delay != server.auto_mark_read_delay {
+            field_changes.push("auto_mark_read_delay".to_string());
+        }
+        if local.confirm_delete != server.confirm_delete {
+            field_changes.push("confirm_delete".to_string());
+        }
+        if local.confirm_send != server.confirm_send {
+            field_changes.push("confirm_send".to_string());
+        }
+        if local.signature_position != server.signature_position {
+            field_changes.push("signature_position".to_string());
+        }
+        if local.reply_position != server.reply_position {
+            field_changes.push("reply_position".to_string());
+        }
+        if local.gemini_api_key != server.gemini_api_key {
+            field_changes.push("gemini_api_key".to_string());
+        }
+        if local.ai_auto_summarize != server.ai_auto_summarize {
+            field_changes.push("ai_auto_summarize".to_string());
+        }
+        if local.ai_reply_tone != server.ai_reply_tone {
+            field_changes.push("ai_reply_tone".to_string());
+        }
+        if local.keyboard_shortcuts_enabled != server.keyboard_shortcuts_enabled {
+            field_changes.push("keyboard_shortcuts_enabled".to_string());
+        }
+        if local.compact_list_view != server.compact_list_view {
+            field_changes.push("compact_list_view".to_string());
+        }
+        if local.show_avatars != server.show_avatars {
+            field_changes.push("show_avatars".to_string());
+        }
+        if local.conversation_view != server.conversation_view {
+            field_changes.push("conversation_view".to_string());
+        }
+
+        // If no differences found, no conflict
+        if field_changes.is_empty() {
+            return conflicts;
+        }
+
+        // Compare timestamps
+        match (local.synced_at, server.synced_at) {
+            (Some(local_time), Some(server_time)) => {
+                if local_time == server_time {
+                    // Same timestamp but different data = conflict!
+                    log::warn!("Preferences conflict detected: same timestamp, different data (fields: {:?})",
+                               field_changes);
+
+                    conflicts.push(super::models::ConflictInfo {
+                        data_type: "preferences".to_string(),
+                        local_version: 0,
+                        server_version: 0,
+                        local_updated_at: Some(local_time),
+                        server_updated_at: Some(server_time),
+                        strategy: super::models::ConflictStrategy::Manual,
+                        conflict_details: format!(
+                            "Preferences have conflicting changes: {} setting(s) differ",
+                            field_changes.len()
+                        ),
+                        local_data: serde_json::to_value(local).unwrap_or_default(),
+                        server_data: serde_json::to_value(server).unwrap_or_default(),
+                        field_changes: Some(field_changes),
+                    });
+                }
+                // If timestamps differ, LWW will handle it automatically
+            }
+            _ => {
+                // Missing timestamps - require manual resolution
+                log::warn!("Preferences conflict detected: missing timestamps (fields: {:?})",
+                           field_changes);
+
+                conflicts.push(super::models::ConflictInfo {
+                    data_type: "preferences".to_string(),
+                    local_version: 0,
+                    server_version: 0,
+                    local_updated_at: local.synced_at,
+                    server_updated_at: server.synced_at,
+                    strategy: super::models::ConflictStrategy::Manual,
+                    conflict_details: format!(
+                        "Preferences have no timestamp information for conflict resolution ({} setting(s) differ)",
+                        field_changes.len()
+                    ),
+                    local_data: serde_json::to_value(local).unwrap_or_default(),
+                    server_data: serde_json::to_value(server).unwrap_or_default(),
+                    field_changes: Some(field_changes),
+                });
+            }
+        }
+
+        conflicts
+    }
+
+    /// Detect conflicts between local and server signature data
+    async fn detect_signatures_conflicts(
+        &self,
+        local: &SignatureSyncData,
+        server: &SignatureSyncData,
+    ) -> Vec<super::models::ConflictInfo> {
+        let mut conflicts = Vec::new();
+
+        // Check each email in local signatures
+        for (email, local_signature) in &local.signatures {
+            if let Some(server_signature) = server.signatures.get(email) {
+                // Skip if signatures are identical
+                if local_signature == server_signature {
+                    continue;
+                }
+
+                // Signatures differ - check timestamps
+                match (local.synced_at, server.synced_at) {
+                    (Some(local_time), Some(server_time)) => {
+                        if local_time == server_time {
+                            // Same timestamp but different data = conflict!
+                            log::warn!("Signature conflict detected for {}: same timestamp, different HTML content", email);
+
+                            // Create simplified data for UI display
+                            let local_data = serde_json::json!({
+                                "email": email,
+                                "signature_html": local_signature,
+                                "signature_text": strip_html_tags(local_signature),
+                                "length": local_signature.len(),
+                            });
+
+                            let server_data = serde_json::json!({
+                                "email": email,
+                                "signature_html": server_signature,
+                                "signature_text": strip_html_tags(server_signature),
+                                "length": server_signature.len(),
+                            });
+
+                            conflicts.push(super::models::ConflictInfo {
+                                data_type: "signatures".to_string(),
+                                local_version: 0,
+                                server_version: 0,
+                                local_updated_at: Some(local_time),
+                                server_updated_at: Some(server_time),
+                                strategy: super::models::ConflictStrategy::Manual,
+                                conflict_details: format!(
+                                    "Signature for '{}' has conflicting HTML content",
+                                    email
+                                ),
+                                local_data,
+                                server_data,
+                                field_changes: Some(vec!["signature_html".to_string()]),
+                            });
+                        }
+                        // If timestamps differ, LWW will handle it automatically
+                    }
+                    _ => {
+                        // Missing timestamps - require manual resolution
+                        log::warn!("Signature conflict detected for {}: missing timestamps", email);
+
+                        let local_data = serde_json::json!({
+                            "email": email,
+                            "signature_html": local_signature,
+                            "signature_text": strip_html_tags(local_signature),
+                            "length": local_signature.len(),
+                        });
+
+                        let server_data = serde_json::json!({
+                            "email": email,
+                            "signature_html": server_signature,
+                            "signature_text": strip_html_tags(server_signature),
+                            "length": server_signature.len(),
+                        });
+
+                        conflicts.push(super::models::ConflictInfo {
+                            data_type: "signatures".to_string(),
+                            local_version: 0,
+                            server_version: 0,
+                            local_updated_at: local.synced_at,
+                            server_updated_at: server.synced_at,
+                            strategy: super::models::ConflictStrategy::Manual,
+                            conflict_details: format!(
+                                "Signature for '{}' has no timestamp information for conflict resolution",
+                                email
+                            ),
+                            local_data,
+                            server_data,
+                            field_changes: Some(vec!["signature_html".to_string()]),
                         });
                     }
                 }
@@ -1655,18 +2030,87 @@ impl SyncManager {
     /// Apply accounts from server to local database
     async fn apply_accounts_to_db(
         &self,
-        _data: &AccountSyncData,
+        data: &AccountSyncData,
     ) -> Result<(), SyncManagerError> {
-        // Note: Account sync requires password encryption handling
-        // For now, we'll skip password field as it requires special handling
-        log::warn!("Account application to DB requires password encryption - not fully implemented");
+        log::info!("Applying {} accounts from server to local DB", data.accounts.len());
 
-        // TODO: Implement account creation/update with proper password handling
-        // This would require:
-        // 1. Prompting for account password or using encrypted password from sync
-        // 2. Creating NewAccount struct with all fields
-        // 3. Calling db.create_account()
+        for account_config in &data.accounts {
+            // Skip deleted accounts
+            if account_config.deleted {
+                log::info!("Skipping deleted account: {}", account_config.email);
+                continue;
+            }
 
+            // Check if account already exists locally
+            let existing_account = self.db.get_account_by_email(&account_config.email)
+                .map_err(|e| SyncManagerError::DatabaseError(format!("Failed to query account: {}", e)))?;
+
+            if let Some(existing) = existing_account {
+                // Update existing account (preserve password_encrypted)
+                log::info!("Updating existing account: {}", account_config.email);
+
+                // Get the current encrypted password to preserve it
+                let password_encrypted = self.db.get_account_password(existing.id)
+                    .map_err(|e| SyncManagerError::DatabaseError(format!("Failed to get password: {}", e)))?;
+
+                let updated_account = crate::db::NewAccount {
+                    email: account_config.email.clone(),
+                    display_name: account_config.display_name.clone(),
+                    imap_host: account_config.imap_host.clone(),
+                    imap_port: account_config.imap_port,
+                    imap_security: account_config.imap_security.clone(),
+                    imap_username: Some(account_config.email.clone()),
+                    smtp_host: account_config.smtp_host.clone(),
+                    smtp_port: account_config.smtp_port,
+                    smtp_security: account_config.smtp_security.clone(),
+                    smtp_username: Some(account_config.email.clone()),
+                    password_encrypted, // Preserve local password
+                    oauth_provider: account_config.oauth_provider.clone(),
+                    oauth_access_token: None, // OAuth tokens managed separately
+                    oauth_refresh_token: existing.oauth_refresh_token.clone(), // Preserve
+                    oauth_expires_at: existing.oauth_expires_at, // Preserve
+                    is_default: account_config.is_default,
+                    signature: account_config.signature.clone(),
+                    sync_days: account_config.sync_days,
+                    accept_invalid_certs: false, // Security: default to false
+                };
+
+                self.db.update_account(existing.id, &updated_account)
+                    .map_err(|e| SyncManagerError::DatabaseError(format!("Failed to update account: {}", e)))?;
+            } else {
+                // Create new account (OAuth-only, no password)
+                log::info!("Creating new account from sync: {}", account_config.email);
+
+                let new_account = crate::db::NewAccount {
+                    email: account_config.email.clone(),
+                    display_name: account_config.display_name.clone(),
+                    imap_host: account_config.imap_host.clone(),
+                    imap_port: account_config.imap_port,
+                    imap_security: account_config.imap_security.clone(),
+                    imap_username: Some(account_config.email.clone()),
+                    smtp_host: account_config.smtp_host.clone(),
+                    smtp_port: account_config.smtp_port,
+                    smtp_security: account_config.smtp_security.clone(),
+                    smtp_username: Some(account_config.email.clone()),
+                    password_encrypted: None, // No password in sync data
+                    oauth_provider: account_config.oauth_provider.clone(),
+                    oauth_access_token: None,
+                    oauth_refresh_token: None,
+                    oauth_expires_at: None,
+                    is_default: account_config.is_default,
+                    signature: account_config.signature.clone(),
+                    sync_days: account_config.sync_days,
+                    accept_invalid_certs: false,
+                };
+
+                self.db.add_account(&new_account)
+                    .map_err(|e| SyncManagerError::DatabaseError(format!("Failed to create account: {}", e)))?;
+
+                log::info!("✓ New account created: {} (requires OAuth or password setup)", account_config.email);
+            }
+        }
+
+        log::info!("✓ Accounts applied to database successfully");
         Ok(())
     }
 
@@ -1675,14 +2119,51 @@ impl SyncManager {
         &self,
         data: &PreferencesSyncData,
     ) -> Result<(), SyncManagerError> {
-        // TODO: Implement preferences application to DB
-        // PreferencesSyncData has individual fields, not a map
-        log::info!("Applying preferences: theme={}, language={}", data.theme, data.language);
+        log::info!("Applying preferences from server to local DB");
 
-        // Would need to map each field to DB preference entries
-        // For now, just log
-        log::warn!("Preferences application to DB not fully implemented");
+        // Helper macro to set preference with error handling
+        macro_rules! set_pref {
+            ($key:expr, $value:expr) => {
+                self.db.set_setting($key, $value)
+                    .map_err(|e| SyncManagerError::DatabaseError(
+                        format!("Failed to set preference {}: {}", $key, e)
+                    ))?;
+            };
+        }
 
+        // Appearance
+        set_pref!("theme", &data.theme);
+        set_pref!("language", &data.language);
+
+        // Notifications
+        set_pref!("notifications_enabled", &data.notifications_enabled);
+        set_pref!("notification_sound", &data.notification_sound);
+        set_pref!("notification_badge", &data.notification_badge);
+
+        // Email behavior
+        set_pref!("auto_mark_read", &data.auto_mark_read);
+        set_pref!("auto_mark_read_delay", &data.auto_mark_read_delay);
+        set_pref!("confirm_delete", &data.confirm_delete);
+        set_pref!("confirm_send", &data.confirm_send);
+
+        // Compose settings
+        set_pref!("signature_position", &data.signature_position);
+        set_pref!("reply_position", &data.reply_position);
+
+        // AI settings (skip gemini_api_key if None - it's encrypted separately)
+        if let Some(ref api_key) = data.gemini_api_key {
+            set_pref!("gemini_api_key", api_key);
+        }
+        set_pref!("ai_auto_summarize", &data.ai_auto_summarize);
+        set_pref!("ai_reply_tone", &data.ai_reply_tone);
+
+        // UI preferences
+        set_pref!("keyboard_shortcuts_enabled", &data.keyboard_shortcuts_enabled);
+        set_pref!("compact_list_view", &data.compact_list_view);
+        set_pref!("show_avatars", &data.show_avatars);
+        set_pref!("conversation_view", &data.conversation_view);
+
+        log::info!("✓ Preferences applied to database successfully");
         Ok(())
     }
 
@@ -1691,13 +2172,35 @@ impl SyncManager {
         &self,
         data: &SignatureSyncData,
     ) -> Result<(), SyncManagerError> {
-        // SignatureSyncData uses HashMap<String, String> (email -> signature HTML)
-        log::info!("Applying {} signatures from server", data.signatures.len());
+        log::info!("Applying {} signatures from server to local DB", data.signatures.len());
 
-        // TODO: Implement signature storage in DB
-        // Would need to create/update account signatures
-        log::warn!("Signatures application to DB not fully implemented");
+        let mut success_count = 0;
+        let mut skip_count = 0;
 
+        for (email, signature) in &data.signatures {
+            // Find account by email
+            match self.db.get_account_by_email(email)
+                .map_err(|e| SyncManagerError::DatabaseError(format!("Failed to query account: {}", e)))? {
+                Some(account) => {
+                    // Update signature for this account
+                    self.db.update_account_signature(account.id, signature)
+                        .map_err(|e| SyncManagerError::DatabaseError(
+                            format!("Failed to update signature for {}: {}", email, e)
+                        ))?;
+
+                    success_count += 1;
+                    log::debug!("✓ Updated signature for: {}", email);
+                }
+                None => {
+                    // Account doesn't exist locally - skip
+                    skip_count += 1;
+                    log::warn!("Account not found locally, skipping signature: {}", email);
+                }
+            }
+        }
+
+        log::info!("✓ Signatures applied: {} updated, {} skipped (account not found)",
+                   success_count, skip_count);
         Ok(())
     }
 }
@@ -1705,6 +2208,36 @@ impl SyncManager {
 // ============================================================================
 // Helper Functions
 // ============================================================================
+
+/// Strip HTML tags from a string to get plain text
+/// Used for displaying signature previews in conflict resolution UI
+fn strip_html_tags(html: &str) -> String {
+    let mut result = String::new();
+    let mut inside_tag = false;
+
+    for c in html.chars() {
+        match c {
+            '<' => inside_tag = true,
+            '>' => inside_tag = false,
+            _ => {
+                if !inside_tag {
+                    result.push(c);
+                }
+            }
+        }
+    }
+
+    // Decode common HTML entities
+    result
+        .replace("&nbsp;", " ")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .trim()
+        .to_string()
+}
 
 /// Conflict resolution result for bidirectional sync
 enum ConflictResolution<T> {

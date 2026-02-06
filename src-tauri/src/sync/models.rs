@@ -146,7 +146,7 @@ impl AccountSyncData {
 }
 
 /// Individual account configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AccountConfig {
     /// Email address (unique identifier)
     pub email: String,
@@ -487,6 +487,11 @@ pub struct ConflictInfo {
 
     /// JSON representation of server data
     pub server_data: serde_json::Value,
+
+    /// List of field names that differ between local and server
+    /// (e.g., ["imap_host", "smtp_port"] for accounts)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field_changes: Option<Vec<String>>,
 }
 
 // ============================================================================
@@ -671,4 +676,92 @@ mod tests {
         assert_eq!(conflict.strategy, ConflictStrategy::Manual);
         assert_eq!(conflict.conflict_details, "Test conflict");
     }
+}
+
+// ============================================================================
+// Session Management & Security
+// ============================================================================
+
+/// Active session information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActiveSession {
+    pub device_id: String,
+    pub device_name: String,
+    pub platform: String,
+    pub ip_address: String,
+    pub location: String,
+    pub user_agent: String,
+    pub created_at: String,
+    pub last_activity: String,
+    pub is_current: bool,
+}
+
+/// Security alert
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecurityAlert {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub alert_type: String,
+    pub severity: String,
+    pub details: serde_json::Value,
+    pub created_at: String,
+}
+
+// ============================================================================
+// Audit Log
+// ============================================================================
+
+/// Audit log entry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditLog {
+    pub id: String,
+    pub device_id: String,
+    pub data_type: String,
+    pub action: String,
+    pub timestamp: String,
+    pub success: bool,
+    pub error_message: Option<String>,
+    pub ip_address: Option<String>,
+    pub checksum: Option<String>,
+}
+
+/// Audit statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditStats {
+    pub overall: AuditOverallStats,
+    pub by_data_type: Vec<AuditCountByType>,
+    pub by_action: Vec<AuditCountByAction>,
+    pub recent_activity: Vec<AuditRecentActivity>,
+    pub recent_failures: Vec<AuditLog>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditOverallStats {
+    pub total_operations: i64,
+    pub successful: i64,
+    pub failed: i64,
+    pub unique_devices: i64,
+    pub unique_ips: i64,
+    pub first_activity: Option<String>,
+    pub last_activity: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditCountByType {
+    pub data_type: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditCountByAction {
+    pub action: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditRecentActivity {
+    pub date: String,
+    pub count: i64,
+    pub successful: i64,
+    pub failed: i64,
 }
