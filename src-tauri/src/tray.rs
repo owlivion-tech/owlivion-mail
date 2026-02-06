@@ -6,7 +6,7 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, Runtime,
+    AppHandle, Emitter, Manager, Runtime,
 };
 
 /// Get tray icon - use white icon for better visibility on dark panels
@@ -44,23 +44,42 @@ pub fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn std::err
         }
     };
 
-    // GNOME requires menu (AppIndicator limitation)
-    // Minimal menu: Just "Open" option
-    let open_item = MenuItem::with_id(app, "open", "Owlivion Mail", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open_item])?;
+    // System tray menu with 3 options
+    let open_item = MenuItem::with_id(app, "open", "Owlivion Mail'i Aç", true, None::<&str>)?;
+    let compose_item = MenuItem::with_id(app, "compose", "Yeni Mail Yaz", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "Çıkış", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open_item, &compose_item, &quit_item])?;
 
-    // Create tray with minimal menu
+    // Create tray with menu
     let tray = TrayIconBuilder::with_id("main-tray")
         .icon(tray_icon)
         .menu(&menu)
         .tooltip("Owlivion Mail")
         .on_menu_event(move |app, event| {
-            if event.id().as_ref() == "open" {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                    let _ = window.unminimize();
+            match event.id().as_ref() {
+                "open" => {
+                    // Show and focus main window
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                        let _ = window.unminimize();
+                    }
                 }
+                "compose" => {
+                    // Show window first, then trigger compose
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                        let _ = window.unminimize();
+                        // Emit event to frontend to open compose modal (matches existing listener)
+                        let _ = window.emit("tray:new-email", ());
+                    }
+                }
+                "quit" => {
+                    // Exit application
+                    app.exit(0);
+                }
+                _ => {}
             }
         })
         .on_tray_icon_event(|tray, event| {
