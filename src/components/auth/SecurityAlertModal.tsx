@@ -82,7 +82,7 @@ const SecurityAlertModal: React.FC<SecurityAlertModalProps> = ({
   };
 
   const getAlertDescription = (alert: SecurityAlert) => {
-    switch (alert.alert_type) {
+    switch (alert.type) {
       case 'new_location':
         return `Hesabınıza daha önce kullanılmamış bir konumdan giriş yapıldı: ${
           alert.details?.location || 'Bilinmeyen konum'
@@ -187,7 +187,7 @@ const SecurityAlertModal: React.FC<SecurityAlertModalProps> = ({
                 <div className="flex-shrink-0">{getSeverityIcon(alert.severity)}</div>
                 <div className="ml-3 flex-1">
                   <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-semibold">{getAlertTitle(alert.alert_type)}</h3>
+                    <h3 className="font-semibold">{getAlertTitle(alert.type)}</h3>
                     <span className="text-xs font-medium px-2 py-1 rounded">
                       {getSeverityLabel(alert.severity)}
                     </span>
