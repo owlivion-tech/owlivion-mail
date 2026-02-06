@@ -578,8 +578,8 @@ function MailPanel({
       <div className="p-4 border-b border-owl-border">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <img src={owlivionIcon} alt="Owlivion" className="h-8 w-auto object-contain" />
-            <span className="font-semibold text-owl-text text-lg">Owlivion <span className="text-owl-accent">Mail</span></span>
+            <img src={owlivionIcon} alt="Owlivion" className="h-6 w-auto object-contain" />
+            <span className="font-semibold text-owl-text text-base">Owlivion <span className="text-owl-accent">Mail</span></span>
           </div>
           <div className="flex items-center gap-2">
             <button
