@@ -9,7 +9,10 @@
     "dev": "nodemon src/index.js",
     "test": "node --test tests/**/*.test.js",
     "db:migrate": "node src/db/migrate.js",
-    "db:seed": "node src/db/seed.js"
+    "db:seed": "node src/db/seed.js",
+    "security:audit": "npm audit --audit-level=moderate",
+    "security:snyk": "snyk test",
+    "security:retire": "retire --colors"
   },
   "keywords": [
     "owlivion",
@@ -27,13 +30,19 @@
     "express": "^4.22.1",
     "express-rate-limit": "^7.1.5",
     "express-validator": "^7.0.1",
+    "geoip-lite": "^1.4.10",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.10.0",
-    "pg": "^8.18.0"
+    "pg": "^8.18.0",
+    "prom-client": "^15.0.0",
+    "qrcode": "^1.5.3",
+    "speakeasy": "^2.0.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.11"
+    "nodemon": "^3.1.11",
+    "retire": "^5.0.0",
+    "snyk": "^1.1200.0"
   },
   "engines": {
     "node": ">=18.0.0",

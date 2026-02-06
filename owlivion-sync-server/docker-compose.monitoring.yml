@@ -1,0 +1,149 @@
+# Docker Compose for Owlivion Sync Server Monitoring Stack
+#
+# This is an OPTIONAL alternative to manual installation.
+# Use this if you prefer containerized monitoring stack.
+#
+# Usage:
+#   docker-compose -f docker-compose.monitoring.yml up -d
+#
+# Services:
+#   - Prometheus (metrics collection)
+#   - Grafana (visualization)
+#   - Node Exporter (system metrics)
+#   - PostgreSQL Exporter (database metrics)
+#   - Alert Manager (alerting)
+
+version: '3.8'
+
+networks:
+  monitoring:
+    driver: bridge
+
+volumes:
+  prometheus_data:
+  grafana_data:
+
+services:
+  # ==========================================================================
+  # PROMETHEUS
+  # ==========================================================================
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: owlivion-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    ports:
+      - '9090:9090'
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts:/etc/prometheus/alerts:ro
+      - prometheus_data:/prometheus
+    networks:
+      - monitoring
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Access host services
+
+  # ==========================================================================
+  # NODE EXPORTER
+  # ==========================================================================
+  node-exporter:
+    image: prom/node-exporter:v1.6.1
+    container_name: owlivion-node-exporter
+    restart: unless-stopped
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    ports:
+      - '9100:9100'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    networks:
+      - monitoring
+
+  # ==========================================================================
+  # POSTGRESQL EXPORTER
+  # ==========================================================================
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.14.0
+    container_name: owlivion-postgres-exporter
+    restart: unless-stopped
+    ports:
+      - '9187:9187'
+    environment:
+      DATA_SOURCE_NAME: "postgresql://postgres_exporter:${PG_EXPORTER_PASSWORD}@host.docker.internal:5432/owlivion_sync?sslmode=disable"
+    networks:
+      - monitoring
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ==========================================================================
+  # GRAFANA
+  # ==========================================================================
+  grafana:
+    image: grafana/grafana:10.1.5
+    container_name: owlivion-grafana
+    restart: unless-stopped
+    ports:
+      - '3001:3000'
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_INSTALL_PLUGINS=
+      - GF_SERVER_ROOT_URL=https://grafana.owlivion.com
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana-dashboards:/etc/grafana/provisioning/dashboards:ro
+    networks:
+      - monitoring
+    depends_on:
+      - prometheus
+
+  # ==========================================================================
+  # ALERT MANAGER
+  # ==========================================================================
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: owlivion-alertmanager
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/alertmanager/config.yml'
+      - '--storage.path=/alertmanager'
+    ports:
+      - '9093:9093'
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/config.yml:ro
+    networks:
+      - monitoring
+
+  # ==========================================================================
+  # CADVISOR (Container Metrics) - Optional
+  # ==========================================================================
+  # cadvisor:
+  #   image: gcr.io/cadvisor/cadvisor:v0.47.0
+  #   container_name: owlivion-cadvisor
+  #   restart: unless-stopped
+  #   ports:
+  #     - '8080:8080'
+  #   volumes:
+  #     - /:/rootfs:ro
+  #     - /var/run:/var/run:ro
+  #     - /sys:/sys:ro
+  #     - /var/lib/docker/:/var/lib/docker:ro
+  #     - /dev/disk/:/dev/disk:ro
+  #   networks:
+  #     - monitoring
+  #   privileged: true
+  #   devices:
+  #     - /dev/kmsg

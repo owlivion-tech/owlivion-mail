@@ -1,0 +1,325 @@
+# Owlivion Sync Server - Alert Rules
+
+groups:
+  - name: infrastructure_alerts
+    interval: 30s
+    rules:
+      # ======================================================================
+      # SYSTEM ALERTS
+      # ======================================================================
+
+      # High CPU Usage
+      - alert: HighCPUUsage
+        expr: 100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          category: infrastructure
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is above 80% for 5 minutes (current: {{ $value | printf \"%.2f\" }}%)"
+          action: "Check top processes with 'top' or 'htop'"
+
+      # Critical CPU Usage
+      - alert: CriticalCPUUsage
+        expr: 100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 95
+        for: 2m
+        labels:
+          severity: critical
+          category: infrastructure
+        annotations:
+          summary: "CRITICAL: CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is above 95% (current: {{ $value | printf \"%.2f\" }}%)"
+          action: "Immediate investigation required. Check PM2 logs and restart services if needed."
+
+      # High Memory Usage
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          category: infrastructure
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "Memory usage is above 85% (current: {{ $value | printf \"%.2f\" }}%)"
+          action: "Check memory usage with 'free -h' and PM2 memory usage"
+
+      # Critical Memory Usage
+      - alert: CriticalMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 95
+        for: 2m
+        labels:
+          severity: critical
+          category: infrastructure
+        annotations:
+          summary: "CRITICAL: Memory usage on {{ $labels.instance }}"
+          description: "Memory usage is above 95% (current: {{ $value | printf \"%.2f\" }}%)"
+          action: "Immediate action required. Restart services or add more memory."
+
+      # Disk Space Low
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 15
+        for: 5m
+        labels:
+          severity: warning
+          category: infrastructure
+        annotations:
+          summary: "Disk space low on {{ $labels.instance }}"
+          description: "Less than 15% disk space available (current: {{ $value | printf \"%.2f\" }}%)"
+          action: "Clean up logs, old backups, or increase disk size"
+
+      # Disk Space Critical
+      - alert: DiskSpaceCritical
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 5
+        for: 1m
+        labels:
+          severity: critical
+          category: infrastructure
+        annotations:
+          summary: "CRITICAL: Disk space on {{ $labels.instance }}"
+          description: "Less than 5% disk space available (current: {{ $value | printf \"%.2f\" }}%)"
+          action: "URGENT: Delete unnecessary files immediately to prevent service failure"
+
+      # High Disk I/O Wait
+      - alert: HighDiskIOWait
+        expr: rate(node_disk_io_time_seconds_total[5m]) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          category: infrastructure
+        annotations:
+          summary: "High disk I/O wait on {{ $labels.instance }}"
+          description: "Disk I/O wait time is high ({{ $value | printf \"%.2f\" }})"
+          action: "Check disk performance with 'iostat' and database query performance"
+
+  - name: application_alerts
+    interval: 30s
+    rules:
+      # ======================================================================
+      # APPLICATION ALERTS
+      # ======================================================================
+
+      # Service Down
+      - alert: ServiceDown
+        expr: up{job="owlivion-sync-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: application
+        annotations:
+          summary: "Owlivion Sync API is DOWN"
+          description: "The sync API has been unreachable for 1 minute"
+          action: "Check PM2 status: pm2 status. Restart if needed: pm2 restart owlivion-sync-server"
+
+      # High API Latency
+      - alert: HighAPILatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+          category: application
+        annotations:
+          summary: "API latency is high"
+          description: "95th percentile latency is above 1 second (current: {{ $value | printf \"%.2f\" }}s)"
+          action: "Check slow queries in PostgreSQL and optimize endpoints"
+
+      # Critical API Latency
+      - alert: CriticalAPILatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 3
+        for: 2m
+        labels:
+          severity: critical
+          category: application
+        annotations:
+          summary: "CRITICAL: API latency is very high"
+          description: "95th percentile latency is above 3 seconds (current: {{ $value | printf \"%.2f\" }}s)"
+          action: "Immediate investigation required. Check database and server load."
+
+      # High Error Rate
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          category: application
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is above 5% (current: {{ $value | humanizePercentage }})"
+          action: "Check PM2 logs: pm2 logs owlivion-sync-server --lines 100"
+
+      # Critical Error Rate
+      - alert: CriticalErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.15
+        for: 2m
+        labels:
+          severity: critical
+          category: application
+        annotations:
+          summary: "CRITICAL: Very high error rate"
+          description: "Error rate is above 15% (current: {{ $value | humanizePercentage }})"
+          action: "Critical issue. Check logs and restart services if needed."
+
+      # Too Many Requests (Rate Limiting)
+      - alert: HighRateLimitHits
+        expr: rate(http_requests_total{status="429"}[5m]) > 10
+        for: 5m
+        labels:
+          severity: info
+          category: application
+        annotations:
+          summary: "High rate of 429 (Too Many Requests) errors"
+          description: "{{ $value | printf \"%.2f\" }} requests/sec are being rate limited"
+          action: "Monitor for potential DDoS or increase rate limits if legitimate traffic"
+
+  - name: database_alerts
+    interval: 30s
+    rules:
+      # ======================================================================
+      # DATABASE ALERTS
+      # ======================================================================
+
+      # PostgreSQL Down
+      - alert: PostgreSQLDown
+        expr: up{job="postgresql"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: database
+        annotations:
+          summary: "PostgreSQL is DOWN"
+          description: "PostgreSQL database has been unreachable for 1 minute"
+          action: "Check PostgreSQL status: sudo systemctl status postgresql"
+
+      # Database Connection Pool Exhaustion
+      - alert: DatabasePoolExhausted
+        expr: pg_stat_database_numbackends / pg_settings_max_connections > 0.8
+        for: 2m
+        labels:
+          severity: critical
+          category: database
+        annotations:
+          summary: "Database connection pool near exhaustion"
+          description: "Using {{ $value | humanizePercentage }} of max connections"
+          action: "Kill idle connections or increase max_connections in postgresql.conf"
+
+      # Too Many Idle Connections
+      - alert: TooManyIdleConnections
+        expr: pg_stat_activity_count{state="idle"} > 50
+        for: 10m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "Too many idle database connections"
+          description: "{{ $value }} idle connections detected"
+          action: "Check for connection leaks in application code"
+
+      # Slow Queries
+      - alert: SlowQueries
+        expr: pg_stat_statements_mean_exec_time_seconds > 1
+        for: 5m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "Slow database queries detected"
+          description: "Average query execution time is {{ $value | printf \"%.2f\" }}s"
+          action: "Check slow query log and add indexes if needed"
+
+      # Database Size Growing Rapidly
+      - alert: DatabaseSizeGrowingRapidly
+        expr: rate(pg_database_size_bytes[1h]) > 100000000  # 100MB/hour
+        for: 1h
+        labels:
+          severity: info
+          category: database
+        annotations:
+          summary: "Database size growing rapidly"
+          description: "Database is growing at {{ $value | humanize }}B/s"
+          action: "Monitor data retention policies and cleanup old data"
+
+      # Replication Lag (if applicable)
+      - alert: ReplicationLagHigh
+        expr: pg_replication_lag_seconds > 60
+        for: 5m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "Database replication lag is high"
+          description: "Replication lag is {{ $value | printf \"%.0f\" }} seconds"
+          action: "Check network and replication status between master and slave"
+
+  - name: security_alerts
+    interval: 60s
+    rules:
+      # ======================================================================
+      # SECURITY ALERTS
+      # ======================================================================
+
+      # SSL Certificate Expiring Soon
+      - alert: SSLCertificateExpiringSoon
+        expr: (ssl_certificate_expiry_seconds / 86400) < 14
+        for: 1h
+        labels:
+          severity: warning
+          category: security
+        annotations:
+          summary: "SSL certificate expiring soon"
+          description: "SSL certificate will expire in {{ $value | printf \"%.0f\" }} days"
+          action: "Renew SSL certificate: sudo certbot renew"
+
+      # SSL Certificate Expiring Very Soon
+      - alert: SSLCertificateExpiringVerySoon
+        expr: (ssl_certificate_expiry_seconds / 86400) < 7
+        for: 1h
+        labels:
+          severity: critical
+          category: security
+        annotations:
+          summary: "CRITICAL: SSL certificate expiring very soon"
+          description: "SSL certificate will expire in {{ $value | printf \"%.0f\" }} days"
+          action: "URGENT: Renew SSL certificate immediately"
+
+      # Multiple Failed Login Attempts
+      - alert: MultipleFailedLogins
+        expr: rate(login_attempts_total{status="failed"}[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          category: security
+        annotations:
+          summary: "Multiple failed login attempts detected"
+          description: "{{ $value | printf \"%.2f\" }} failed logins per second"
+          action: "Check for brute force attack. Review security logs."
+
+  - name: business_alerts
+    interval: 60s
+    rules:
+      # ======================================================================
+      # BUSINESS METRICS
+      # ======================================================================
+
+      # Low Active Users (potential service issue)
+      - alert: LowActiveUsers
+        expr: active_users_total < 5
+        for: 30m
+        labels:
+          severity: info
+          category: business
+        annotations:
+          summary: "Low number of active users"
+          description: "Only {{ $value }} active users in the last 30 minutes"
+          action: "Check if there's a service issue preventing user access"
+
+      # High Sync Failure Rate
+      - alert: HighSyncFailureRate
+        expr: rate(sync_operations_total{status="failed"}[10m]) / rate(sync_operations_total[10m]) > 0.10
+        for: 10m
+        labels:
+          severity: warning
+          category: business
+        annotations:
+          summary: "High sync operation failure rate"
+          description: "{{ $value | humanizePercentage }} of sync operations are failing"
+          action: "Check sync operation logs for errors"

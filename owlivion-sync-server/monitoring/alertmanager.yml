@@ -1,0 +1,135 @@
+# Alert Manager Configuration for Owlivion Sync Server
+
+global:
+  resolve_timeout: 5m
+  smtp_smarthost: 'smtp.gmail.com:587'
+  smtp_from: 'alerts@owlivion.com'
+  smtp_auth_username: 'alerts@owlivion.com'
+  smtp_auth_password: 'CHANGE_THIS_PASSWORD'
+  smtp_require_tls: true
+
+# Templates for alert messages
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# Alert routing configuration
+route:
+  # Group alerts by these labels
+  group_by: ['alertname', 'cluster', 'service']
+
+  # How long to wait before sending notification about new group
+  group_wait: 10s
+
+  # How long to wait before sending notification about new alerts in existing group
+  group_interval: 10s
+
+  # How long to wait before re-sending notification
+  repeat_interval: 12h
+
+  # Default receiver
+  receiver: 'email'
+
+  # Child routes
+  routes:
+    # Critical alerts to multiple channels
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      continue: true
+
+    # Security alerts
+    - match:
+        category: security
+      receiver: 'security-team'
+      continue: true
+
+    # Database alerts
+    - match:
+        category: database
+      receiver: 'database-team'
+
+    # Application alerts
+    - match:
+        category: application
+      receiver: 'dev-team'
+
+# Receivers (notification channels)
+receivers:
+  # Email notifications
+  - name: 'email'
+    email_configs:
+      - to: 'admin@owlivion.com'
+        send_resolved: true
+        headers:
+          Subject: '[Owlivion Alert] {{ .GroupLabels.alertname }}'
+        html: |
+          {{ range .Alerts }}
+          <h3>{{ .Labels.alertname }}</h3>
+          <p><strong>Severity:</strong> {{ .Labels.severity }}</p>
+          <p><strong>Summary:</strong> {{ .Annotations.summary }}</p>
+          <p><strong>Description:</strong> {{ .Annotations.description }}</p>
+          <p><strong>Action:</strong> {{ .Annotations.action }}</p>
+          {{ end }}
+
+  # Critical alerts (email + SMS or other urgent channel)
+  - name: 'critical-alerts'
+    email_configs:
+      - to: 'admin@owlivion.com,oncall@owlivion.com'
+        send_resolved: true
+        headers:
+          Subject: '[CRITICAL] {{ .GroupLabels.alertname }}'
+          Priority: 'urgent'
+
+  # Slack notifications (example)
+  - name: 'slack'
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+        channel: '#alerts'
+        title: '{{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Severity:* {{ .Labels.severity }}
+          *Summary:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          {{ end }}
+        send_resolved: true
+
+  # Discord notifications (example)
+  - name: 'discord'
+    webhook_configs:
+      - url: 'https://discord.com/api/webhooks/YOUR/DISCORD/WEBHOOK'
+        send_resolved: true
+
+  # Security team
+  - name: 'security-team'
+    email_configs:
+      - to: 'security@owlivion.com'
+        send_resolved: true
+
+  # Database team
+  - name: 'database-team'
+    email_configs:
+      - to: 'dba@owlivion.com'
+        send_resolved: true
+
+  # Development team
+  - name: 'dev-team'
+    email_configs:
+      - to: 'dev@owlivion.com'
+        send_resolved: true
+
+# Inhibit rules (prevent alert spam)
+inhibit_rules:
+  # Inhibit warning if critical alert is firing
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'instance']
+
+  # Inhibit database alerts if service is down
+  - source_match:
+      alertname: 'ServiceDown'
+    target_match:
+      category: 'database'
+    equal: ['instance']
