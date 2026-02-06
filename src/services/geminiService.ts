@@ -590,14 +590,19 @@ function ruleBasedPhishingDetection(
   const fromEmail = email.from.email.toLowerCase();
   const fromName = email.from.name.toLowerCase();
 
-  // 1. Sender mismatch detection
+  // 1. Sender mismatch detection (IMPROVED: More strict matching to reduce false positives)
   const knownBrands = ['paypal', 'amazon', 'microsoft', 'apple', 'google', 'facebook', 'netflix', 'bank', 'instagram', 'whatsapp', 'telegram'];
   for (const brand of knownBrands) {
-    if (fromName.includes(brand) && !fromEmail.includes(brand)) {
+    // Only flag if sender name EXACTLY matches or STARTS with the brand (e.g., "PayPal" or "PayPal Support")
+    // Ignore if brand is just mentioned in context (e.g., "Update about PayPal integration")
+    const nameWords = fromName.split(/\s+/);
+    const hasBrandAsWord = nameWords.some(word => word === brand || word === brand + '.' || word === brand + ',');
+
+    if (hasBrandAsWord && !fromEmail.includes(brand)) {
       score += 30;
       reasons.push(language === 'tr'
-        ? `Gönderen adı "${brand}" içeriyor ama e-posta adresi içermiyor`
-        : `Sender name contains "${brand}" but email address doesn't`);
+        ? `Gönderen adı "${brand}" içeriyor ama e-posta adresi içermiyor (phishing taklidi olabilir)`
+        : `Sender name contains "${brand}" but email address doesn't (possible impersonation)`);
     }
   }
 
@@ -681,27 +686,27 @@ function ruleBasedPhishingDetection(
     }
   }
 
-  // Determine risk level
+  // Determine risk level (UPDATED: Higher thresholds to reduce false positives)
   let riskLevel: PhishingAnalysis['riskLevel'];
-  if (score >= 60) riskLevel = 'critical';
-  else if (score >= 40) riskLevel = 'high';
-  else if (score >= 20) riskLevel = 'medium';
+  if (score >= 80) riskLevel = 'critical';   // Was 60 - very high confidence phishing
+  else if (score >= 60) riskLevel = 'high';  // Was 40 - likely phishing
+  else if (score >= 30) riskLevel = 'medium'; // Was 20 - suspicious but uncertain
   else riskLevel = 'low';
 
   // Generate recommendations
   const recommendations: string[] = [];
-  if (score >= 20) {
+  if (score >= 30) {
     if (language === 'tr') {
       recommendations.push('Bu e-postadaki linklere tıklamayın');
       recommendations.push('Şüpheli göndericiyi doğrulamadan bilgi paylaşmayın');
-      if (score >= 40) {
+      if (score >= 60) {
         recommendations.push('Bu e-postayı spam olarak işaretleyin');
         recommendations.push('Eğer bir hesap sorunuysa, doğrudan resmi web sitesine gidin');
       }
     } else {
       recommendations.push('Do not click links in this email');
       recommendations.push('Do not share information without verifying the sender');
-      if (score >= 40) {
+      if (score >= 60) {
         recommendations.push('Mark this email as spam');
         recommendations.push('If it\'s about an account issue, go directly to the official website');
       }
@@ -709,7 +714,7 @@ function ruleBasedPhishingDetection(
   }
 
   return {
-    isPhishing: score >= 40,
+    isPhishing: score >= 60,  // FIXED: Was 40, now 60 to reduce false positives
     riskLevel,
     score: Math.min(100, score),
     reasons,

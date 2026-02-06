@@ -256,6 +256,7 @@ export interface Settings {
   geminiApiKey?: string;
   aiAutoSummarize: boolean;
   aiReplyTone: 'professional' | 'friendly' | 'formal' | 'casual';
+  autoPhishingDetection: boolean; // Auto-analyze emails for phishing on selection
 
   // Shortcuts
   keyboardShortcutsEnabled: boolean;
@@ -290,6 +291,7 @@ export const DEFAULT_SETTINGS: Settings = {
   geminiApiKey: undefined,
   aiAutoSummarize: false,
   aiReplyTone: 'professional',
+  autoPhishingDetection: true, // Enabled by default for security
   keyboardShortcutsEnabled: true,
   autoSyncEnabled: false,
   autoSyncInterval: 5,

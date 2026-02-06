@@ -139,6 +139,7 @@ const defaultSettings: SettingsType = {
   geminiApiKey: '',
   aiAutoSummarize: true,
   aiReplyTone: 'professional',
+  autoPhishingDetection: true, // Enabled by default for security
 
   // Shortcuts
   keyboardShortcutsEnabled: true,

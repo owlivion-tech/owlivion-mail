@@ -108,6 +108,20 @@ export function AISettings({ settings, onSettingsChange }: AISettingsProps) {
               onChange={(value) => updateSetting('aiAutoSummarize', value)}
             />
           </div>
+
+          {/* Auto Phishing Detection */}
+          <div className="flex items-center justify-between">
+            <div>
+              <label className="text-sm font-medium text-owl-text">Otomatik Phishing Tespiti</label>
+              <p className="text-xs text-owl-text-secondary mt-0.5">
+                E-postaları açarken otomatik olarak güvenlik analizi yap
+              </p>
+            </div>
+            <Toggle
+              enabled={settings.autoPhishingDetection}
+              onChange={(value) => updateSetting('autoPhishingDetection', value)}
+            />
+          </div>
         </div>
       </section>
 

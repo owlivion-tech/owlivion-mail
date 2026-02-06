@@ -1615,6 +1615,7 @@ function App() {
   const [geminiApiKey, setGeminiApiKey] = useState<string | undefined>(undefined);
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
   const [autoSyncInterval, setAutoSyncInterval] = useState(5); // minutes
+  const [autoPhishingDetection, setAutoPhishingDetection] = useState(true); // Auto phishing detection enabled by default
 
   // Load settings from localStorage on mount
   useEffect(() => {
@@ -1625,6 +1626,7 @@ function App() {
         setGeminiApiKey(settings.geminiApiKey);
         setAutoSyncEnabled(settings.autoSyncEnabled ?? false);
         setAutoSyncInterval(settings.autoSyncInterval ?? 5);
+        setAutoPhishingDetection(settings.autoPhishingDetection ?? true); // Default to true for security
       }
     } catch (err) {
       console.error('Failed to load settings:', err);
@@ -2462,6 +2464,8 @@ function App() {
   // Auto-analyze phishing when email is selected
   useEffect(() => {
     if (!currentEmail || !currentEmail.id) return;
+    // Skip if auto-detection is disabled in settings
+    if (!autoPhishingDetection) return;
     // Skip if already analyzed
     if (phishingResults[currentEmail.id]) return;
     // Skip if currently analyzing
@@ -2500,7 +2504,7 @@ function App() {
     };
 
     analyzeEmail();
-  }, [currentEmail?.id, currentEmail?.from, currentEmail?.subject, currentEmail?.body, currentEmail?.bodyHtml, phishingResults, analyzingPhishingId, geminiApiKey]);
+  }, [currentEmail?.id, currentEmail?.from, currentEmail?.subject, currentEmail?.body, currentEmail?.bodyHtml, phishingResults, analyzingPhishingId, geminiApiKey, autoPhishingDetection]);
 
   // Auto-detect tracking when email is selected
   useEffect(() => {
