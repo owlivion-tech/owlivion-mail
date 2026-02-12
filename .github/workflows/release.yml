@@ -22,12 +22,16 @@ jobs:
         include:
           - platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
+            bundles: deb,appimage
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
+            bundles: nsis
           - platform: macos-latest
             target: x86_64-apple-darwin
+            bundles: dmg
           - platform: macos-latest
             target: aarch64-apple-darwin
+            bundles: dmg
 
     runs-on: ${{ matrix.platform }}
 
@@ -67,7 +71,7 @@ jobs:
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
           releaseName: 'Owlivion Mail ${{ github.event.inputs.tag || github.ref_name }}'
           releaseBody: |
-            ## Owlivion Mail ${{ github.ref_name }}
+            ## Owlivion Mail ${{ github.event.inputs.tag || github.ref_name }}
 
             Smart, Secure, Free Email Client with AI-Powered Phishing Detection.
 
@@ -75,7 +79,7 @@ jobs:
 
             | Platform | File |
             |----------|------|
-            | Windows | `.msi` or `.exe` |
+            | Windows | `.exe` (NSIS installer) |
             | macOS (Intel) | `_x64.dmg` |
             | macOS (Apple Silicon) | `_aarch64.dmg` |
             | Linux (Debian/Ubuntu/Kali) | `.deb` |
@@ -88,4 +92,4 @@ jobs:
             Full documentation: https://github.com/owlivion-tech/owlivion-mail#readme
           releaseDraft: false
           prerelease: false
-          args: --target ${{ matrix.target }}
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
