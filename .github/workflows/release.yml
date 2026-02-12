@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
 
 jobs:
   build:
@@ -30,15 +35,15 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v2
+        uses: pnpm/action-setup@v4
         with:
-          version: 8
+          version: 10
 
       - name: Install Rust
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
@@ -56,8 +61,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Owlivion Mail ${{ github.ref_name }}'
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: 'Owlivion Mail ${{ github.event.inputs.tag || github.ref_name }}'
           releaseBody: |
             ## Owlivion Mail ${{ github.ref_name }}
 
@@ -77,7 +82,7 @@ jobs:
             - **Gmail**: Use App Password, not regular password
             - **AI Phishing Detection**: Optional, requires Gemini API key
 
-            Full documentation: https://github.com/babafpv/owlivion-mail#readme
+            Full documentation: https://github.com/owlivion-tech/owlivion-mail#readme
           releaseDraft: false
           prerelease: false
           args: --target ${{ matrix.target }}
