@@ -100,7 +100,7 @@ mod delta_sync_tests {
     async fn test_delta_sync_contacts_with_deletions() {
         let db = Arc::new(Database::in_memory().expect("Failed to create test database"));
 
-        // Add 5 contacts
+        // Add 5 contacts (account_id=None avoids FK constraint in test)
         for i in 1..=5 {
             let contact = NewContact {
                 account_id: None,
@@ -115,33 +115,26 @@ mod delta_sync_tests {
             db.upsert_contact(&contact).unwrap();
         }
 
-        // Simulate first sync
-        let now = chrono::Utc::now().to_rfc3339();
+        // Simulate first sync (use SQLite-compatible datetime format)
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
         db.update_sync_metadata("contacts", Some(&now), Some(1), Some(5), Some(5), Some(0)).unwrap();
 
         // Wait for timestamp difference (SQLite datetime precision)
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-        // Change 1 contact
+        // Update contact directly via SQL (upsert with NULL account_id can't trigger ON CONFLICT)
         let contacts = db.get_all_contacts().unwrap();
-        let contact_to_update_id = contacts.iter().find(|c| c.email == "contact2@example.com").unwrap().id;
-        let updated_contact = NewContact {
-            account_id: None,
-            email: "contact2@example.com".to_string(),
-            name: Some("Contact 2 Updated".to_string()),
-            company: Some("New Company".to_string()),
-            phone: None,
-            notes: None,
-            is_favorite: true,
-            avatar_url: None,
-        };
-        db.upsert_contact(&updated_contact).unwrap();
+        let contact_to_update = contacts.iter().find(|c| c.email == "contact2@example.com").unwrap();
+        db.execute(
+            "UPDATE contacts SET name = ?1, company = ?2, is_favorite = 1, updated_at = datetime('now') WHERE id = ?3",
+            rusqlite::params!["Contact 2 Updated", "New Company", contact_to_update.id],
+        ).unwrap();
 
         // Delete 1 contact (soft delete)
         let contact_to_delete_id = contacts.iter().find(|c| c.email == "contact3@example.com").unwrap().id;
         db.soft_delete_contact(contact_to_delete_id).unwrap();
 
-        // Delta sync should return 1 changed contact
+        // Delta sync should return updated contact
         let changed_contacts = db.get_changed_contacts(Some(&now)).unwrap();
         assert_eq!(changed_contacts.len(), 1, "Delta sync should return 1 changed contact");
         assert_eq!(changed_contacts[0].email, "contact2@example.com");
@@ -175,8 +168,8 @@ mod delta_sync_tests {
             db.upsert_contact(&contact).unwrap();
         }
 
-        // Simulate sync
-        let now = chrono::Utc::now().to_rfc3339();
+        // Simulate sync (use SQLite-compatible datetime format)
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
         db.update_sync_metadata("contacts", Some(&now), Some(1), Some(2), Some(2), Some(0)).unwrap();
 
         // Delta sync with no changes should return empty

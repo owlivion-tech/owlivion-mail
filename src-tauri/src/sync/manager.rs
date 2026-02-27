@@ -33,6 +33,24 @@ use crate::db::Database;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+/// Parse datetime string flexibly: supports RFC 3339 and SQLite `datetime('now')` format
+fn parse_datetime_flexible(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    // Try RFC 3339 first (e.g., "2026-02-14T10:18:52+00:00")
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+        return Some(dt.with_timezone(&chrono::Utc));
+    }
+    // Try SQLite datetime format (e.g., "2026-02-14 10:18:52")
+    if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S") {
+        return Some(naive.and_utc());
+    }
+    // Try with fractional seconds (e.g., "2026-02-14 10:18:52.123")
+    if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f") {
+        return Some(naive.and_utc());
+    }
+    log::warn!("Failed to parse datetime: '{}'", s);
+    None
+}
+
 /// Sync manager - main orchestrator
 #[derive(Clone)]
 pub struct SyncManager {
@@ -51,9 +69,25 @@ impl SyncManager {
         let history_manager = HistoryManager::new(db.clone())
             .expect("Failed to initialize history manager");
 
+        // Load persisted config from DB
+        let mut config = SyncConfig::default();
+        if let Ok(Some(salt)) = db.get_sync_config_value("master_key_salt") {
+            log::info!("Loaded persisted encryption salt from DB");
+            config.master_key_salt = Some(salt);
+        }
+
+        // Load persisted user_id and enabled state
+        if let Ok(Some(user_id)) = db.get_sync_config_value("user_id") {
+            log::info!("Loaded persisted user_id from DB");
+            config.user_id = Some(user_id);
+            config.enabled = true;
+        }
+
+        let api_client = Arc::new(SyncApiClient::new_with_stored_tokens(&db));
+
         Self {
-            api_client: Arc::new(SyncApiClient::new()),
-            config: Arc::new(RwLock::new(SyncConfig::default())),
+            api_client,
+            config: Arc::new(RwLock::new(config)),
             db,
             queue_manager: Arc::new(queue_manager),
             history_manager: Arc::new(history_manager),
@@ -67,12 +101,24 @@ impl SyncManager {
         let history_manager = HistoryManager::new(db.clone())
             .expect("Failed to initialize history manager");
 
+        let api_client = Arc::new(SyncApiClient::new_with_stored_tokens(&db));
+
         Self {
-            api_client: Arc::new(SyncApiClient::new()),
+            api_client,
             config: Arc::new(RwLock::new(config)),
             db,
             queue_manager: Arc::new(queue_manager),
             history_manager: Arc::new(history_manager),
+        }
+    }
+
+    /// Persist tokens to DB for cross-restart survival
+    fn persist_tokens(&self, access_token: &str, refresh_token: &str) {
+        if let Err(e) = self.db.set_sync_config_value("access_token", access_token) {
+            log::warn!("Failed to persist access token: {}", e);
+        }
+        if let Err(e) = self.db.set_sync_config_value("refresh_token", refresh_token) {
+            log::warn!("Failed to persist refresh token: {}", e);
         }
     }
 
@@ -101,18 +147,36 @@ impl SyncManager {
 
         let auth = self.api_client.register(req).await?;
 
-        // Store tokens and user ID
+        // Store tokens in memory and DB
         self.api_client.set_token(auth.access_token.clone()).await;
+        self.api_client.set_refresh_token(auth.refresh_token.clone()).await;
+        self.persist_tokens(&auth.access_token, &auth.refresh_token);
+
+        // Persist user_id
+        if let Err(e) = self.db.set_sync_config_value("user_id", &auth.user_id) {
+            log::warn!("Failed to persist user_id: {}", e);
+        }
 
         // Generate and store master key salt
         let salt = generate_random_salt()
             .map_err(|e| SyncManagerError::CryptoError(e))?;
+        let salt_hex = hex::encode(&salt);
+
+        // Upload salt to server for cross-device sync
+        if let Err(e) = self.api_client.upload_salt(&salt_hex).await {
+            log::warn!("Failed to upload salt to server: {}", e);
+        }
+
+        // Persist salt to local DB
+        if let Err(e) = self.db.set_sync_config_value("master_key_salt", &salt_hex) {
+            log::warn!("Failed to persist salt to DB: {}", e);
+        }
 
         // Update config
         let mut config = self.config.write().await;
         config.enabled = true;
         config.user_id = Some(auth.user_id);
-        config.master_key_salt = Some(hex::encode(&salt));
+        config.master_key_salt = Some(salt_hex);
 
         Ok(())
     }
@@ -137,13 +201,57 @@ impl SyncManager {
 
         let auth = self.api_client.login(req).await?;
 
-        // Store tokens
+        // Store tokens in memory and DB
         self.api_client.set_token(auth.access_token.clone()).await;
+        self.api_client.set_refresh_token(auth.refresh_token.clone()).await;
+        self.persist_tokens(&auth.access_token, &auth.refresh_token);
 
-        // Update config
+        // Persist user_id
+        if let Err(e) = self.db.set_sync_config_value("user_id", &auth.user_id) {
+            log::warn!("Failed to persist user_id: {}", e);
+        }
+
+        // Update config with salt from server
         let mut config = self.config.write().await;
         config.enabled = true;
         config.user_id = Some(auth.user_id);
+
+        // Set encryption salt from server response (for cross-device sync)
+        if let Some(ref salt) = auth.encryption_salt {
+            log::info!("Received encryption salt from server");
+            config.master_key_salt = Some(salt.clone());
+            if let Err(e) = self.db.set_sync_config_value("master_key_salt", salt) {
+                log::warn!("Failed to persist salt to DB: {}", e);
+            }
+        } else if let Ok(Some(salt)) = self.db.get_sync_config_value("master_key_salt") {
+            // Load from local DB (saved from previous session)
+            log::info!("Loaded encryption salt from local DB");
+            config.master_key_salt = Some(salt.clone());
+            // Upload to server so other devices can use it
+            drop(config);
+            if let Err(e) = self.api_client.upload_salt(&salt).await {
+                log::warn!("Failed to upload local salt to server: {}", e);
+            }
+            config = self.config.write().await;
+            config.master_key_salt = Some(salt);
+        } else {
+            // No salt anywhere - generate new one
+            log::info!("No salt found, generating new one");
+            let salt = generate_random_salt()
+                .map_err(|e| SyncManagerError::CryptoError(e))?;
+            let salt_hex = hex::encode(&salt);
+            config.master_key_salt = Some(salt_hex.clone());
+            if let Err(e) = self.db.set_sync_config_value("master_key_salt", &salt_hex) {
+                log::warn!("Failed to persist new salt to DB: {}", e);
+            }
+            // Upload to server
+            drop(config);
+            if let Err(e) = self.api_client.upload_salt(&salt_hex).await {
+                log::warn!("Failed to upload new salt to server: {}", e);
+            }
+            config = self.config.write().await;
+            config.master_key_salt = Some(salt_hex);
+        }
 
         Ok(())
     }
@@ -151,6 +259,11 @@ impl SyncManager {
     /// Logout (clear tokens and disable sync)
     pub async fn logout(&self) -> Result<(), SyncManagerError> {
         self.api_client.clear_token().await;
+
+        // Clear persisted tokens from DB
+        let _ = self.db.set_sync_config_value("access_token", "");
+        let _ = self.db.set_sync_config_value("refresh_token", "");
+        let _ = self.db.set_sync_config_value("user_id", "");
 
         let mut config = self.config.write().await;
         config.enabled = false;
@@ -174,6 +287,20 @@ impl SyncManager {
             return Err(SyncManagerError::SyncDisabled);
         }
 
+        // Ensure salt is uploaded to server (one-time migration for existing installs)
+        if let Some(ref salt) = config.master_key_salt {
+            if let Err(e) = self.api_client.upload_salt(salt).await {
+                log::warn!("Failed to upload salt to server: {}", e);
+            }
+        }
+
+        // After auto-refresh may have happened, persist updated tokens
+        if let Some(access_token) = self.api_client.get_token().await {
+            if let Some(refresh_token) = self.api_client.get_refresh_token().await {
+                self.persist_tokens(&access_token, &refresh_token);
+            }
+        }
+
         let mut result = SyncResult::default();
         let mut all_conflicts = Vec::new();
 
@@ -187,7 +314,10 @@ impl SyncManager {
                         result.accounts_synced = true;
                     }
                 }
-                Err(e) => result.errors.push(format!("Accounts: {}", e)),
+                Err(e) => {
+                    log::error!("Account sync failed: {}", e);
+                    result.errors.push(format!("Accounts: {}", e));
+                }
             }
         }
 
@@ -200,7 +330,10 @@ impl SyncManager {
                         result.contacts_synced = true;
                     }
                 }
-                Err(e) => result.errors.push(format!("Contacts: {}", e)),
+                Err(e) => {
+                    log::error!("Contact sync failed: {}", e);
+                    result.errors.push(format!("Contacts: {}", e));
+                }
             }
         }
 
@@ -213,7 +346,10 @@ impl SyncManager {
                         result.preferences_synced = true;
                     }
                 }
-                Err(e) => result.errors.push(format!("Preferences: {}", e)),
+                Err(e) => {
+                    log::error!("Preferences sync failed: {}", e);
+                    result.errors.push(format!("Preferences: {}", e));
+                }
             }
         }
 
@@ -226,7 +362,10 @@ impl SyncManager {
                         result.signatures_synced = true;
                     }
                 }
-                Err(e) => result.errors.push(format!("Signatures: {}", e)),
+                Err(e) => {
+                    log::error!("Signatures sync failed: {}", e);
+                    result.errors.push(format!("Signatures: {}", e));
+                }
             }
         }
 
@@ -240,302 +379,6 @@ impl SyncManager {
         config.last_sync_at = Some(chrono::Utc::now());
 
         Ok(result)
-    }
-
-    /// Sync accounts data (DELTA SYNC - only changed data)
-    async fn sync_accounts(
-        &self,
-        master_password: &str,
-    ) -> Result<(), SyncManagerError> {
-        log::info!("Starting accounts delta sync");
-
-        // 1. Get last sync timestamp from metadata
-        let metadata = self.db.get_sync_metadata("accounts")
-            .map_err(|e| SyncManagerError::DatabaseError(format!("Failed to get sync metadata: {}", e)))?;
-
-        let last_sync_at = metadata.and_then(|m| m.last_sync_at);
-
-        if let Some(ref timestamp) = last_sync_at {
-            log::info!("Delta sync: fetching accounts changed since {}", timestamp);
-        } else {
-            log::info!("Full sync: no previous sync timestamp found");
-        }
-
-        // 2. Load only changed accounts from local DB (delta)
-        let db_accounts = self.db.get_changed_accounts(last_sync_at.as_deref())
-            .map_err(|e| SyncManagerError::CryptoError(format!("Failed to load changed accounts: {}", e)))?;
-
-        // 3. Load deleted account IDs
-        let deleted_ids = self.db.get_deleted_accounts(last_sync_at.as_deref())
-            .map_err(|e| SyncManagerError::DatabaseError(format!("Failed to load deleted accounts: {}", e)))?;
-
-        log::info!("Delta sync: {} changed accounts, {} deleted accounts",
-                   db_accounts.len(), deleted_ids.len());
-
-        // Skip if no changes
-        if db_accounts.is_empty() && deleted_ids.is_empty() {
-            log::info!("No changes detected, skipping upload");
-            return Ok(());
-        }
-
-        // 4. Convert to AccountConfig format (excluding passwords)
-        let account_configs: Vec<AccountConfig> = db_accounts
-            .into_iter()
-            .map(|acc| AccountConfig {
-                email: acc.email,
-                display_name: acc.display_name,
-                imap_host: acc.imap_host,
-                imap_port: acc.imap_port,
-                imap_security: acc.imap_security,
-                smtp_host: acc.smtp_host,
-                smtp_port: acc.smtp_port,
-                smtp_security: acc.smtp_security,
-                signature: acc.signature,
-                sync_days: acc.sync_days,
-                is_default: acc.is_default,
-                oauth_provider: acc.oauth_provider,
-                updated_at: chrono::DateTime::parse_from_rfc3339(&acc.updated_at).ok().map(|d| d.with_timezone(&chrono::Utc)),
-                deleted: false,
-            })
-            .collect();
-
-        // 5. Add deleted accounts to the sync data
-        let mut all_accounts = account_configs;
-        for deleted_id in deleted_ids {
-            // Create placeholder entries for deleted accounts (server will handle deletion)
-            // Note: We only send the email (unique identifier) for deleted accounts
-            log::debug!("Marking account ID {} as deleted in sync", deleted_id);
-        }
-
-        // 6. Create AccountSyncData
-        let sync_data = AccountSyncData::new(all_accounts);
-
-        // 7. Encrypt and upload to server
-        let version = self.upload(SyncDataType::Accounts, &sync_data, master_password).await?;
-
-        // 8. Update sync metadata with current timestamp
-        let now = chrono::Utc::now().to_rfc3339();
-        self.db.update_sync_metadata(
-            "accounts",
-            Some(&now),
-            Some(version),
-            Some(sync_data.accounts.len() as i64),
-            Some(sync_data.accounts.len() as i64),
-            Some(0), // deleted_ids.len() as i64 (not tracked separately in this implementation)
-        ).map_err(|e| SyncManagerError::DatabaseError(format!("Failed to update sync metadata: {}", e)))?;
-
-        log::info!("Accounts delta sync completed (version: {}, changes: {})",
-                   version, sync_data.accounts.len());
-
-        Ok(())
-    }
-
-    /// Sync contacts data (DELTA SYNC - only changed data)
-    async fn sync_contacts(
-        &self,
-        master_password: &str,
-    ) -> Result<(), SyncManagerError> {
-        log::info!("Starting contacts delta sync");
-
-        // 1. Get last sync timestamp from metadata
-        let metadata = self.db.get_sync_metadata("contacts")
-            .map_err(|e| SyncManagerError::DatabaseError(format!("Failed to get sync metadata: {}", e)))?;
-
-        let last_sync_at = metadata.and_then(|m| m.last_sync_at);
-
-        if let Some(ref timestamp) = last_sync_at {
-            log::info!("Delta sync: fetching contacts changed since {}", timestamp);
-        } else {
-            log::info!("Full sync: no previous sync timestamp found");
-        }
-
-        // 2. Load only changed contacts from local DB (delta)
-        let db_contacts = self.db.get_changed_contacts(last_sync_at.as_deref())
-            .map_err(|e| SyncManagerError::CryptoError(format!("Failed to load changed contacts: {}", e)))?;
-
-        // 3. Load deleted contact IDs
-        let deleted_ids = self.db.get_deleted_contacts(last_sync_at.as_deref())
-            .map_err(|e| SyncManagerError::DatabaseError(format!("Failed to load deleted contacts: {}", e)))?;
-
-        log::info!("Delta sync: {} changed contacts, {} deleted contacts",
-                   db_contacts.len(), deleted_ids.len());
-
-        // Skip if no changes
-        if db_contacts.is_empty() && deleted_ids.is_empty() {
-            log::info!("No changes detected, skipping upload");
-            return Ok(());
-        }
-
-        // 4. Convert to ContactItem format
-        let mut contact_items: Vec<ContactItem> = db_contacts
-            .into_iter()
-            .map(|contact| ContactItem {
-                email: contact.email,
-                name: contact.name,
-                company: contact.company,
-                phone: contact.phone,
-                notes: contact.notes,
-                is_favorite: contact.is_favorite,
-                updated_at: contact.last_emailed_at.and_then(|dt| {
-                    chrono::DateTime::parse_from_rfc3339(&dt).ok().map(|d| d.with_timezone(&chrono::Utc))
-                }),
-                deleted: false,
-            })
-            .collect();
-
-        // 5. Add deleted contacts as placeholders (marked with deleted=true)
-        for _deleted_id in deleted_ids {
-            // Note: Backend will handle deletion based on server-side logic
-            // We don't send full contact data for deleted items
-            log::debug!("Marking contact ID {} as deleted in sync", _deleted_id);
-        }
-
-        // 6. Create ContactSyncData
-        let sync_data = ContactSyncData::new(contact_items);
-
-        // 7. Encrypt and upload to server
-        let version = self.upload(SyncDataType::Contacts, &sync_data, master_password).await?;
-
-        // 8. Update sync metadata with current timestamp
-        let now = chrono::Utc::now().to_rfc3339();
-        self.db.update_sync_metadata(
-            "contacts",
-            Some(&now),
-            Some(version),
-            Some(sync_data.contacts.len() as i64),
-            Some(sync_data.contacts.len() as i64),
-            Some(0), // deleted count
-        ).map_err(|e| SyncManagerError::DatabaseError(format!("Failed to update sync metadata: {}", e)))?;
-
-        log::info!("Contacts delta sync completed (version: {}, changes: {})",
-                   version, sync_data.contacts.len());
-
-        Ok(())
-    }
-
-    /// Sync preferences data
-    async fn sync_preferences(
-        &self,
-        master_password: &str,
-    ) -> Result<(), SyncManagerError> {
-        log::info!("Starting preferences sync");
-
-        // 1. Load preferences from database settings
-        // Using get_setting with default fallback for each preference
-        let theme: String = self.db.get_setting("theme")
-            .ok().flatten().unwrap_or_else(|| "dark".to_string());
-
-        let language: String = self.db.get_setting("language")
-            .ok().flatten().unwrap_or_else(|| "tr".to_string());
-
-        let notifications_enabled: bool = self.db.get_setting("notifications_enabled")
-            .ok().flatten().unwrap_or(true);
-
-        let notification_sound: bool = self.db.get_setting("notification_sound")
-            .ok().flatten().unwrap_or(true);
-
-        let notification_badge: bool = self.db.get_setting("notification_badge")
-            .ok().flatten().unwrap_or(true);
-
-        let auto_mark_read: bool = self.db.get_setting("auto_mark_read")
-            .ok().flatten().unwrap_or(true);
-
-        let auto_mark_read_delay: i32 = self.db.get_setting("auto_mark_read_delay")
-            .ok().flatten().unwrap_or(3);
-
-        let confirm_delete: bool = self.db.get_setting("confirm_delete")
-            .ok().flatten().unwrap_or(true);
-
-        let confirm_send: bool = self.db.get_setting("confirm_send")
-            .ok().flatten().unwrap_or(false);
-
-        let signature_position: String = self.db.get_setting("signature_position")
-            .ok().flatten().unwrap_or_else(|| "bottom".to_string());
-
-        let reply_position: String = self.db.get_setting("reply_position")
-            .ok().flatten().unwrap_or_else(|| "top".to_string());
-
-        let gemini_api_key: Option<String> = self.db.get_setting("gemini_api_key")
-            .ok().flatten();
-
-        let ai_auto_summarize: bool = self.db.get_setting("ai_auto_summarize")
-            .ok().flatten().unwrap_or(false);
-
-        let ai_reply_tone: String = self.db.get_setting("ai_reply_tone")
-            .ok().flatten().unwrap_or_else(|| "professional".to_string());
-
-        let keyboard_shortcuts_enabled: bool = self.db.get_setting("keyboard_shortcuts_enabled")
-            .ok().flatten().unwrap_or(true);
-
-        let compact_list_view: bool = self.db.get_setting("compact_list_view")
-            .ok().flatten().unwrap_or(false);
-
-        let show_avatars: bool = self.db.get_setting("show_avatars")
-            .ok().flatten().unwrap_or(true);
-
-        let conversation_view: bool = self.db.get_setting("conversation_view")
-            .ok().flatten().unwrap_or(true);
-
-        // 2. Create PreferencesSyncData
-        let mut sync_data = PreferencesSyncData::default();
-        sync_data.theme = theme;
-        sync_data.language = language;
-        sync_data.notifications_enabled = notifications_enabled;
-        sync_data.notification_sound = notification_sound;
-        sync_data.notification_badge = notification_badge;
-        sync_data.auto_mark_read = auto_mark_read;
-        sync_data.auto_mark_read_delay = auto_mark_read_delay;
-        sync_data.confirm_delete = confirm_delete;
-        sync_data.confirm_send = confirm_send;
-        sync_data.signature_position = signature_position;
-        sync_data.reply_position = reply_position;
-        sync_data.gemini_api_key = gemini_api_key;
-        sync_data.ai_auto_summarize = ai_auto_summarize;
-        sync_data.ai_reply_tone = ai_reply_tone;
-        sync_data.keyboard_shortcuts_enabled = keyboard_shortcuts_enabled;
-        sync_data.compact_list_view = compact_list_view;
-        sync_data.show_avatars = show_avatars;
-        sync_data.conversation_view = conversation_view;
-        sync_data.synced_at = Some(chrono::Utc::now());
-
-        // 3. Encrypt and upload to server
-        let version = self.upload(SyncDataType::Preferences, &sync_data, master_password).await?;
-
-        log::info!("Preferences synced successfully (version: {})", version);
-
-        Ok(())
-    }
-
-    /// Sync signatures data
-    async fn sync_signatures(
-        &self,
-        master_password: &str,
-    ) -> Result<(), SyncManagerError> {
-        log::info!("Starting signatures sync");
-
-        // 1. Load accounts to get signatures
-        let db_accounts = self.db.get_accounts()
-            .map_err(|e| SyncManagerError::CryptoError(format!("Failed to load accounts: {}", e)))?;
-
-        log::info!("Loaded {} accounts for signature sync", db_accounts.len());
-
-        // 2. Extract signatures (email -> signature mapping)
-        let mut signatures = std::collections::HashMap::new();
-        for account in db_accounts {
-            if !account.signature.is_empty() {
-                signatures.insert(account.email, account.signature);
-            }
-        }
-
-        // 3. Create SignatureSyncData
-        let sync_data = SignatureSyncData::from_map(signatures);
-
-        // 4. Encrypt and upload to server
-        let version = self.upload(SyncDataType::Signatures, &sync_data, master_password).await?;
-
-        log::info!("Signatures synced successfully (version: {})", version);
-
-        Ok(())
     }
 
     /// Upload encrypted data to server
@@ -645,25 +488,61 @@ impl SyncManager {
 
         let account_configs: Vec<AccountConfig> = db_accounts
             .into_iter()
-            .map(|acc| AccountConfig {
-                email: acc.email,
-                display_name: acc.display_name,
-                imap_host: acc.imap_host,
-                imap_port: acc.imap_port,
-                imap_security: acc.imap_security,
-                smtp_host: acc.smtp_host,
-                smtp_port: acc.smtp_port,
-                smtp_security: acc.smtp_security,
-                signature: acc.signature,
-                sync_days: acc.sync_days,
-                is_default: acc.is_default,
-                oauth_provider: acc.oauth_provider,
-                updated_at: chrono::DateTime::parse_from_rfc3339(&acc.updated_at).ok().map(|d| d.with_timezone(&chrono::Utc)),
-                deleted: false,
+            .map(|acc| {
+                // Decrypt password to include in sync data (protected by sync encryption layer)
+                let password = match self.db.get_account_password(acc.id) {
+                    Ok(Some(encrypted)) => match crate::crypto::decrypt_password(&encrypted) {
+                        Ok(pw) => Some(pw),
+                        Err(e) => {
+                            log::error!("Failed to decrypt password for account {}: {}", acc.email, e);
+                            None
+                        }
+                    },
+                    Ok(None) => {
+                        log::warn!("No password stored for account {}", acc.email);
+                        None
+                    },
+                    Err(e) => {
+                        log::error!("Failed to read password for account {}: {}", acc.email, e);
+                        None
+                    }
+                };
+
+                if password.is_none() {
+                    log::warn!("Account {} will be synced WITHOUT password (bidirectional)", acc.email);
+                }
+
+                AccountConfig {
+                    email: acc.email,
+                    display_name: acc.display_name,
+                    imap_host: acc.imap_host,
+                    imap_port: acc.imap_port,
+                    imap_security: acc.imap_security,
+                    smtp_host: acc.smtp_host,
+                    smtp_port: acc.smtp_port,
+                    smtp_security: acc.smtp_security,
+                    signature: acc.signature,
+                    sync_days: acc.sync_days,
+                    is_default: acc.is_default,
+                    password,
+                    oauth_provider: acc.oauth_provider,
+                    updated_at: parse_datetime_flexible(&acc.updated_at),
+                    deleted: false,
+                }
             })
             .collect();
 
-        let local_data = AccountSyncData::new(account_configs);
+        // Use max updated_at from accounts as synced_at (NOT Utc::now())
+        // This prevents local from always winning LWW when data hasn't actually changed
+        let max_updated_at = account_configs.iter()
+            .filter_map(|a| a.updated_at)
+            .max();
+        let local_data = if account_configs.is_empty() {
+            // Empty local data should not win over server data in LWW merge
+            AccountSyncData { accounts: vec![], synced_at: None }
+        } else {
+            AccountSyncData { accounts: account_configs, synced_at: max_updated_at }
+        };
 
         // 2. Download server data
         let server_data: Option<AccountSyncData> = self.download(SyncDataType::Accounts, master_password).await?;
@@ -692,7 +571,14 @@ impl SyncManager {
             local_data
         };
 
-        // 6. Upload merged data
+        // 6. Apply merged data to local DB
+        for acc in &data_to_upload.accounts {
+            log::info!("Merge result for {}: password={}, deleted={}", acc.email, acc.password.is_some(), acc.deleted);
+        }
+        self.apply_accounts_to_db(&data_to_upload).await?;
+        log::info!("Applied {} accounts to local DB", data_to_upload.accounts.len());
+
+        // 7. Upload merged data
         let version = self.upload(SyncDataType::Accounts, &data_to_upload, master_password).await?;
         log::info!("Accounts synced successfully (version: {})", version);
 
@@ -720,13 +606,17 @@ impl SyncManager {
                 notes: contact.notes,
                 is_favorite: contact.is_favorite,
                 updated_at: contact.last_emailed_at.and_then(|dt| {
-                    chrono::DateTime::parse_from_rfc3339(&dt).ok().map(|d| d.with_timezone(&chrono::Utc))
+                    parse_datetime_flexible(&dt)
                 }),
                 deleted: false,
             })
             .collect();
 
-        let local_data = ContactSyncData::new(contact_items);
+        let local_data = if contact_items.is_empty() {
+            ContactSyncData { contacts: contact_items, synced_at: None }
+        } else {
+            ContactSyncData::new(contact_items)
+        };
 
         // 2. Download server data
         let server_data: Option<ContactSyncData> = self.download(SyncDataType::Contacts, master_password).await?;
@@ -746,6 +636,10 @@ impl SyncManager {
             // No conflicts - merge with LWW
             log::info!("No conflicts detected, merging with LWW strategy");
             let merged_data = self.merge_contacts(local_data, server_data);
+
+            // Apply merged data to local DB
+            self.apply_contacts_to_db(&merged_data).await?;
+            log::info!("Applied {} contacts to local DB", merged_data.contacts.len());
 
             // Upload merged data
             let version = self.upload(SyncDataType::Contacts, &merged_data, master_password).await?;
@@ -868,7 +762,11 @@ impl SyncManager {
             local_data
         };
 
-        // 6. Upload merged data
+        // 6. Apply merged preferences to local DB
+        self.apply_preferences_to_db(&data_to_upload).await?;
+        log::info!("Applied preferences to local DB");
+
+        // 7. Upload merged data
         let version = self.upload(SyncDataType::Preferences, &data_to_upload, master_password).await?;
         log::info!("Preferences synced successfully (version: {})", version);
 
@@ -893,7 +791,11 @@ impl SyncManager {
             }
         }
 
-        let local_data = SignatureSyncData::from_map(signatures);
+        let local_data = if signatures.is_empty() {
+            SignatureSyncData { signatures, synced_at: None }
+        } else {
+            SignatureSyncData::from_map(signatures)
+        };
 
         // 2. Download server data
         let server_data: Option<SignatureSyncData> = self.download(SyncDataType::Signatures, master_password).await?;
@@ -920,7 +822,11 @@ impl SyncManager {
             local_data
         };
 
-        // 6. Upload merged data
+        // 6. Apply merged signatures to local DB
+        self.apply_signatures_to_db(&data_to_upload).await?;
+        log::info!("Applied signatures to local DB");
+
+        // 7. Upload merged data
         let version = self.upload(SyncDataType::Signatures, &data_to_upload, master_password).await?;
         log::info!("Signatures synced successfully (version: {})", version);
 
@@ -948,61 +854,82 @@ impl SyncManager {
         drop(config);
 
         // Download
+        log::info!("Downloading {} from server", data_type.as_str());
         let response = self.api_client.download_data(
             data_type.as_str(),
-        ).await?;
+        ).await.map_err(|e| {
+            log::error!("Download API call failed for {}: {}", data_type.as_str(), e);
+            SyncManagerError::from(e)
+        })?;
 
         if response.encrypted_data.is_empty() {
+            log::info!("No data on server for {}", data_type.as_str());
             return Ok(None); // No data on server
         }
 
+        log::info!("Downloaded {} bytes for {}", response.encrypted_data.len(), data_type.as_str());
+
         // Decode base64
-        let compressed_bytes = base64::Engine::decode(
+        let compressed_bytes = match base64::Engine::decode(
             &base64::engine::general_purpose::STANDARD,
             &response.encrypted_data,
-        ).map_err(|_| SyncManagerError::DecryptionFailed)?;
+        ) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                log::warn!("Base64 decode failed for {} (corrupted data): {}. Treating as empty.", data_type.as_str(), e);
+                return Ok(None);
+            }
+        };
 
         // Decompress
-        let combined_bytes = gzip_decompress(&compressed_bytes)
-            .map_err(|e| SyncManagerError::DecryptionFailed)?;
+        let combined_bytes = match gzip_decompress(&compressed_bytes) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                log::warn!("Gzip decompress failed for {} (corrupted data): {}. Treating as empty.", data_type.as_str(), e);
+                return Ok(None);
+            }
+        };
 
         log::debug!("Decompression: {} bytes → {} bytes",
                     compressed_bytes.len(),
                     combined_bytes.len());
 
-        // Extract nonce (first 12 bytes) from combined data
+        // combined_bytes = nonce (12 bytes) + ciphertext
+        // decrypt_sync_data expects encrypted_data = nonce + ciphertext (same format as encrypt output)
         if combined_bytes.len() < 12 {
             return Err(SyncManagerError::DecryptionFailed);
         }
 
-        let nonce_slice = &combined_bytes[..12];
-        let ciphertext = &combined_bytes[12..];
-
-        // Convert nonce slice to array
         let mut nonce_array = [0u8; 12];
-        nonce_array.copy_from_slice(nonce_slice);
+        nonce_array.copy_from_slice(&combined_bytes[..12]);
 
         // Derive master key
         let master_key = derive_sync_master_key(master_password, &salt_bytes)
             .map_err(|_| SyncManagerError::DecryptionFailed)?;
 
-        // Reconstruct payload for decryption
+        // Reconstruct payload for decryption - pass FULL combined data (nonce + ciphertext)
         use super::crypto::{SyncPayload, decrypt_sync_data, compute_sha256};
         let payload = SyncPayload {
             data_type,
-            encrypted_data: ciphertext.to_vec(),
+            encrypted_data: combined_bytes.clone(), // nonce + ciphertext (as produced by encrypt)
             nonce: nonce_array,
             version: response.version as i32,
             device_id: _device_id,
             timestamp: chrono::Utc::now(),
-            checksum: compute_sha256(ciphertext),
+            checksum: compute_sha256(&combined_bytes), // checksum of full combined data
         };
 
         // Decrypt
-        let decrypted = decrypt_sync_data(&payload, &master_key)
-            .map_err(|_| SyncManagerError::DecryptionFailed)?;
-
-        Ok(Some(decrypted))
+        match decrypt_sync_data(&payload, &master_key) {
+            Ok(decrypted) => {
+                log::info!("Successfully decrypted {} data", data_type.as_str());
+                Ok(Some(decrypted))
+            }
+            Err(e) => {
+                log::warn!("Decryption failed for {} (incompatible key/salt or corrupted data): {:?}. Treating as empty.", data_type.as_str(), e);
+                Ok(None) // Treat as no server data - local will be used/uploaded
+            }
+        }
     }
 
     // ========================================================================
@@ -1768,25 +1695,48 @@ impl SyncManager {
         }
     }
 
-    /// Merge accounts using Last-Write-Wins strategy
+    /// Merge accounts using Last-Write-Wins strategy with password preservation
     fn merge_accounts(
         &self,
         local: AccountSyncData,
         server: AccountSyncData,
     ) -> AccountSyncData {
-        // Simple LWW based on synced_at timestamp
-        match (local.synced_at, server.synced_at) {
+        log::info!(
+            "Merge accounts: local({} accounts, synced_at={:?}) vs server({} accounts, synced_at={:?})",
+            local.accounts.len(), local.synced_at,
+            server.accounts.len(), server.synced_at
+        );
+
+        // LWW picks the winner, but passwords are merged separately
+        let (mut winner, loser) = match (local.synced_at, server.synced_at) {
             (Some(local_time), Some(server_time)) => {
                 if local_time >= server_time {
-                    local
+                    log::info!("LWW: local wins (local={} >= server={})", local_time, server_time);
+                    (local, server)
                 } else {
-                    server
+                    log::info!("LWW: server wins (server={} > local={})", server_time, local_time);
+                    (server, local)
                 }
             }
-            (Some(_), None) => local,
-            (None, Some(_)) => server,
-            (None, None) => local, // Fallback to local
+            (Some(_), None) => { log::info!("LWW: local wins (server has no timestamp)"); (local, server) },
+            (None, Some(_)) => { log::info!("LWW: server wins (local has no timestamp)"); (server, local) },
+            (None, None) => { log::info!("LWW: both None, fallback to local"); (local, server) },
+        };
+
+        // Password preservation: if winner has no password for an account but loser does, use loser's password
+        for account in &mut winner.accounts {
+            if account.password.is_none() {
+                if let Some(loser_acc) = loser.accounts.iter().find(|a| a.email == account.email) {
+                    if loser_acc.password.is_some() {
+                        log::info!("merge_accounts: Recovering password for {} from losing side", account.email);
+                        account.password = loser_acc.password.clone();
+                    }
+                }
+            }
         }
+
+        log::info!("Merge result: {} accounts", winner.accounts.len());
+        winner
     }
 
     /// Merge preferences using Last-Write-Wins strategy
@@ -1881,7 +1831,7 @@ impl SyncManager {
                         notes: contact.notes,
                         is_favorite: contact.is_favorite,
                         updated_at: contact.last_emailed_at.and_then(|dt| {
-                            chrono::DateTime::parse_from_rfc3339(&dt).ok().map(|d| d.with_timezone(&chrono::Utc))
+                            parse_datetime_flexible(&dt)
                         }),
                         deleted: false,
                     })
@@ -1898,29 +1848,50 @@ impl SyncManager {
 
                 let account_configs: Vec<AccountConfig> = db_accounts
                     .into_iter()
-                    .map(|acc| AccountConfig {
-                        email: acc.email,
-                        display_name: acc.display_name,
-                        imap_host: acc.imap_host,
-                        imap_port: acc.imap_port,
-                        imap_security: match acc.imap_security.as_str() {
-                            "SSL" => "SSL".to_string(),
-                            "STARTTLS" => "STARTTLS".to_string(),
-                            _ => "NONE".to_string(),
-                        },
-                        smtp_host: acc.smtp_host,
-                        smtp_port: acc.smtp_port,
-                        smtp_security: match acc.smtp_security.as_str() {
-                            "SSL" => "SSL".to_string(),
-                            "STARTTLS" => "STARTTLS".to_string(),
-                            _ => "NONE".to_string(),
-                        },
-                        signature: acc.signature,
-                        sync_days: acc.sync_days,
-                        is_default: acc.is_default,
-                        oauth_provider: acc.oauth_provider,
-                        updated_at: chrono::DateTime::parse_from_rfc3339(&acc.updated_at).ok().map(|d| d.with_timezone(&chrono::Utc)),
-                        deleted: false,
+                    .map(|acc| {
+                        let password = match self.db.get_account_password(acc.id) {
+                            Ok(Some(encrypted)) => match crate::crypto::decrypt_password(&encrypted) {
+                                Ok(pw) => Some(pw),
+                                Err(e) => {
+                                    log::error!("upload_data_type: Failed to decrypt password for {}: {}", acc.email, e);
+                                    None
+                                }
+                            },
+                            Ok(None) => {
+                                log::warn!("upload_data_type: No password stored for {}", acc.email);
+                                None
+                            },
+                            Err(e) => {
+                                log::error!("upload_data_type: Failed to get password for {}: {}", acc.email, e);
+                                None
+                            }
+                        };
+
+                        AccountConfig {
+                            email: acc.email,
+                            display_name: acc.display_name,
+                            imap_host: acc.imap_host,
+                            imap_port: acc.imap_port,
+                            imap_security: match acc.imap_security.as_str() {
+                                "SSL" => "SSL".to_string(),
+                                "STARTTLS" => "STARTTLS".to_string(),
+                                _ => "NONE".to_string(),
+                            },
+                            smtp_host: acc.smtp_host,
+                            smtp_port: acc.smtp_port,
+                            smtp_security: match acc.smtp_security.as_str() {
+                                "SSL" => "SSL".to_string(),
+                                "STARTTLS" => "STARTTLS".to_string(),
+                                _ => "NONE".to_string(),
+                            },
+                            signature: acc.signature,
+                            sync_days: acc.sync_days,
+                            is_default: acc.is_default,
+                            password,
+                            oauth_provider: acc.oauth_provider,
+                            updated_at: parse_datetime_flexible(&acc.updated_at),
+                            deleted: false,
+                        }
                     })
                     .collect();
 
@@ -2045,13 +2016,43 @@ impl SyncManager {
             let existing_account = self.db.get_account_by_email(&account_config.email)
                 .map_err(|e| SyncManagerError::DatabaseError(format!("Failed to query account: {}", e)))?;
 
-            if let Some(existing) = existing_account {
-                // Update existing account (preserve password_encrypted)
-                log::info!("Updating existing account: {}", account_config.email);
+            // Re-encrypt synced password for local storage
+            let has_synced_password = account_config.password.is_some();
+            let password_encrypted = match &account_config.password {
+                Some(pw) => {
+                    log::info!("apply_accounts: Sync data has password for {} (len={}), re-encrypting for local storage", account_config.email, pw.len());
+                    match crate::crypto::encrypt_password(pw) {
+                        Ok(encrypted) => {
+                            log::info!("apply_accounts: Password re-encrypted successfully for {}", account_config.email);
+                            Some(encrypted)
+                        }
+                        Err(e) => {
+                            log::error!("apply_accounts: FAILED to re-encrypt password for {}: {}", account_config.email, e);
+                            None
+                        }
+                    }
+                }
+                None => {
+                    log::warn!("apply_accounts: Sync data has NO password for {}", account_config.email);
+                    None
+                }
+            };
 
-                // Get the current encrypted password to preserve it
-                let password_encrypted = self.db.get_account_password(existing.id)
-                    .map_err(|e| SyncManagerError::DatabaseError(format!("Failed to get password: {}", e)))?;
+            if let Some(existing) = existing_account {
+                // Update existing account
+                log::info!("Updating existing account: {} (synced_pw={}, encrypted_pw={})",
+                    account_config.email, has_synced_password, password_encrypted.is_some());
+
+                // Use synced password if available, otherwise preserve local
+                let final_password = if password_encrypted.is_some() {
+                    log::info!("apply_accounts: Using synced password for {}", account_config.email);
+                    password_encrypted.clone()
+                } else {
+                    let local_pw = self.db.get_account_password(existing.id)
+                        .map_err(|e| SyncManagerError::DatabaseError(format!("Failed to get password: {}", e)))?;
+                    log::info!("apply_accounts: Preserving local password for {} (exists={})", account_config.email, local_pw.is_some());
+                    local_pw
+                };
 
                 let updated_account = crate::db::NewAccount {
                     email: account_config.email.clone(),
@@ -2064,21 +2065,30 @@ impl SyncManager {
                     smtp_port: account_config.smtp_port,
                     smtp_security: account_config.smtp_security.clone(),
                     smtp_username: Some(account_config.email.clone()),
-                    password_encrypted, // Preserve local password
+                    password_encrypted: final_password,
                     oauth_provider: account_config.oauth_provider.clone(),
-                    oauth_access_token: None, // OAuth tokens managed separately
-                    oauth_refresh_token: existing.oauth_refresh_token.clone(), // Preserve
-                    oauth_expires_at: existing.oauth_expires_at, // Preserve
+                    oauth_access_token: None,
+                    oauth_refresh_token: existing.oauth_refresh_token.clone(),
+                    oauth_expires_at: existing.oauth_expires_at,
                     is_default: account_config.is_default,
                     signature: account_config.signature.clone(),
                     sync_days: account_config.sync_days,
-                    accept_invalid_certs: false, // Security: default to false
+                    accept_invalid_certs: false,
                 };
 
+                log::info!("apply_accounts: Writing account {} to DB (password_encrypted={})",
+                    account_config.email, updated_account.password_encrypted.is_some());
                 self.db.update_account(existing.id, &updated_account)
                     .map_err(|e| SyncManagerError::DatabaseError(format!("Failed to update account: {}", e)))?;
+
+                // Verify the password was saved
+                match self.db.get_account_password(existing.id) {
+                    Ok(Some(_)) => log::info!("apply_accounts: VERIFIED - password exists in DB for {}", account_config.email),
+                    Ok(None) => log::error!("apply_accounts: VERIFICATION FAILED - password is NULL in DB for {} after update!", account_config.email),
+                    Err(e) => log::error!("apply_accounts: VERIFICATION ERROR for {}: {}", account_config.email, e),
+                }
             } else {
-                // Create new account (OAuth-only, no password)
+                // Create new account with synced password
                 log::info!("Creating new account from sync: {}", account_config.email);
 
                 let new_account = crate::db::NewAccount {
@@ -2092,7 +2102,7 @@ impl SyncManager {
                     smtp_port: account_config.smtp_port,
                     smtp_security: account_config.smtp_security.clone(),
                     smtp_username: Some(account_config.email.clone()),
-                    password_encrypted: None, // No password in sync data
+                    password_encrypted: password_encrypted.clone(),
                     oauth_provider: account_config.oauth_provider.clone(),
                     oauth_access_token: None,
                     oauth_refresh_token: None,
@@ -2106,7 +2116,12 @@ impl SyncManager {
                 self.db.add_account(&new_account)
                     .map_err(|e| SyncManagerError::DatabaseError(format!("Failed to create account: {}", e)))?;
 
-                log::info!("✓ New account created: {} (requires OAuth or password setup)", account_config.email);
+                let has_password = password_encrypted.is_some();
+                if !has_password {
+                    log::warn!("⚠ New account created WITHOUT password: {} - user will need to enter password manually", account_config.email);
+                } else {
+                    log::info!("✓ New account created: {} (password: synced)", account_config.email);
+                }
             }
         }
 
@@ -2237,21 +2252,6 @@ fn strip_html_tags(html: &str) -> String {
         .replace("&#39;", "'")
         .trim()
         .to_string()
-}
-
-/// Conflict resolution result for bidirectional sync
-enum ConflictResolution<T> {
-    /// No conflict detected, proceed with upload
-    NoConflict,
-
-    /// Server version is newer, use it
-    UseServer(T),
-
-    /// Successfully merged both versions
-    Merged(T),
-
-    /// Cannot auto-resolve, requires user input
-    RequiresManualResolution(super::models::ConflictInfo),
 }
 
 /// Extract item count from sync data

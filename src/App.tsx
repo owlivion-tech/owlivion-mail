@@ -12,8 +12,15 @@ import { AddAccountModal } from "./components/settings/AddAccountModal";
 import SearchFiltersComponent from "./components/SearchFilters";
 import { summarizeEmail, analyzePhishing, detectEmailTracking, type PhishingAnalysis, type TrackingAnalysis } from "./services/geminiService";
 import { requestNotificationPermission, showNewEmailNotification, playNotificationSound } from "./services/notificationService";
-import { listDrafts, getDraft, deleteDraft } from "./services/draftService";
+import { listDrafts, getDraft, deleteDraft, saveDraft } from "./services/draftService";
 import type { DraftEmail, EmailAddress, Account, ImapFolder, DraftListItem, SearchFilters } from "./types";
+import { isMobile } from "./hooks/usePlatform";
+import { MobileLayout } from "./layouts/MobileLayout";
+import { MobileEmailList } from "./components/mobile/MobileEmailList";
+import { MobileEmailView } from "./components/mobile/MobileEmailView";
+import { MobileDrawer } from "./components/mobile/MobileDrawer";
+import { MobileBottomNav } from "./components/mobile/MobileBottomNav";
+import { useMobileNavigation } from "./stores/mobileNavigationStore";
 
 // Configure DOMPurify to remove dangerous content
 // SECURITY: 'style' attribute removed to prevent CSS injection attacks (e.g., expression(), url(javascript:))
@@ -113,6 +120,17 @@ interface Email {
   isDraft?: boolean;
 }
 
+
+// Parse email ID - unified inbox uses "accountId-uid" format
+function parseEmailId(id: string, selectedAccountId: number | null | 'all'): { accountId: string; uid: number } {
+  if (selectedAccountId === 'all') {
+    const dashIdx = id.indexOf('-');
+    if (dashIdx > 0) {
+      return { accountId: id.substring(0, dashIdx), uid: parseInt(id.substring(dashIdx + 1)) };
+    }
+  }
+  return { accountId: selectedAccountId?.toString() || '', uid: parseInt(id) };
+}
 
 // Helper Functions
 function formatDate(date: Date): string {
@@ -1624,6 +1642,10 @@ type Page = 'mail' | 'settings' | 'filters';
 type ComposeMode = 'new' | 'reply' | 'replyAll' | 'forward';
 
 function App() {
+  // Mobile navigation (hook must be before any conditional returns)
+  const mobileNav = useMobileNavigation();
+  const mobile = isMobile();
+
   const [currentPage, setCurrentPage] = useState<Page>('mail');
   const [activeFolder, setActiveFolder] = useState("INBOX");
   const [emails, setEmails] = useState<Email[]>([]);  // Start empty - no mock data
@@ -1676,10 +1698,11 @@ function App() {
   const [geminiApiKey, setGeminiApiKey] = useState<string | undefined>(undefined);
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
   const [autoSyncInterval, setAutoSyncInterval] = useState(5); // minutes
-  const [autoPhishingDetection, setAutoPhishingDetection] = useState(true); // Auto phishing detection enabled by default
+  const [autoPhishingDetection, setAutoPhishingDetection] = useState(true);
+  const [autoMarkReadDelay, setAutoMarkReadDelay] = useState(2); // seconds
 
-  // Load settings from localStorage on mount
-  useEffect(() => {
+  // Load settings from localStorage
+  const loadSettings = useCallback(() => {
     try {
       const saved = localStorage.getItem('owlivion-settings');
       if (saved) {
@@ -1687,12 +1710,29 @@ function App() {
         setGeminiApiKey(settings.geminiApiKey);
         setAutoSyncEnabled(settings.autoSyncEnabled ?? false);
         setAutoSyncInterval(settings.autoSyncInterval ?? 5);
-        setAutoPhishingDetection(settings.autoPhishingDetection ?? true); // Default to true for security
+        setAutoPhishingDetection(settings.autoPhishingDetection ?? true);
+        setAutoMarkReadDelay(settings.autoMarkReadDelay ?? 2);
       }
     } catch (err) {
       console.error('Failed to load settings:', err);
     }
   }, []);
+
+  // Load on mount + listen for storage changes (from Settings page)
+  useEffect(() => {
+    loadSettings();
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'owlivion-settings') loadSettings();
+    };
+    // Custom event for same-tab changes
+    const handleSettingsUpdate = () => loadSettings();
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('owlivion-settings-updated', handleSettingsUpdate);
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('owlivion-settings-updated', handleSettingsUpdate);
+    };
+  }, [loadSettings]);
 
   // Fetch folders for an account
   const fetchFolders = useCallback(async (accountId: number) => {
@@ -2323,7 +2363,7 @@ function App() {
     } finally {
       setIsSyncing(false);
     }
-  }, [selectedAccountId, fetchFolders]);
+  }, [selectedAccountId, fetchFolders, sortBy]);
 
   // Handle folder change - fetch emails from the selected IMAP folder
   const handleFolderChange = useCallback(async (folderPath: string) => {
@@ -2410,7 +2450,7 @@ function App() {
     } finally {
       setIsSyncing(false);
     }
-  }, [selectedAccountId, accounts]);
+  }, [selectedAccountId, accounts, imapFolders]);
 
   // Modal states
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -2449,11 +2489,11 @@ function App() {
     const fetchEmailContent = async () => {
       try {
         const { getEmail } = await import('./services/mailService');
-        const uid = parseInt(selectedEmail);
-        if (isNaN(uid)) return;
+        const { accountId: resolvedAccountId, uid } = parseEmailId(selectedEmail, selectedAccountId);
+        if (isNaN(uid) || !resolvedAccountId) return;
 
-        console.log('Fetching full email content for UID:', uid);
-        const fullEmail = await getEmail(selectedAccountId.toString(), uid, 'INBOX');
+        console.log('Fetching full email content for UID:', uid, 'account:', resolvedAccountId);
+        const fullEmail = await getEmail(resolvedAccountId, uid, 'INBOX');
         console.log('Full email fetched:', fullEmail);
 
         // Mark as fetched
@@ -2498,9 +2538,9 @@ function App() {
     // Otherwise, use regular filtered emails
     let result = emails;
     switch (activeFolder) {
-      case "starred": result = result.filter(e => e.starred && !e.deleted); break;
-      case "archive": result = result.filter(e => e.archived && !e.deleted); break;
-      case "trash": result = result.filter(e => e.deleted); break;
+      case "__starred__": result = result.filter(e => e.starred && !e.deleted); break;
+      case "__archive__": result = result.filter(e => e.archived && !e.deleted); break;
+      case "__trash__": result = result.filter(e => e.deleted); break;
       default: result = result.filter(e => !e.archived && !e.deleted);
     }
     return result;
@@ -2596,7 +2636,8 @@ function App() {
     // Call backend
     try {
       const { markEmailStarred } = await import('./services/mailService');
-      await markEmailStarred(selectedAccountId.toString(), parseInt(targetId), newStarred, activeFolder);
+      const { accountId: resolvedAccountId, uid } = parseEmailId(targetId, selectedAccountId);
+      await markEmailStarred(resolvedAccountId, uid, newStarred, activeFolder);
     } catch (err) {
       console.error('Failed to toggle star:', err);
       // Revert on error
@@ -2618,7 +2659,8 @@ function App() {
     // Call backend
     try {
       const { markEmailRead } = await import('./services/mailService');
-      await markEmailRead(selectedAccountId.toString(), parseInt(selectedEmail), newRead, activeFolder);
+      const { accountId: resolvedAccountId, uid } = parseEmailId(selectedEmail, selectedAccountId);
+      await markEmailRead(resolvedAccountId, uid, newRead, activeFolder);
     } catch (err) {
       console.error('Failed to toggle read:', err);
       // Revert on error
@@ -2641,7 +2683,8 @@ function App() {
     // Call backend
     try {
       const { archiveEmail } = await import('./services/mailService');
-      await archiveEmail(selectedAccountId.toString(), parseInt(selectedEmail));
+      const { accountId: resolvedAccountId, uid } = parseEmailId(selectedEmail, selectedAccountId);
+      await archiveEmail(resolvedAccountId, uid);
     } catch (err) {
       console.error('Failed to archive:', err);
       // Revert on error
@@ -2664,7 +2707,8 @@ function App() {
     // Call backend
     try {
       const { deleteEmail } = await import('./services/mailService');
-      await deleteEmail(selectedAccountId.toString(), parseInt(selectedEmail), false, activeFolder);
+      const { accountId: resolvedAccountId, uid } = parseEmailId(selectedEmail, selectedAccountId);
+      await deleteEmail(resolvedAccountId, uid, false, activeFolder);
     } catch (err) {
       console.error('Failed to delete:', err);
       // Revert on error
@@ -2780,8 +2824,12 @@ function App() {
   };
 
   const handleSaveDraft = async (draft: DraftEmail) => {
-    console.log("Saving draft:", draft);
-    // TODO: Implement draft saving
+    try {
+      await saveDraft(draft, []);
+      console.log("Draft saved successfully");
+    } catch (err) {
+      console.error("Failed to save draft:", err);
+    }
   };
 
   // Download attachment
@@ -2793,10 +2841,11 @@ function App() {
       console.log('Downloading attachment:', { attachmentIndex, filename, folder: activeFolder });
 
       // Call backend to download attachment
+      const { accountId: resolvedAccountId, uid } = parseEmailId(currentEmail.id, selectedAccountId);
       const result = await downloadAttachment(
-        selectedAccountId.toString(),
+        resolvedAccountId,
         activeFolder,
-        parseInt(currentEmail.id),
+        uid,
         attachmentIndex
       );
 
@@ -2934,6 +2983,7 @@ function App() {
       const email = emails.find(e => e.id === selectedEmail);
       if (email && !email.read) {
         const emailIdToMark = selectedEmail;
+        const delayMs = (autoMarkReadDelay ?? 2) * 1000;
         const timeoutId = setTimeout(async () => {
           // Optimistic update
           setEmails(prev => prev.map(e => e.id === emailIdToMark ? { ...e, read: true } : e));
@@ -2941,18 +2991,19 @@ function App() {
           // Call backend
           try {
             const { markEmailRead } = await import('./services/mailService');
-            await markEmailRead(selectedAccountId.toString(), parseInt(emailIdToMark), true, activeFolder);
+            const { accountId: resolvedAccountId, uid } = parseEmailId(emailIdToMark, selectedAccountId);
+            await markEmailRead(resolvedAccountId, uid, true, activeFolder);
           } catch (err) {
             console.error('Failed to mark as read:', err);
             // Revert optimistic update on failure
             setEmails(prev => prev.map(e => e.id === emailIdToMark ? { ...e, read: false } : e));
           }
-        }, 2000);
+        }, delayMs);
 
         return () => clearTimeout(timeoutId);
       }
     }
-  }, [selectedEmail, selectedAccountId, activeFolder]);
+  }, [selectedEmail, selectedAccountId, activeFolder, autoMarkReadDelay]);
 
   // Handle account added
   const handleAccountAdded = async (account: Account) => {
@@ -3025,6 +3076,178 @@ function App() {
     return <Filters onBack={() => setCurrentPage('mail')} defaultAccountId={typeof selectedAccountId === 'number' ? selectedAccountId : undefined} />;
   }
 
+  // ============================================================================
+  // Mobile Layout
+  // ============================================================================
+  if (mobile) {
+    // Apply same filtering as MailPanel for mobile
+    const mobileFilteredEmails = (() => {
+      let result = emails;
+      if (activeFolder === '__starred__') {
+        result = result.filter(e => e.starred && !e.deleted);
+      } else {
+        const isTrash = activeFolder.toLowerCase().includes('trash') || activeFolder.toLowerCase().includes('deleted');
+        if (!isTrash) result = result.filter(e => !e.deleted);
+      }
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        result = result.filter(e =>
+          e.subject.toLowerCase().includes(q) ||
+          e.from.name.toLowerCase().includes(q) ||
+          e.from.email.toLowerCase().includes(q) ||
+          e.body.toLowerCase().includes(q)
+        );
+      }
+      return result;
+    })();
+    const unreadCount = emails.filter(e => !e.read).length;
+
+    return (
+      <MobileLayout>
+        {/* Drawer */}
+        <MobileDrawer
+          accounts={accounts}
+          selectedAccountId={selectedAccountId}
+          onAccountChange={handleAccountChange}
+          imapFolders={imapFolders}
+          activeFolder={activeFolder}
+          onFolderChange={handleFolderChange}
+          onSettingsClick={() => setCurrentPage('settings')}
+          onFiltersClick={() => setCurrentPage('filters')}
+        />
+
+        {/* Screen content */}
+        <div className="flex-1 overflow-hidden">
+          {mobileNav.currentScreen.type === 'emailList' && (
+            <MobileEmailList
+              emails={mobileFilteredEmails}
+              onSelect={handleEmailSelect}
+              onSync={handleSync}
+              isSyncing={isSyncing}
+              searchQuery={searchQuery}
+              onSearchChange={handleSearchChange}
+              onToggleStar={handleToggleStar}
+              onToggleRead={(id) => {
+                setEmails(prev => prev.map(e => e.id === id ? { ...e, read: !e.read } : e));
+              }}
+              onDelete={(id) => {
+                setSelectedEmail(id);
+                handleDelete();
+              }}
+              onArchive={(id) => {
+                setSelectedEmail(id);
+                handleArchive();
+              }}
+              activeFolder={activeFolder}
+              showSearch={mobileNav.activeTab === 'search'}
+            />
+          )}
+
+          {mobileNav.currentScreen.type === 'emailDetail' && (
+            <MobileEmailView
+              email={currentEmail}
+              accountId={selectedAccountId?.toString() || null}
+              folder={activeFolder}
+              showImages={showImages}
+              isTrustedSender={isTrustedSender}
+              onLoadImages={handleLoadImages}
+              onTrustSender={handleTrustSender}
+              onReply={() => openCompose('reply')}
+              onReplyAll={() => openCompose('replyAll')}
+              onForward={() => openCompose('forward')}
+              onArchive={handleArchive}
+              onDelete={handleDelete}
+              onToggleStar={handleToggleStar}
+              onToggleRead={handleToggleRead}
+              onDownloadAttachment={handleDownloadAttachment}
+              summary={selectedEmail ? summaries[selectedEmail] || null : null}
+              onSummarize={handleSummarize}
+              isSummarizing={summarizingId === selectedEmail}
+              selectedAccountId={selectedAccountId}
+              accounts={accounts}
+            />
+          )}
+        </div>
+
+        {/* Bottom navigation (hidden when viewing email detail) */}
+        {mobileNav.currentScreen.type !== 'emailDetail' && (
+          <MobileBottomNav
+            onComposeClick={() => openCompose('new')}
+            onSettingsClick={() => setCurrentPage('settings')}
+            unreadCount={unreadCount}
+          />
+        )}
+
+        {/* Shared Modals */}
+        {currentEmail && (
+          <>
+            <AIReplyModal
+              isOpen={aiReplyOpen}
+              onClose={() => setAiReplyOpen(false)}
+              emailContent={currentEmail.body}
+              emailSubject={currentEmail.subject}
+              senderName={currentEmail.from.name}
+              apiKey={geminiApiKey}
+            />
+            <Compose
+              isOpen={composeOpen}
+              onClose={() => setComposeOpen(false)}
+              mode={composeMode}
+              originalEmail={{
+                id: parseInt(currentEmail.id),
+                accountId: 1,
+                folderId: 1,
+                messageId: currentEmail.id,
+                uid: parseInt(currentEmail.id),
+                from: currentEmail.from,
+                to: currentEmail.to,
+                cc: [],
+                bcc: [],
+                subject: currentEmail.subject,
+                preview: currentEmail.preview,
+                bodyText: currentEmail.bodyText || currentEmail.body,
+                bodyHtml: currentEmail.bodyHtml,
+                date: currentEmail.date.toISOString(),
+                isRead: currentEmail.read,
+                isStarred: currentEmail.starred,
+                isDeleted: false,
+                isSpam: false,
+                isDraft: false,
+                isAnswered: false,
+                isForwarded: false,
+                hasAttachments: currentEmail.hasAttachments,
+                hasInlineImages: currentEmail.hasImages,
+                priority: 3,
+                labels: [],
+              }}
+              onSend={handleSend}
+              onSaveDraft={handleSaveDraft}
+              defaultAccount={currentAccount}
+            />
+          </>
+        )}
+
+        {!currentEmail && composeMode === 'new' && (
+          <Compose
+            isOpen={composeOpen}
+            onClose={() => {
+              setComposeOpen(false);
+              setDraftToEdit(null);
+            }}
+            mode="new"
+            draft={draftToEdit || undefined}
+            onSend={handleSend}
+            onSaveDraft={handleSaveDraft}
+            defaultAccount={currentAccount}
+          />
+        )}
+      </MobileLayout>
+    );
+  }
+
+  // ============================================================================
+  // Desktop Layout
+  // ============================================================================
   return (
     <div className="h-screen flex bg-owl-bg">
       <MailPanel
@@ -3118,11 +3341,11 @@ function App() {
             onClose={() => setComposeOpen(false)}
             mode={composeMode}
             originalEmail={{
-              id: parseInt(currentEmail.id),
-              accountId: 1,
+              id: parseEmailId(currentEmail.id, selectedAccountId).uid,
+              accountId: parseInt(parseEmailId(currentEmail.id, selectedAccountId).accountId) || 1,
               folderId: 1,
               messageId: currentEmail.id,
-              uid: parseInt(currentEmail.id),
+              uid: parseEmailId(currentEmail.id, selectedAccountId).uid,
               from: currentEmail.from,
               to: currentEmail.to,
               cc: [],

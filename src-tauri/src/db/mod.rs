@@ -365,6 +365,26 @@ impl Database {
             conn.execute_batch(include_str!("migrations/008_add_account_priority_settings.sql"))?;
         }
 
+        // Migration 10: Sync config persistence (encryption salt etc.)
+        let has_sync_config: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='sync_config'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_sync_config {
+            log::info!("Running migration: Creating sync_config table");
+            conn.execute_batch(r#"
+                CREATE TABLE sync_config (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+            "#)?;
+        }
+
         Ok(())
     }
 
@@ -1310,7 +1330,7 @@ impl Database {
         if let Some(has_inline_images) = filters.has_inline_images {
             where_clauses.push(format!("e.has_inline_images = ?{}", param_index));
             params.push(Box::new(has_inline_images));
-            param_index += 1;
+            let _ = param_index; // Last filter, no need to increment
         }
 
         // Build SQL query
@@ -1522,7 +1542,8 @@ impl Database {
                 avatar_url = COALESCE(excluded.avatar_url, avatar_url),
                 company = COALESCE(excluded.company, company),
                 email_count = email_count + 1,
-                last_emailed_at = datetime('now')
+                last_emailed_at = datetime('now'),
+                updated_at = datetime('now')
             "#,
             params![
                 contact.account_id,
@@ -2859,6 +2880,31 @@ impl Database {
             params![last_sync_at, version, items_synced, items_changed, items_deleted, data_type],
         )?;
 
+        Ok(())
+    }
+
+    /// Get a sync config value from persistent storage
+    pub fn get_sync_config_value(&self, key: &str) -> DbResult<Option<String>> {
+        let conn = self.get_conn()?;
+        let result = conn.query_row(
+            "SELECT value FROM sync_config WHERE key = ?1",
+            params![key],
+            |row| row.get(0),
+        );
+        match result {
+            Ok(val) => Ok(Some(val)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Set a sync config value in persistent storage
+    pub fn set_sync_config_value(&self, key: &str, value: &str) -> DbResult<()> {
+        let conn = self.get_conn()?;
+        conn.execute(
+            "INSERT INTO sync_config (key, value, updated_at) VALUES (?1, ?2, datetime('now')) ON CONFLICT(key) DO UPDATE SET value = ?2, updated_at = datetime('now')",
+            params![key, value],
+        )?;
         Ok(())
     }
 

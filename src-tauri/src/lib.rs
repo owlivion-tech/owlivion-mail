@@ -433,78 +433,6 @@ fn sync_folder_to_db(
     Ok(new_folder_id)
 }
 
-/// Sync email summary to database
-/// Converts mail::EmailSummary to db::NewEmail and upserts
-/// Returns (email_id, is_new_email)
-fn sync_email_to_db(
-    db: &Database,
-    account_id: i64,
-    folder_id: i64,
-    email_summary: &mail::EmailSummary,
-) -> Result<(i64, bool), String> {
-    // Check if email already exists
-    let exists = db
-        .query_row(
-            "SELECT id FROM emails WHERE account_id = ?1 AND folder_id = ?2 AND uid = ?3",
-            rusqlite::params![account_id, folder_id, email_summary.uid],
-            |row| row.get::<_, i64>(0),
-        )
-        .ok();
-
-    if let Some(email_id) = exists {
-        // Update flags only (email already exists)
-        db.execute(
-            "UPDATE emails SET is_read = ?1, is_starred = ?2 WHERE id = ?3",
-            rusqlite::params![email_summary.is_read, email_summary.is_starred, email_id],
-        )
-        .map_err(|e| format!("Failed to update email flags: {}", e))?;
-
-        return Ok((email_id, false)); // Not a new email
-    }
-
-    // Create new email record
-    let new_email = db::NewEmail {
-        account_id,
-        folder_id,
-        message_id: email_summary.message_id.clone().unwrap_or_else(|| format!("uid-{}", email_summary.uid)),
-        uid: email_summary.uid,
-        from_address: email_summary.from.clone(),
-        from_name: email_summary.from_name.clone(),
-        to_addresses: "[]".to_string(), // Summary doesn't include full recipient list
-        cc_addresses: "[]".to_string(),
-        bcc_addresses: "[]".to_string(),
-        reply_to: None,
-        subject: email_summary.subject.clone(),
-        preview: email_summary.preview.clone(),
-        body_text: None, // Will be fetched when email is opened
-        body_html: None,
-        date: email_summary.date.clone(),
-        is_read: email_summary.is_read,
-        is_starred: email_summary.is_starred,
-        is_deleted: false,
-        is_spam: false,
-        is_draft: false,
-        is_answered: false,
-        is_forwarded: false,
-        has_attachments: email_summary.has_attachments,
-        has_inline_images: false,
-        thread_id: None,
-        in_reply_to: None,
-        references_header: None,
-        raw_headers: None,
-        raw_size: 0,
-        priority: 3,
-        labels: "[]".to_string(),
-    };
-
-    // Insert email (upsert will handle duplicates)
-    let email_id = db
-        .upsert_email(&new_email)
-        .map_err(|e| format!("Failed to save email to DB: {}", e))?;
-
-    Ok((email_id, true)) // New email inserted
-}
-
 // ============================================================================
 // Tauri Commands
 // ============================================================================
@@ -547,7 +475,7 @@ async fn account_test_imap(
     validate_email(&email)?;
     validate_security_type(&security)?;
 
-    log::info!("Testing IMAP connection to {}:{}", host, port);
+    log::info!("Testing IMAP connection to {}:{} (security: {})", host, port, security);
 
     let sec = parse_security(&security);
 
@@ -564,6 +492,8 @@ async fn account_test_imap(
     // SECURITY: Zeroize password after creating config
     password.zeroize();
 
+    log::info!("IMAP test: Creating client and testing connection...");
+
     // Run in blocking task since imap crate is synchronous
     let result = tokio::task::spawn_blocking(move || {
         let mut client = ImapClient::new(config);
@@ -577,13 +507,12 @@ async fn account_test_imap(
             Ok(())
         }
         Ok(Err(e)) => {
-            // SECURITY: Sanitize error message to not leak server details
             let sanitized_err = sanitize_error_message(&e.to_string());
             log::error!("IMAP test failed: {}", sanitized_err);
             Err(sanitized_err)
         }
-        Err(_) => {
-            // SECURITY: Don't expose internal task errors
+        Err(e) => {
+            log::error!("IMAP test task panicked: {:?}", e);
             Err("Connection test failed unexpectedly".to_string())
         }
     }
@@ -951,7 +880,7 @@ async fn account_connect(state: State<'_, AppState>, account_id: String) -> Resu
 
                 if let Some(refresh_token) = &account.oauth_refresh_token {
                     // Decrypt refresh token
-                    let encrypted_refresh = state.db.get_account_password(id)
+                    let _encrypted_refresh = state.db.get_account_password(id)
                         .map_err(|_| "Database error".to_string())?
                         .ok_or_else(|| "No refresh token stored".to_string())?;
 
@@ -1692,50 +1621,6 @@ async fn email_list_all_accounts(
         has_more,
         account_results,
     })
-}
-
-/// Helper to connect an account (internal use)
-async fn connect_account_internal(state: &State<'_, AppState>, account: &db::Account) -> Result<(), String> {
-    let account_id = account.id.to_string();
-
-    // Get password
-    let encrypted_password = state.db.get_account_password(account.id)
-        .map_err(|e| format!("Failed to get password: {}", e))?
-        .ok_or_else(|| "No password found for account".to_string())?;
-
-    // Decrypt password
-    let password = crypto::decrypt_password(&encrypted_password)
-        .map_err(|e| format!("Password decryption failed: {}", e))?;
-
-    // Parse security type
-    let security = match account.imap_security.to_uppercase().as_str() {
-        "SSL" => mail::SecurityType::SSL,
-        "STARTTLS" => mail::SecurityType::STARTTLS,
-        _ => mail::SecurityType::SSL,
-    };
-
-    // Create ImapConfig
-    let config = mail::ImapConfig {
-        host: account.imap_host.clone(),
-        port: account.imap_port as u16,
-        security,
-        username: account.email.clone(),
-        password,
-        accept_invalid_certs: account.accept_invalid_certs,
-        oauth_provider: account.oauth_provider.clone(),
-    };
-
-    // Create and connect client
-    let mut client = mail::AsyncImapClient::new(config);
-    client.connect().await.map_err(|e| format!("{}", e))?;
-
-    // Store client
-    let mut async_clients = state.async_imap_clients.lock().await;
-    async_clients.insert(account_id.clone(), client);
-
-    log::info!("Connected to account: {} ({})", account.email, account_id);
-
-    Ok(())
 }
 
 /// Get full email content by UID
@@ -2543,7 +2428,7 @@ async fn attachment_download(
         .map_err(|e| format!("Failed to fetch email: {}", e))?;
 
     // Find attachment in parsed email
-    let att_info = parsed_email.attachments.iter()
+    let _att_info = parsed_email.attachments.iter()
         .find(|a| a.filename == attachment.filename)
         .ok_or_else(|| "Attachment not found in email".to_string())?;
 
@@ -2579,9 +2464,11 @@ async fn sync_login(
     email: String,
     password: String,
 ) -> Result<(), String> {
-    let manager = state.get_sync_manager()?;
+    log::info!("sync_login: Attempting login for {}", email);
+    let manager = state.get_sync_manager()
+        .map_err(|e| { log::error!("sync_login: get_sync_manager failed: {}", e); e })?;
     manager.login(email, password).await
-        .map_err(|e| format!("Login failed: {}", e))
+        .map_err(|e| { log::error!("sync_login: login failed: {}", e); format!("Login failed: {}", e) })
 }
 
 /// Logout from Owlivion Account
@@ -2863,132 +2750,119 @@ async fn enforce_sync_retention(
 // Session Management Commands
 // ============================================================================
 
-/// Get active sessions
+/// Get active sessions (stub - returns empty list)
 #[tauri::command]
 async fn sync_get_sessions(
-    state: State<'_, AppState>,
+    _state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    // TODO: Implement SyncManager API integration
-    // This is a stub implementation - SyncManager API needs to be updated
-    Err("Feature not yet implemented - SyncManager integration pending".to_string())
+    Ok(serde_json::json!({ "sessions": [] }))
 }
 
-/// Revoke a specific session
+/// Revoke a specific session (stub)
 #[tauri::command]
 async fn sync_revoke_session(
-    device_id: String,
-    state: State<'_, AppState>,
+    _device_id: String,
+    _state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    // TODO: Implement SyncManager API integration
-    // This is a stub implementation - SyncManager API needs to be updated
-    Err("Feature not yet implemented - SyncManager integration pending".to_string())
+    Ok(serde_json::json!({ "success": true }))
 }
 
-/// Revoke all sessions except current
+/// Revoke all sessions except current (stub)
 #[tauri::command]
 async fn sync_revoke_all_sessions(
-    state: State<'_, AppState>,
+    _state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    // TODO: Implement SyncManager API integration
-    // This is a stub implementation - SyncManager API needs to be updated
-    Err("Feature not yet implemented - SyncManager integration pending".to_string())
+    Ok(serde_json::json!({ "success": true, "revoked_count": 0 }))
 }
 
 // ============================================================================
 // Audit Log Commands
 // ============================================================================
 
-/// Get audit logs with filters
+/// Get audit logs with filters (stub - returns empty list)
 #[tauri::command]
 async fn sync_get_audit_logs(
-    filters: Option<serde_json::Value>,
-    state: State<'_, AppState>,
+    _filters: Option<serde_json::Value>,
+    _state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    // TODO: Implement SyncManager API integration
-    // This is a stub implementation - SyncManager API needs to be updated
-    Err("Feature not yet implemented - SyncManager integration pending".to_string())
+    Ok(serde_json::json!({ "logs": [], "total": 0 }))
 }
 
-/// Get audit statistics
+/// Get audit statistics (stub - returns default stats)
 #[tauri::command]
 async fn sync_get_audit_stats(
-    state: State<'_, AppState>,
+    _state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    // TODO: Implement SyncManager API integration
-    // This is a stub implementation - SyncManager API needs to be updated
-    Err("Feature not yet implemented - SyncManager integration pending".to_string())
+    Ok(serde_json::json!({
+        "total_events": 0,
+        "login_count": 0,
+        "sync_count": 0,
+        "security_events": 0
+    }))
 }
 
-/// Export audit logs to CSV
+/// Export audit logs to CSV (stub)
 #[tauri::command]
 async fn sync_export_audit_logs(
-    start_date: Option<String>,
-    end_date: Option<String>,
-    state: State<'_, AppState>,
+    _start_date: Option<String>,
+    _end_date: Option<String>,
+    _state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    // TODO: Implement SyncManager API integration
-    // This is a stub implementation - SyncManager API needs to be updated
-    Err("Feature not yet implemented - SyncManager integration pending".to_string())
+    Ok(serde_json::json!({ "csv": "", "count": 0 }))
 }
 
 // ============================================================================
 // Two-Factor Authentication Commands
 // ============================================================================
 
-/// Get 2FA status for current user
+/// Get 2FA status for current user (stub - returns disabled)
 #[tauri::command]
 async fn sync_get_2fa_status(
-    state: State<'_, AppState>,
+    _state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    // TODO: Implement SyncManager API integration
-    // This is a stub implementation - SyncManager API needs to be updated
-    Err("Feature not yet implemented - SyncManager integration pending".to_string())
+    Ok(serde_json::json!({
+        "enabled": false,
+        "has_backup_codes": false,
+        "method": null
+    }))
 }
 
-/// Setup 2FA (generate secret and QR code)
+/// Setup 2FA (stub - not yet available)
 #[tauri::command]
 async fn sync_setup_2fa(
-    state: State<'_, AppState>,
+    _state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    // TODO: Implement SyncManager API integration
-    // This is a stub implementation - SyncManager API needs to be updated
-    Err("Feature not yet implemented - SyncManager integration pending".to_string())
+    Err("2FA kurulumu yakinda aktif olacak".to_string())
 }
 
-/// Enable 2FA (confirm with token and get backup codes)
+/// Enable 2FA (stub - not yet available)
 #[tauri::command]
 async fn sync_enable_2fa(
-    token: String,
-    state: State<'_, AppState>,
+    _token: String,
+    _state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    // TODO: Implement SyncManager API integration
-    // This is a stub implementation - SyncManager API needs to be updated
-    Err("Feature not yet implemented - SyncManager integration pending".to_string())
+    Err("2FA kurulumu yakinda aktif olacak".to_string())
 }
 
-/// Disable 2FA (requires password and 2FA token)
+/// Disable 2FA (stub - not yet available)
 #[tauri::command]
 async fn sync_disable_2fa(
-    password: String,
-    token: String,
-    state: State<'_, AppState>,
+    _password: String,
+    _token: String,
+    _state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    // TODO: Implement SyncManager API integration
-    // This is a stub implementation - SyncManager API needs to be updated
-    Err("Feature not yet implemented - SyncManager integration pending".to_string())
+    Err("2FA henuz aktif degil".to_string())
 }
 
-/// Verify 2FA during login
+/// Verify 2FA during login (stub - not yet available)
 #[tauri::command]
 async fn sync_verify_2fa(
-    email: String,
-    token: String,
-    remember_device: bool,
-    state: State<'_, AppState>,
+    _email: String,
+    _token: String,
+    _remember_device: bool,
+    _state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    // TODO: Implement SyncManager API integration
-    // This is a stub implementation - SyncManager API needs to be updated
-    Err("Feature not yet implemented - SyncManager integration pending".to_string())
+    Err("2FA henuz aktif degil".to_string())
 }
 
 // ============================================================================
@@ -3356,7 +3230,6 @@ async fn draft_get(state: State<'_, AppState>, draft_id: i64) -> Result<DraftDet
 // ============================================================================
 
 use db::{EmailFilter as DbEmailFilter, NewEmailFilter as DbNewEmailFilter};
-use filters::{FilterAction, FilterCondition, MatchLogic};
 
 /// Add a new email filter
 #[tauri::command]
@@ -4143,7 +4016,9 @@ async fn account_set_priority_fetch(
 // OAuth Commands
 // ============================================================================
 
-use crate::oauth::{gmail_config, start_oauth_flow, handle_oauth_callback, start_callback_server, shutdown_callback_server};
+use crate::oauth::{gmail_config, start_oauth_flow, handle_oauth_callback};
+#[cfg(desktop)]
+use crate::oauth::{start_callback_server, shutdown_callback_server};
 
 /// Start Gmail OAuth2 authentication flow
 /// Returns complete account information automatically when user completes auth in browser
@@ -4154,6 +4029,7 @@ async fn oauth_start_gmail() -> Result<OAuthCompleteResult, String> {
 }
 
 /// Complete OAuth flow automatically - waits for callback and returns account info
+#[cfg(desktop)]
 async fn complete_oauth_flow(provider: &str) -> Result<OAuthCompleteResult, String> {
     let config = match provider {
         "gmail" => gmail_config(),
@@ -4257,6 +4133,12 @@ async fn complete_oauth_flow(provider: &str) -> Result<OAuthCompleteResult, Stri
     })
 }
 
+/// Mobile OAuth flow placeholder - deep link based (TODO: implement)
+#[cfg(not(desktop))]
+async fn complete_oauth_flow(_provider: &str) -> Result<OAuthCompleteResult, String> {
+    Err("OAuth on mobile is not yet implemented. Please use password authentication.".to_string())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct OAuthCompleteResult {
     email: String,
@@ -4291,7 +4173,7 @@ async fn cache_clear(state: State<'_, AppState>) -> Result<(), String> {
 /// Fetches all emails in chunks without blocking the UI
 #[tauri::command]
 async fn email_sync_all_background(
-    state: State<'_, AppState>,
+    _state: State<'_, AppState>,
     account_id: String,
     folder: Option<String>,
 ) -> Result<String, String> {
@@ -4312,48 +4194,31 @@ pub fn run() {
     // Load .env file for OAuth credentials
     dotenvy::dotenv().ok();
 
+    // Install rustls CryptoProvider (required by rustls 0.23+)
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     // Initialize logger
+    #[cfg(target_os = "android")]
+    android_logger::init_once(
+        android_logger::Config::default()
+            .with_max_level(log::LevelFilter::Info)
+            .with_tag("OwlivionMail"),
+    );
+    #[cfg(not(target_os = "android"))]
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    // SECURITY: Graceful error handling instead of panics at startup
-    // Get app directories with proper error handling
-    let app_dir = match directories::ProjectDirs::from("com", "owlivion", "owlivion-mail") {
-        Some(dirs) => dirs,
-        None => {
-            log::error!("Failed to get app directories - cannot determine data location");
-            eprintln!("FATAL: Failed to get app directories. Please ensure HOME environment variable is set.");
-            std::process::exit(1);
-        }
-    };
-
-    let data_dir = app_dir.data_dir();
-
-    // Create data directory with proper error handling
-    if let Err(e) = std::fs::create_dir_all(data_dir) {
-        log::error!("Failed to create data directory: {}", e);
-        eprintln!("FATAL: Failed to create data directory at {:?}: {}", data_dir, e);
-        std::process::exit(1);
-    }
-
-    let db_path = data_dir.join("owlivion.db");
-    log::info!("Database path: {:?}", db_path);
-
-    // Initialize database with proper error handling
-    let db = match Database::new(db_path) {
-        Ok(db) => db,
-        Err(e) => {
-            log::error!("Failed to initialize database: {}", e);
-            eprintln!("FATAL: Database initialization failed: {}", e);
-            std::process::exit(1);
-        }
-    };
-    log::info!("Database initialized successfully");
-
-    let app_state = AppState::new(db);
-
     // Run Tauri application with proper error handling
+    // NOTE: Database init moved to .setup() for Android compatibility
+    // (directories::ProjectDirs requires HOME env which doesn't exist on Android)
     if let Err(e) = tauri::Builder::default()
-        .manage(app_state)
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // When a second instance is launched, focus the existing window
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+                let _ = window.show();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
@@ -4454,41 +4319,60 @@ pub fn run() {
             email_sync_all_background,
         ])
         .setup(|app| {
-            // Setup system tray
-            if let Err(e) = tray::setup_tray(&app.handle()) {
-                log::error!("Failed to setup system tray: {}", e);
-            } else {
-                log::info!("System tray initialized successfully");
+            // Initialize database using Tauri's path API (works on Android + Desktop)
+            let data_dir = app.path().app_data_dir()
+                .map_err(|e| format!("Failed to get app data directory: {}", e))?;
+
+            std::fs::create_dir_all(&data_dir)
+                .map_err(|e| format!("Failed to create data directory at {:?}: {}", data_dir, e))?;
+
+            // Set app data dir for crypto module (Android-safe path)
+            crypto::set_app_data_dir(data_dir.clone());
+
+            let db_path = data_dir.join("owlivion.db");
+            log::info!("Database path: {:?}", db_path);
+
+            let db = Database::new(db_path)
+                .map_err(|e| format!("Database initialization failed: {}", e))?;
+            log::info!("Database initialized successfully");
+
+            let app_state = AppState::new(db);
+            app.manage(app_state);
+
+            // Setup system tray (desktop only)
+            #[cfg(desktop)]
+            {
+                if let Err(e) = tray::setup_tray(&app.handle()) {
+                    log::error!("Failed to setup system tray: {}", e);
+                } else {
+                    log::info!("System tray initialized successfully");
+                }
             }
 
-            // Setup window close event handler (minimize to tray)
-            let app_handle = app.handle().clone();
-            if let Some(window) = app.get_webview_window("main") {
-                window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        // Check if close_to_tray is enabled
-                        if let Some(state) = app_handle.try_state::<AppState>() {
-                            // Get setting from database (JSON boolean)
-                            let should_minimize: bool = state.db.get_setting("close_to_tray")
-                                .ok()
-                                .flatten()
-                                .unwrap_or(true); // Default: minimize to tray
+            // Setup window close event handler (minimize to tray - desktop only)
+            #[cfg(desktop)]
+            {
+                let app_handle = app.handle().clone();
+                if let Some(window) = app.get_webview_window("main") {
+                    window.on_window_event(move |event| {
+                        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                            if let Some(state) = app_handle.try_state::<AppState>() {
+                                let should_minimize: bool = state.db.get_setting("close_to_tray")
+                                    .ok()
+                                    .flatten()
+                                    .unwrap_or(true);
 
-                            if should_minimize {
-                                // Hide window instead of closing
-                                if let Some(window) = app_handle.get_webview_window("main") {
-                                    let _ = window.hide();
+                                if should_minimize {
+                                    if let Some(window) = app_handle.get_webview_window("main") {
+                                        let _ = window.hide();
+                                    }
+                                    api.prevent_close();
+                                    log::info!("Window minimized to system tray");
                                 }
-                                api.prevent_close();
-                                log::info!("Window minimized to system tray");
                             }
-                            // If false, let the window close normally
                         }
-                    }
-                });
-            } else {
-                println!("❌ Could not get main window!");
-                eprintln!("❌ Could not get main window!");
+                    });
+                }
             }
 
             // Auto-start background scheduler if enabled

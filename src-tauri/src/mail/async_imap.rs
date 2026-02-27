@@ -10,8 +10,33 @@ use async_imap::{Authenticator, Session};
 use futures::{pin_mut, StreamExt};
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use mail_parser::MimeHeaders;
+use std::sync::Arc;
 
-/// XOAUTH2 Authenticator for Gmail OAuth
+/// Create a sync rustls TLS stream for use in spawn_blocking (OAuth sessions)
+fn create_sync_rustls_stream(host: &str, port: u16) -> MailResult<rustls::StreamOwned<rustls::ClientConnection, std::net::TcpStream>> {
+    let mut root_store = rustls::RootCertStore::empty();
+    root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+
+    let config = rustls::ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+
+    let server_name = rustls::pki_types::ServerName::try_from(host.to_string())
+        .map_err(|e| MailError::Connection(format!("Invalid server name: {}", e)))?;
+
+    let conn = rustls::ClientConnection::new(Arc::new(config), server_name)
+        .map_err(|e| MailError::Connection(format!("TLS error: {}", e)))?;
+
+    let stream = std::net::TcpStream::connect((host, port))
+        .map_err(|e| MailError::Connection(format!("IMAP connection failed: {}", e)))?;
+    stream.set_read_timeout(Some(std::time::Duration::from_secs(30))).ok();
+    stream.set_write_timeout(Some(std::time::Duration::from_secs(30))).ok();
+
+    Ok(rustls::StreamOwned::new(conn, stream))
+}
+
+/// XOAUTH2 Authenticator for Gmail OAuth (will be used when async OAuth flow is implemented)
+#[allow(dead_code)]
 struct XOAuth2 {
     user: String,
     access_token: String,
@@ -52,6 +77,7 @@ impl imap::Authenticator for SyncXOAuth2 {
 const MAX_SEARCH_QUERY_LENGTH: usize = 200;
 
 /// Helper macro for methods not yet implemented for OAuth
+#[allow(unused_macros)]
 macro_rules! oauth_not_implemented {
     () => {
         return Err(MailError::Imap(
@@ -161,7 +187,8 @@ fn decode_quoted_printable(input: &str) -> String {
     String::from_utf8(result).unwrap_or_else(|_| input.to_string())
 }
 
-type TlsStream = async_native_tls::TlsStream<tokio_util::compat::Compat<tokio::net::TcpStream>>;
+// tokio-rustls TlsStream wrapped with Compat for futures::io compatibility with async-imap
+type TlsStream = tokio_util::compat::Compat<tokio_rustls::client::TlsStream<tokio::net::TcpStream>>;
 
 /// Session type enum - supports both async and sync sessions
 enum ImapSession {
@@ -202,26 +229,19 @@ impl AsyncImapClient {
     /// This creates a fresh sync IMAP connection, authenticates, runs the function, and logs out
     async fn with_oauth_session<F, T>(&self, operation: F) -> MailResult<T>
     where
-        F: FnOnce(&mut imap::Session<native_tls::TlsStream<std::net::TcpStream>>) -> Result<T, Box<dyn std::error::Error + Send + Sync>> + Send + 'static,
+        F: FnOnce(&mut imap::Session<rustls::StreamOwned<rustls::ClientConnection, std::net::TcpStream>>) -> Result<T, Box<dyn std::error::Error + Send + Sync>> + Send + 'static,
         T: Send + 'static,
     {
         let host = self.config.host.clone();
         let username = self.config.username.clone();
         let access_token = self.config.password.clone();
-        let accept_invalid_certs = self.config.accept_invalid_certs;
 
         tokio::task::spawn_blocking(move || {
-            // Create TLS connector
-            let mut tls_builder = native_tls::TlsConnector::builder();
-            if accept_invalid_certs {
-                tls_builder.danger_accept_invalid_certs(true);
-            }
-            let tls = tls_builder.build()
-                .map_err(|e| MailError::Connection(format!("TLS error: {}", e)))?;
+            // Create rustls TLS connection
+            let tls_stream = create_sync_rustls_stream(&host, 993)?;
 
             // Connect
-            let client = imap::connect((host.as_str(), 993), host.as_str(), &tls)
-                .map_err(|e| MailError::Connection(format!("IMAP connection failed: {}", e)))?;
+            let client = imap::Client::new(tls_stream);
 
             // Authenticate
             let auth = SyncXOAuth2 {
@@ -247,100 +267,45 @@ impl AsyncImapClient {
         .map_err(|e| MailError::Connection(format!("Spawn blocking error: {}", e)))?
     }
 
+    /// Create an async tokio-rustls TLS stream
+    async fn create_async_tls_stream(host: &str, address: &str) -> MailResult<TlsStream> {
+        let mut root_store = rustls::RootCertStore::empty();
+        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+
+        let config = rustls::ClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+
+        let connector = tokio_rustls::TlsConnector::from(Arc::new(config));
+
+        let server_name = rustls::pki_types::ServerName::try_from(host.to_string())
+            .map_err(|e| MailError::Connection(format!("Invalid server name: {}", e)))?;
+
+        let stream = tokio::net::TcpStream::connect(address)
+            .await
+            .map_err(|e| MailError::Connection(e.to_string()))?;
+
+        let tls_stream = connector
+            .connect(server_name, stream)
+            .await
+            .map_err(|e| MailError::Connection(format!("TLS handshake failed: {}", e)))?;
+
+        // Wrap with Compat for futures::io compatibility (async-imap uses futures IO traits)
+        Ok(TokioAsyncReadCompatExt::compat(tls_stream))
+    }
+
     /// Connect to the IMAP server
     pub async fn connect(&mut self) -> MailResult<()> {
-        // Configure TLS based on account settings
-        let tls = if self.config.accept_invalid_certs {
-            log::warn!("⚠️  Accepting invalid SSL certificates for {}", self.config.host);
-            async_native_tls::TlsConnector::new()
-                .danger_accept_invalid_certs(true)
-        } else {
-            async_native_tls::TlsConnector::new()
-        };
-
         let address = format!("{}:{}", self.config.host, self.config.port);
 
         match self.config.security {
             SecurityType::SSL => {
-                // Direct TLS connection (port 993)
-                let stream = tokio::net::TcpStream::connect(&address)
-                    .await
-                    .map_err(|e| MailError::Connection(e.to_string()))?;
-
-                // Convert to futures-io compatible stream
-                let compat_stream = stream.compat();
-
-                let tls_stream = tls
-                    .connect(&self.config.host, compat_stream)
-                    .await
-                    .map_err(|e| MailError::Connection(e.to_string()))?;
-
+                let tls_stream = Self::create_async_tls_stream(&self.config.host, &address).await?;
                 let client = async_imap::Client::new(tls_stream);
 
-                // Use OAuth2 XOAUTH2 authentication for OAuth accounts
                 if self.config.oauth_provider.is_some() {
-                    log::info!("Using synchronous rust-imap for OAuth2 XOAUTH2 authentication: {}", self.config.username);
-
-                    // Use synchronous imap library in spawn_blocking for OAuth
-                    // This is proven to work with Gmail OAuth2
-                    let host = self.config.host.clone();
-                    let username = self.config.username.clone();
-                    let access_token = self.config.password.clone();
-                    let accept_invalid_certs = self.config.accept_invalid_certs;
-
-                    tokio::task::spawn_blocking(move || {
-                        log::info!("OAuth2: Connecting to {}:993...", host);
-
-                        // Create TLS connector
-                        let mut tls_builder = native_tls::TlsConnector::builder();
-                        if accept_invalid_certs {
-                            log::warn!("⚠️  Accepting invalid SSL certificates for OAuth connection");
-                            tls_builder.danger_accept_invalid_certs(true);
-                        }
-                        let tls = tls_builder.build()
-                            .map_err(|e| MailError::Connection(format!("TLS error: {}", e)))?;
-
-                        // Connect using synchronous imap
-                        let client = imap::connect((host.as_str(), 993), host.as_str(), &tls)
-                            .map_err(|e| MailError::Connection(format!("IMAP connection failed: {}", e)))?;
-
-                        log::info!("OAuth2: Connected, authenticating with XOAUTH2...");
-
-                        // Create OAuth2 authenticator
-                        let auth = SyncXOAuth2 {
-                            user: username.clone(),
-                            access_token: access_token.clone(),
-                        };
-
-                        // Authenticate
-                        let mut session = client.authenticate("XOAUTH2", &auth)
-                            .map_err(|(err, _client)| {
-                                log::error!("OAuth2 authentication failed: {:?}", err);
-                                MailError::Authentication(format!("OAuth2 authentication failed: {}. Try removing and re-adding the account.", err))
-                            })?;
-
-                        log::info!("✓ OAuth2 authentication successful for {}", username);
-
-                        // Test connection by selecting INBOX
-                        session.select("INBOX")
-                            .map_err(|e| MailError::Connection(format!("Failed to select INBOX: {}", e)))?;
-
-                        log::info!("✓ INBOX selected successfully");
-
-                        // Logout from sync session
-                        let _ = session.logout();
-
-                        Ok::<(), MailError>(())
-                    })
-                    .await
-                    .map_err(|e| MailError::Connection(format!("Spawn blocking error: {}", e)))??;
-
-                    // OAuth authenticated successfully - use special OAuth session type
-                    // Operations will use spawn_blocking with fresh sync connections
-                    log::info!("OAuth session established for {}", self.config.username);
-                    self.session = Some(ImapSession::OAuth(()));
+                    self.connect_oauth_sync().await?;
                 } else {
-                    // Regular password authentication
                     let session = client
                         .login(&self.config.username, &self.config.password)
                         .await
@@ -350,85 +315,14 @@ impl AsyncImapClient {
                 }
             }
             SecurityType::STARTTLS => {
-                // For STARTTLS, fallback to SSL on port 993
+                // Fallback to SSL on port 993
                 let ssl_address = format!("{}:993", self.config.host);
-                let stream = tokio::net::TcpStream::connect(&ssl_address)
-                    .await
-                    .map_err(|e| MailError::Connection(e.to_string()))?;
-
-                let compat_stream = stream.compat();
-
-                let tls_stream = tls
-                    .connect(&self.config.host, compat_stream)
-                    .await
-                    .map_err(|e| MailError::Connection(e.to_string()))?;
-
+                let tls_stream = Self::create_async_tls_stream(&self.config.host, &ssl_address).await?;
                 let client = async_imap::Client::new(tls_stream);
 
-                // Use OAuth2 XOAUTH2 authentication for OAuth accounts
                 if self.config.oauth_provider.is_some() {
-                    log::info!("Using synchronous rust-imap for OAuth2 XOAUTH2 authentication: {}", self.config.username);
-
-                    // Use synchronous imap library in spawn_blocking for OAuth
-                    // This is proven to work with Gmail OAuth2
-                    let host = self.config.host.clone();
-                    let username = self.config.username.clone();
-                    let access_token = self.config.password.clone();
-                    let accept_invalid_certs = self.config.accept_invalid_certs;
-
-                    tokio::task::spawn_blocking(move || {
-                        log::info!("OAuth2: Connecting to {}:993...", host);
-
-                        // Create TLS connector
-                        let mut tls_builder = native_tls::TlsConnector::builder();
-                        if accept_invalid_certs {
-                            log::warn!("⚠️  Accepting invalid SSL certificates for OAuth connection");
-                            tls_builder.danger_accept_invalid_certs(true);
-                        }
-                        let tls = tls_builder.build()
-                            .map_err(|e| MailError::Connection(format!("TLS error: {}", e)))?;
-
-                        // Connect using synchronous imap
-                        let client = imap::connect((host.as_str(), 993), host.as_str(), &tls)
-                            .map_err(|e| MailError::Connection(format!("IMAP connection failed: {}", e)))?;
-
-                        log::info!("OAuth2: Connected, authenticating with XOAUTH2...");
-
-                        // Create OAuth2 authenticator
-                        let auth = SyncXOAuth2 {
-                            user: username.clone(),
-                            access_token: access_token.clone(),
-                        };
-
-                        // Authenticate
-                        let mut session = client.authenticate("XOAUTH2", &auth)
-                            .map_err(|(err, _client)| {
-                                log::error!("OAuth2 authentication failed: {:?}", err);
-                                MailError::Authentication(format!("OAuth2 authentication failed: {}. Try removing and re-adding the account.", err))
-                            })?;
-
-                        log::info!("✓ OAuth2 authentication successful for {}", username);
-
-                        // Test connection by selecting INBOX
-                        session.select("INBOX")
-                            .map_err(|e| MailError::Connection(format!("Failed to select INBOX: {}", e)))?;
-
-                        log::info!("✓ INBOX selected successfully");
-
-                        // Logout from sync session
-                        let _ = session.logout();
-
-                        Ok::<(), MailError>(())
-                    })
-                    .await
-                    .map_err(|e| MailError::Connection(format!("Spawn blocking error: {}", e)))??;
-
-                    // OAuth authenticated successfully - use special OAuth session type
-                    // Operations will use spawn_blocking with fresh sync connections
-                    log::info!("OAuth session established for {}", self.config.username);
-                    self.session = Some(ImapSession::OAuth(()));
+                    self.connect_oauth_sync().await?;
                 } else {
-                    // Regular password authentication
                     let session = client
                         .login(&self.config.username, &self.config.password)
                         .await
@@ -438,34 +332,58 @@ impl AsyncImapClient {
                 }
             }
             SecurityType::NONE => {
-                // SECURITY WARNING: Unencrypted connection
-                log::warn!("⚠️  CRITICAL SECURITY WARNING: Connecting without encryption!");
-                log::warn!("⚠️  Credentials will be sent in PLAIN TEXT over the network!");
-
-                // Try to connect without TLS (plain TCP)
-                // Note: Most modern email servers don't support this
-                let stream = tokio::net::TcpStream::connect(&address)
-                    .await
-                    .map_err(|e| MailError::Connection(format!("Plain connection failed: {}. Most email servers require SSL/TLS encryption. Try using SSL (port 993) or STARTTLS (port 143) instead.", e)))?;
-
-                let compat_stream = stream.compat();
-                let client = async_imap::Client::new(compat_stream);
-
-                // Try to login without encryption
-                let session = client
-                    .login(&self.config.username, &self.config.password)
-                    .await
-                    .map_err(|e| MailError::Authentication(format!("Authentication failed on unencrypted connection: {}. Server may not support plain text login.", e.0)))?;
-
-                // Store session (this won't compile as-is, need to handle different types)
-                // For now, return error with suggestion
                 return Err(MailError::Connection(
-                    "Unencrypted connections are not fully supported yet. Please use SSL/TLS or STARTTLS. If your server has a self-signed certificate, the app now accepts those automatically.".to_string(),
+                    "Unencrypted connections are not supported. Please use SSL/TLS or STARTTLS.".to_string(),
                 ));
             }
         }
 
         log::info!("Async IMAP connected to: {}", self.config.host);
+        Ok(())
+    }
+
+    /// Connect using OAuth2 via sync imap in spawn_blocking (with rustls)
+    async fn connect_oauth_sync(&mut self) -> MailResult<()> {
+        log::info!("Using synchronous rust-imap for OAuth2 XOAUTH2 authentication: {}", self.config.username);
+
+        let host = self.config.host.clone();
+        let username = self.config.username.clone();
+        let access_token = self.config.password.clone();
+
+        tokio::task::spawn_blocking(move || {
+            log::info!("OAuth2: Connecting to {}:993...", host);
+
+            let tls_stream = create_sync_rustls_stream(&host, 993)?;
+            let client = imap::Client::new(tls_stream);
+
+            log::info!("OAuth2: Connected, authenticating with XOAUTH2...");
+
+            let auth = SyncXOAuth2 {
+                user: username.clone(),
+                access_token: access_token.clone(),
+            };
+
+            let mut session = client.authenticate("XOAUTH2", &auth)
+                .map_err(|(err, _client)| {
+                    log::error!("OAuth2 authentication failed: {:?}", err);
+                    MailError::Authentication(format!("OAuth2 authentication failed: {}. Try removing and re-adding the account.", err))
+                })?;
+
+            log::info!("OAuth2 authentication successful for {}", username);
+
+            session.select("INBOX")
+                .map_err(|e| MailError::Connection(format!("Failed to select INBOX: {}", e)))?;
+
+            log::info!("INBOX selected successfully");
+
+            let _ = session.logout();
+            Ok::<(), MailError>(())
+        })
+        .await
+        .map_err(|e| MailError::Connection(format!("Spawn blocking error: {}", e)))??;
+
+        log::info!("OAuth session established for {}", self.config.username);
+        self.session = Some(ImapSession::OAuth(()));
         Ok(())
     }
 

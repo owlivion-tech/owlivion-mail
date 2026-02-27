@@ -4,6 +4,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useShortcut } from '../hooks/useKeyboardShortcuts';
+import { isMobile } from '../hooks/usePlatform';
 import { AccountSettings } from '../components/settings/AccountSettings';
 import { GeneralSettings } from '../components/settings/GeneralSettings';
 import { AISettings } from '../components/settings/AISettings';
@@ -146,7 +147,8 @@ const defaultSettings: SettingsType = {
 };
 
 export function Settings({ onBack }: SettingsProps) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('accounts');
+  const mobile = isMobile();
+  const [activeTab, setActiveTab] = useState<SettingsTab | null>(mobile ? null : 'accounts');
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [settings, setSettings] = useState<SettingsType>(defaultSettings);
 
@@ -200,7 +202,7 @@ export function Settings({ onBack }: SettingsProps) {
     setSettings(newSettings);
     try {
       localStorage.setItem('owlivion-settings', JSON.stringify(newSettings));
-      console.log('Settings saved to localStorage');
+      window.dispatchEvent(new Event('owlivion-settings-updated'));
     } catch (err) {
       console.error('Failed to save settings:', err);
     }
@@ -209,6 +211,120 @@ export function Settings({ onBack }: SettingsProps) {
   // Close on Escape
   useShortcut('Escape', onBack, { enabled: true });
 
+  // Render the content area for the active tab
+  const renderContent = () => (
+    <>
+      {activeTab === 'accounts' && (
+        <AccountSettings accounts={accounts} onAccountsChange={setAccounts} />
+      )}
+      {activeTab === 'general' && (
+        <GeneralSettings settings={settings} onSettingsChange={handleSettingsChange} />
+      )}
+      {activeTab === 'ai' && (
+        <AISettings settings={settings} onSettingsChange={handleSettingsChange} />
+      )}
+      {activeTab === 'shortcuts' && <ShortcutsSettings />}
+      {activeTab === 'signatures' && (
+        <SignatureSettings accounts={accounts} onAccountsChange={setAccounts} />
+      )}
+      {activeTab === 'sync' && <SyncSettings onNavigateToMail={onBack} />}
+      {activeTab === 'filters' && <FilterSettings accounts={accounts} />}
+      {activeTab === 'templates' && <TemplateSettings accounts={accounts} />}
+      {activeTab === 'security' && (
+        <div className="space-y-8">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+              Güvenlik & Aktivite
+            </h2>
+            <p className="text-gray-600 dark:text-gray-400">
+              Hesap güvenliğinizi yönetin ve aktivitelerinizi takip edin
+            </p>
+          </div>
+          <ActiveSessions />
+          <hr className="border-gray-200 dark:border-gray-700" />
+          <div>
+            <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+              Aktivite İstatistikleri
+            </h3>
+            <AuditStatsComponent />
+          </div>
+          <hr className="border-gray-200 dark:border-gray-700" />
+          <AuditLogViewer />
+        </div>
+      )}
+    </>
+  );
+
+  // ===== MOBILE LAYOUT: Stack navigation (tab list -> tab content) =====
+  if (mobile) {
+    // Show tab content full-screen
+    if (activeTab) {
+      const currentTab = TABS.find(t => t.id === activeTab);
+      return (
+        <div className="fixed inset-0 z-50 flex flex-col bg-owl-bg">
+          {/* Top bar */}
+          <div className="flex items-center gap-3 px-4 py-3 border-b border-owl-border bg-owl-surface safe-area-top">
+            <button
+              onClick={() => setActiveTab(null)}
+              className="p-2 text-owl-text-secondary active:text-owl-text rounded-lg active:bg-owl-surface-2"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+            </button>
+            <h1 className="text-lg font-semibold text-owl-text">{currentTab?.label || 'Ayarlar'}</h1>
+          </div>
+          {/* Full-screen content */}
+          <div className="flex-1 overflow-y-auto">
+            <div className="p-4 pb-20">
+              {renderContent()}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Show tab list full-screen
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col bg-owl-bg">
+        {/* Top bar */}
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-owl-border bg-owl-surface safe-area-top">
+          <button
+            onClick={onBack}
+            className="p-2 text-owl-text-secondary active:text-owl-text rounded-lg active:bg-owl-surface-2"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+          </button>
+          <h1 className="text-lg font-semibold text-owl-text">Ayarlar</h1>
+        </div>
+        {/* Tab list */}
+        <div className="flex-1 overflow-y-auto">
+          <nav className="p-3 space-y-1">
+            {TABS.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className="w-full flex items-center gap-4 px-4 py-4 rounded-xl text-left text-owl-text-secondary active:bg-owl-surface-2 active:text-owl-text transition-colors"
+              >
+                {tab.icon}
+                <span className="font-medium text-base">{tab.label}</span>
+                <svg className="w-4 h-4 ml-auto opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            ))}
+          </nav>
+          <div className="p-4 mt-4">
+            <p className="text-xs text-owl-text-secondary text-center">Owlivion Mail v1.0.0</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ===== DESKTOP LAYOUT: Sidebar + Content =====
   return (
     <div className="fixed inset-0 z-50 flex bg-owl-bg">
       {/* Sidebar */}
@@ -249,7 +365,7 @@ export function Settings({ onBack }: SettingsProps) {
         {/* Footer */}
         <div className="p-4 border-t border-owl-border">
           <p className="text-xs text-owl-text-secondary text-center">
-            Owlivion Mail v0.1.0
+            Owlivion Mail v1.0.0
           </p>
         </div>
       </div>
@@ -257,61 +373,7 @@ export function Settings({ onBack }: SettingsProps) {
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto p-8">
-          {activeTab === 'accounts' && (
-            <AccountSettings
-              accounts={accounts}
-              onAccountsChange={setAccounts}
-            />
-          )}
-          {activeTab === 'general' && (
-            <GeneralSettings
-              settings={settings}
-              onSettingsChange={handleSettingsChange}
-            />
-          )}
-          {activeTab === 'ai' && (
-            <AISettings
-              settings={settings}
-              onSettingsChange={handleSettingsChange}
-            />
-          )}
-          {activeTab === 'shortcuts' && <ShortcutsSettings />}
-          {activeTab === 'signatures' && (
-            <SignatureSettings
-              accounts={accounts}
-              onAccountsChange={setAccounts}
-            />
-          )}
-          {activeTab === 'sync' && <SyncSettings />}
-          {activeTab === 'filters' && <FilterSettings accounts={accounts} />}
-          {activeTab === 'templates' && <TemplateSettings accounts={accounts} />}
-          {activeTab === 'security' && (
-            <div className="space-y-8">
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-                  Güvenlik & Aktivite
-                </h2>
-                <p className="text-gray-600 dark:text-gray-400">
-                  Hesap güvenliğinizi yönetin ve aktivitelerinizi takip edin
-                </p>
-              </div>
-
-              <ActiveSessions />
-
-              <hr className="border-gray-200 dark:border-gray-700" />
-
-              <div>
-                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                  Aktivite İstatistikleri
-                </h3>
-                <AuditStatsComponent />
-              </div>
-
-              <hr className="border-gray-200 dark:border-gray-700" />
-
-              <AuditLogViewer />
-            </div>
-          )}
+          {renderContent()}
         </div>
       </div>
     </div>

@@ -78,6 +78,7 @@ pub struct SyncPayload {
 }
 
 /// Wrapper for sensitive key data that zeroizes on drop
+#[allow(dead_code)]
 struct SecureKey([u8; 32]);
 
 impl Drop for SecureKey {
