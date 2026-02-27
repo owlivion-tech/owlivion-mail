@@ -1,0 +1,31 @@
+PackageIdentifier: Owlivion.OwlivionMail
+PackageVersion: 1.0.0
+PackageLocale: en-US
+Publisher: Owlivion
+PublisherUrl: https://owlivion.com
+PublisherSupportUrl: https://github.com/babafpv/owlivion-mail/issues
+PrivacyUrl: https://owlivion.com/privacy/
+PackageName: Owlivion Mail
+PackageUrl: https://owlivion.com/mail/
+License: MIT
+LicenseUrl: https://github.com/babafpv/owlivion-mail/blob/main/LICENSE
+ShortDescription: Privacy-first desktop email client with AI phishing detection
+Description: >-
+  Owlivion Mail is a lightweight, privacy-first desktop email client built with
+  Tauri. Features include AI-powered phishing detection, tracking pixel blocking,
+  AES-256-GCM encryption, and support for 40+ email providers. Zero telemetry,
+  zero tracking. Your inbox, your rules, your privacy.
+Tags:
+  - email
+  - mail
+  - privacy
+  - encryption
+  - phishing-detection
+  - open-source
+Installers:
+  - Architecture: x64
+    InstallerType: msi
+    InstallerUrl: https://github.com/babafpv/owlivion-mail/releases/download/v1.0.0/Owlivion.Mail_1.0.0_x64_en-US.msi
+    InstallerSha256: REPLACE_WITH_ACTUAL_SHA256
+ManifestType: singleton
+ManifestVersion: 1.6.0

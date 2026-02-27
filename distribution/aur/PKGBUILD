@@ -1,0 +1,22 @@
+# Maintainer: Berkan Cetinel <hello@owlivion.com>
+pkgname=owlivion-mail-bin
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Privacy-first desktop email client with AI phishing detection"
+arch=('x86_64')
+url="https://owlivion.com/mail/"
+license=('MIT')
+depends=('webkit2gtk' 'gtk3' 'libappindicator-gtk3' 'openssl')
+provides=('owlivion-mail')
+conflicts=('owlivion-mail')
+source=("https://github.com/babafpv/owlivion-mail/releases/download/v${pkgver}/owlivion-mail_${pkgver}_amd64.deb")
+sha256sums=('REPLACE_WITH_ACTUAL_SHA256')
+
+package() {
+    # Extract deb package
+    bsdtar -xf "${srcdir}/data.tar.gz" -C "${pkgdir}/"
+
+    # Install license
+    install -Dm644 "${pkgdir}/usr/share/doc/owlivion-mail/copyright" \
+        "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

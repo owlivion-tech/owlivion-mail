@@ -1,0 +1,21 @@
+# Android NDK cross-compilation configuration
+# NDK 27.0.12077973 with API level 26 (minSdk)
+
+[target.aarch64-linux-android]
+linker = "/home/owlivion/Android/Sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang"
+
+[target.armv7-linux-androideabi]
+linker = "/home/owlivion/Android/Sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi26-clang"
+
+[target.i686-linux-android]
+linker = "/home/owlivion/Android/Sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/i686-linux-android26-clang"
+
+[target.x86_64-linux-android]
+linker = "/home/owlivion/Android/Sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android26-clang"
+
+[env]
+# Required for ring crate compilation on Android targets
+CC_aarch64-linux-android = "/home/owlivion/Android/Sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang"
+AR_aarch64-linux-android = "/home/owlivion/Android/Sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+CC_armv7-linux-androideabi = "/home/owlivion/Android/Sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi26-clang"
+AR_armv7-linux-androideabi = "/home/owlivion/Android/Sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"

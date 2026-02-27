@@ -25,12 +25,28 @@ dist-ssr
 
 # Tauri
 src-tauri/target/
+src-tauri/gen/
+src-tauri/.tauri_updater_key
+src-tauri/.cargo/
 
-# Environment
+# Native Rust core (UniFFI)
+rust/owlivion-core/target/
+
+# KMP Mobile build artifacts
+owlivion-mobile/.gradle/
+owlivion-mobile/.kotlin/
+owlivion-mobile/build/
+owlivion-mobile/*/build/
+owlivion-mobile/local.properties
+
+# Environment & Secrets
 .env
 .env.local
 *.pem
 *.key
+
+# Claude Code
+.claude/settings.local.json
 
 # Personal signatures
 signatures/

@@ -1,0 +1,40 @@
+{
+  "app-id": "com.owlivion.mail",
+  "runtime": "org.freedesktop.Platform",
+  "runtime-version": "23.08",
+  "sdk": "org.freedesktop.Sdk",
+  "command": "owlivion-mail",
+  "finish-args": [
+    "--share=ipc",
+    "--socket=fallback-x11",
+    "--socket=wayland",
+    "--share=network",
+    "--device=dri",
+    "--talk-name=org.freedesktop.Notifications",
+    "--talk-name=org.kde.StatusNotifierWatcher",
+    "--talk-name=org.freedesktop.secrets",
+    "--filesystem=xdg-config/owlivion-mail:create",
+    "--filesystem=xdg-data/owlivion-mail:create"
+  ],
+  "modules": [
+    {
+      "name": "owlivion-mail",
+      "buildsystem": "simple",
+      "build-commands": [
+        "install -Dm755 owlivion-mail /app/bin/owlivion-mail",
+        "install -Dm644 owlivion-mail.desktop /app/share/applications/com.owlivion.mail.desktop",
+        "install -Dm644 icon-128.png /app/share/icons/hicolor/128x128/apps/com.owlivion.mail.png",
+        "install -Dm644 icon-256.png /app/share/icons/hicolor/256x256/apps/com.owlivion.mail.png",
+        "install -Dm644 icon-512.png /app/share/icons/hicolor/512x512/apps/com.owlivion.mail.png"
+      ],
+      "sources": [
+        {
+          "type": "archive",
+          "url": "https://github.com/babafpv/owlivion-mail/releases/download/v1.0.0/Owlivion.Mail_1.0.0_amd64.AppImage",
+          "sha256": "REPLACE_WITH_ACTUAL_SHA256",
+          "strip-components": 0
+        }
+      ]
+    }
+  ]
+}

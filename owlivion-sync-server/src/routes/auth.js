@@ -147,7 +147,7 @@ router.post('/login', authLimiter, loginValidation, async (req, res, next) => {
 
     // 1. Find user by email
     const userResult = await client.query(
-      'SELECT id, email, password_hash, is_active, two_factor_enabled FROM users WHERE email = $1',
+      'SELECT id, email, password_hash, is_active, two_factor_enabled, encryption_salt FROM users WHERE email = $1',
       [email]
     );
 
@@ -292,6 +292,7 @@ router.post('/login', authLimiter, loginValidation, async (req, res, next) => {
         user: {
           id: user.id,
           email: user.email,
+          encryption_salt: user.encryption_salt || null,
         },
         tokens: {
           access_token: accessToken,
@@ -306,6 +307,39 @@ router.post('/login', authLimiter, loginValidation, async (req, res, next) => {
     next(error);
   } finally {
     client.release();
+  }
+});
+
+/**
+ * PUT /api/v1/auth/salt
+ * Store encryption salt for cross-device sync
+ */
+router.put('/salt', authenticate, async (req, res, next) => {
+  try {
+    const { encryption_salt } = req.body;
+    if (!encryption_salt || typeof encryption_salt !== 'string' || encryption_salt.length !== 64) {
+      return res.status(400).json({ success: false, error: 'Invalid salt format (64 hex chars required)' });
+    }
+    await query('UPDATE users SET encryption_salt = $1 WHERE id = $2', [encryption_salt, req.user.userId]);
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/v1/auth/salt
+ * Retrieve encryption salt
+ */
+router.get('/salt', authenticate, async (req, res, next) => {
+  try {
+    const result = await query('SELECT encryption_salt FROM users WHERE id = $1', [req.user.userId]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+    res.json({ success: true, encryption_salt: result.rows[0].encryption_salt });
+  } catch (error) {
+    next(error);
   }
 });
 

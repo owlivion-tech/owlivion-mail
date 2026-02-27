@@ -1,0 +1,106 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please fill in the details below.
+
+  - type: input
+    id: version
+    attributes:
+      label: Owlivion Mail Version
+      description: Check Settings > About or run the app with --version
+      placeholder: "e.g. 1.0.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - Linux (Ubuntu/Debian)
+        - Linux (Fedora/RHEL)
+        - Linux (Arch)
+        - Linux (Other)
+        - macOS
+        - Windows 10
+        - Windows 11
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Installation Method
+      options:
+        - .deb package
+        - AppImage
+        - .dmg
+        - .msi / .exe installer
+        - Built from source
+        - AUR
+        - Flatpak
+        - Homebrew
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: Clear and concise description of the bug
+      placeholder: What happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Minimal steps to reproduce the behavior
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots / Logs
+      description: |
+        Attach screenshots or paste relevant logs.
+        Logs location: Settings > About > Open Logs Folder
+
+  - type: dropdown
+    id: email-provider
+    attributes:
+      label: Email Provider (if relevant)
+      options:
+        - Gmail
+        - Outlook / Hotmail
+        - Yahoo
+        - iCloud
+        - Yandex
+        - Custom IMAP
+        - Not applicable
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and this is not a duplicate
+          required: true
+        - label: I am using the latest version

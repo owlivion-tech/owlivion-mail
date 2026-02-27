@@ -1,7 +1,6 @@
+> Global kurallar: ~/CLAUDE.md (token, guvenlik, kodlama standartlari)
 
-## Gelecek Özellikler
-
-# CLAUDE.md - Owlivion Mail Context
+# CLAUDE.md — Owlivion Mail
 
 ## Project Identity
 - **Name:** Owlivion Mail
