@@ -51,5 +51,11 @@ owlivion-mobile/local.properties
 # Personal signatures
 signatures/
 
-# Tracking reports (auto-generated)
+# Auto-generated reports
 .test-coverage-report.txt
+.commit-history.log
+.progress-stats.json
+.tracking-guide.md
+
+# Lock file (using pnpm-lock.yaml)
+package-lock.json
