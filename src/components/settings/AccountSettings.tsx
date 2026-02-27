@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { AddAccountModal } from './AddAccountModal';
 import { getAccountPriorityFetch, setAccountPriorityFetch } from '../../services/mailService';
+import { isMobile } from '../../hooks/usePlatform';
 import type { Account } from '../../types';
 
 interface AccountSettingsProps {
@@ -80,6 +81,8 @@ export function AccountSettings({ accounts, onAccountsChange }: AccountSettingsP
     );
   };
 
+  const mobile = isMobile();
+
   return (
     <div>
       {/* Header */}
@@ -92,18 +95,18 @@ export function AccountSettings({ accounts, onAccountsChange }: AccountSettingsP
         </div>
         <button
           onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-owl-accent hover:bg-owl-accent-hover text-white font-medium rounded-lg transition-colors"
+          className="flex items-center gap-2 px-4 py-2.5 bg-owl-accent hover:bg-owl-accent-hover text-white font-medium rounded-lg transition-colors"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
-          Hesap Ekle
+          {mobile ? '' : 'Hesap Ekle'}
         </button>
       </div>
 
       {/* Account List */}
       {accounts.length === 0 ? (
-        <div className="bg-owl-surface border border-owl-border rounded-xl p-12 text-center">
+        <div className="bg-owl-surface border border-owl-border rounded-xl p-6 sm:p-12 text-center">
           <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-owl-surface-2 flex items-center justify-center">
             <svg className="w-8 h-8 text-owl-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
@@ -133,18 +136,18 @@ export function AccountSettings({ accounts, onAccountsChange }: AccountSettingsP
                   : 'border-owl-border/50 opacity-60'
               }`}
             >
-              <div className="flex items-start justify-between">
+              <div className={mobile ? '' : 'flex items-start justify-between'}>
                 {/* Account Info */}
                 <div className="flex items-center gap-4">
                   {/* Avatar */}
-                  <div className="w-12 h-12 rounded-full bg-owl-accent/20 flex items-center justify-center text-owl-accent font-semibold text-lg">
+                  <div className="w-12 h-12 rounded-full bg-owl-accent/20 flex items-center justify-center text-owl-accent font-semibold text-lg flex-shrink-0">
                     {account.displayName.charAt(0).toUpperCase()}
                   </div>
 
                   {/* Details */}
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-semibold text-owl-text">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-semibold text-owl-text truncate">
                         {account.displayName}
                       </h3>
                       {account.isDefault && (
@@ -158,16 +161,16 @@ export function AccountSettings({ accounts, onAccountsChange }: AccountSettingsP
                         </span>
                       )}
                     </div>
-                    <p className="text-sm text-owl-text-secondary mt-0.5">
+                    <p className="text-sm text-owl-text-secondary mt-0.5 truncate">
                       {account.email}
                     </p>
-                    <div className="flex items-center gap-4 mt-2 text-xs text-owl-text-secondary">
-                      <span className="flex items-center gap-1">
-                        <span className="w-2 h-2 rounded-full bg-owl-success"></span>
+                    <div className={`${mobile ? 'flex flex-col gap-1' : 'flex items-center gap-4'} mt-2 text-xs text-owl-text-secondary`}>
+                      <span className="flex items-center gap-1 truncate">
+                        <span className="w-2 h-2 rounded-full bg-owl-success flex-shrink-0"></span>
                         IMAP: {account.imapHost}
                       </span>
-                      <span className="flex items-center gap-1">
-                        <span className="w-2 h-2 rounded-full bg-owl-success"></span>
+                      <span className="flex items-center gap-1 truncate">
+                        <span className="w-2 h-2 rounded-full bg-owl-success flex-shrink-0"></span>
                         SMTP: {account.smtpHost}
                       </span>
                       {account.oauthProvider && (
@@ -180,26 +183,38 @@ export function AccountSettings({ accounts, onAccountsChange }: AccountSettingsP
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center gap-2">
+                <div className={`flex items-center gap-2 ${mobile ? 'mt-3 flex-wrap' : ''}`}>
                   {!account.isDefault && (
                     <button
                       onClick={() => handleSetDefault(account.id)}
-                      className="px-3 py-1.5 text-sm text-owl-text-secondary hover:text-owl-text hover:bg-owl-surface-2 rounded-lg transition-colors"
+                      className={`${mobile ? 'p-2.5' : 'px-3 py-1.5 text-sm'} text-owl-text-secondary hover:text-owl-text hover:bg-owl-surface-2 rounded-lg transition-colors`}
                       title="Varsayılan yap"
                     >
-                      Varsayılan Yap
+                      {mobile ? (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      ) : 'Varsayılan Yap'}
                     </button>
                   )}
                   <button
                     onClick={() => handleToggleActive(account.id)}
-                    className="px-3 py-1.5 text-sm text-owl-text-secondary hover:text-owl-text hover:bg-owl-surface-2 rounded-lg transition-colors"
+                    className={`${mobile ? 'p-2.5' : 'px-3 py-1.5 text-sm'} text-owl-text-secondary hover:text-owl-text hover:bg-owl-surface-2 rounded-lg transition-colors`}
                     title={account.isActive ? 'Devre dışı bırak' : 'Etkinleştir'}
                   >
-                    {account.isActive ? 'Devre Dışı Bırak' : 'Etkinleştir'}
+                    {mobile ? (
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        {account.isActive ? (
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                        ) : (
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        )}
+                      </svg>
+                    ) : (account.isActive ? 'Devre Dışı Bırak' : 'Etkinleştir')}
                   </button>
                   <button
                     onClick={() => setEditingAccount(account)}
-                    className="p-2 text-owl-text-secondary hover:text-owl-text hover:bg-owl-surface-2 rounded-lg transition-colors"
+                    className="p-2.5 text-owl-text-secondary hover:text-owl-text hover:bg-owl-surface-2 rounded-lg transition-colors"
                     title="Düzenle"
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -208,7 +223,7 @@ export function AccountSettings({ accounts, onAccountsChange }: AccountSettingsP
                   </button>
                   <button
                     onClick={() => handleDeleteAccount(account.id)}
-                    className="p-2 text-owl-text-secondary hover:text-owl-error hover:bg-owl-error/10 rounded-lg transition-colors"
+                    className="p-2.5 text-owl-text-secondary hover:text-owl-error hover:bg-owl-error/10 rounded-lg transition-colors"
                     title="Sil"
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

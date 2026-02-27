@@ -77,7 +77,7 @@ function sanitizeEmailContent(content: string, maxLength: number = 10000): strin
 /**
  * SECURITY: Make API request with key in header instead of URL
  */
-async function makeGeminiRequest(
+export async function makeGeminiRequest(
   apiKey: string,
   body: object,
   timeout: number = 30000
@@ -1024,4 +1024,24 @@ export async function testConnection(apiKey?: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Extract text from Gemini API response JSON
+ */
+export function extractGeminiText(data: Record<string, unknown>): string {
+  const candidates = data.candidates as Array<{ content?: { parts?: Array<{ text?: string }> } }> | undefined;
+  return candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+}
+
+/**
+ * Email categorization result
+ */
+export interface CategorizationResult {
+  category: string;
+  confidence: number;
+  subcategory?: string;
+  suggestedLabels?: string[];
+  newLabelSuggestions?: string[];
+  reasoning?: string;
 }

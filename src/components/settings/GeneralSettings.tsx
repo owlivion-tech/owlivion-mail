@@ -35,7 +35,7 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
       </div>
 
       {/* Appearance */}
-      <section className="bg-owl-surface border border-owl-border rounded-xl p-6">
+      <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
         <h3 className="text-lg font-medium text-owl-text mb-4">Görünüm</h3>
 
         <div className="space-y-4">
@@ -121,7 +121,7 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
       </section>
 
       {/* Notifications */}
-      <section className="bg-owl-surface border border-owl-border rounded-xl p-6">
+      <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
         <h3 className="text-lg font-medium text-owl-text mb-4">Bildirimler</h3>
 
         <div className="space-y-4">
@@ -279,7 +279,7 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
       </section>
 
       {/* Behavior */}
-      <section className="bg-owl-surface border border-owl-border rounded-xl p-6">
+      <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
         <h3 className="text-lg font-medium text-owl-text mb-4">Davranış</h3>
 
         <div className="space-y-4">
@@ -365,7 +365,7 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
       </section>
 
       {/* Auto-Sync */}
-      <section className="bg-owl-surface border border-owl-border rounded-xl p-6">
+      <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
         <h3 className="text-lg font-medium text-owl-text mb-4">Otomatik Senkronizasyon</h3>
 
         <div className="space-y-4">
@@ -419,7 +419,7 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
       </section>
 
       {/* Compose */}
-      <section className="bg-owl-surface border border-owl-border rounded-xl p-6">
+      <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
         <h3 className="text-lg font-medium text-owl-text mb-4">Yazma</h3>
 
         <div className="space-y-4">

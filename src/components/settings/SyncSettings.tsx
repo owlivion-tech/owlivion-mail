@@ -17,7 +17,11 @@ import { DeviceManagerModal } from './DeviceManagerModal';
 import { ManualSyncModal } from './ManualSyncModal';
 import { SyncHistoryModal } from './SyncHistoryModal';
 
-export function SyncSettings() {
+interface SyncSettingsProps {
+  onNavigateToMail?: () => void;
+}
+
+export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
   const { config, loading, error, update, reload } = useSyncConfig();
   const { statuses, reload: reloadStatus } = useSyncStatus();
   const { status: schedulerStatus, loading: schedulerLoading, updateConfig: updateScheduler } = useScheduler();
@@ -31,6 +35,10 @@ export function SyncSettings() {
   const handleAccountSuccess = () => {
     reload();
     reloadStatus();
+    // After login+sync, navigate to mail to show synced accounts
+    if (onNavigateToMail) {
+      onNavigateToMail();
+    }
   };
 
   // Load queue stats
@@ -132,7 +140,7 @@ export function SyncSettings() {
   const isAccountConnected = !!(config.enabled && config.userId);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4 sm:space-y-8">
       {/* Header */}
       <div>
         <h2 className="text-2xl font-semibold text-owl-text">Senkronizasyon</h2>
@@ -142,7 +150,7 @@ export function SyncSettings() {
       </div>
 
       {/* Owlivion Account Status */}
-      <section className="bg-owl-surface border border-owl-border rounded-xl p-6">
+      <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
         <h3 className="text-lg font-medium text-owl-text mb-4">Owlivion Hesabı</h3>
 
         {isAccountConnected ? (
@@ -163,19 +171,19 @@ export function SyncSettings() {
             </div>
 
             {/* Device Info */}
-            <div className="flex items-center justify-between p-4 border border-owl-border rounded-lg">
-              <div className="flex items-center gap-3">
-                <span className="text-2xl">{getPlatformIcon(config.platform)}</span>
-                <div>
-                  <div className="font-medium text-owl-text">{config.deviceName}</div>
-                  <div className="text-sm text-owl-text-secondary">
+            <div className="flex items-center justify-between gap-2 flex-wrap p-4 border border-owl-border rounded-lg">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="text-2xl flex-shrink-0">{getPlatformIcon(config.platform)}</span>
+                <div className="min-w-0">
+                  <div className="font-medium text-owl-text truncate">{config.deviceName}</div>
+                  <div className="text-sm text-owl-text-secondary truncate">
                     Cihaz ID: {config.deviceId.slice(0, 8)}...
                   </div>
                 </div>
               </div>
               <button
                 onClick={() => setShowDeviceManager(true)}
-                className="px-3 py-1.5 text-sm text-owl-accent hover:bg-owl-accent/10 rounded-lg transition-colors"
+                className="px-3 py-1.5 text-sm text-owl-accent hover:bg-owl-accent/10 rounded-lg transition-colors flex-shrink-0"
               >
                 Cihazları Yönet
               </button>
@@ -208,7 +216,7 @@ export function SyncSettings() {
       {isAccountConnected && (
         <>
           {/* Enable/Disable Sync */}
-          <section className="bg-owl-surface border border-owl-border rounded-xl p-6">
+          <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-medium text-owl-text">Otomatik Senkronizasyon</h3>
@@ -224,7 +232,7 @@ export function SyncSettings() {
           </section>
 
           {/* Data Types */}
-          <section className="bg-owl-surface border border-owl-border rounded-xl p-6">
+          <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
             <h3 className="text-lg font-medium text-owl-text mb-4">Senkronize Edilecek Veriler</h3>
 
             <div className="space-y-4">
@@ -287,7 +295,7 @@ export function SyncSettings() {
           </section>
 
           {/* Sync Status */}
-          <section className="bg-owl-surface border border-owl-border rounded-xl p-6">
+          <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-medium text-owl-text">Senkronizasyon Durumu</h3>
               <button
@@ -298,7 +306,7 @@ export function SyncSettings() {
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {statuses.map((status) => (
                 <div
                   key={status.dataType}
@@ -340,7 +348,7 @@ export function SyncSettings() {
           </section>
 
           {/* Background Scheduler Section */}
-          <section className="bg-owl-surface border border-owl-border rounded-xl p-6">
+          <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-lg font-semibold text-owl-text">
@@ -450,7 +458,7 @@ export function SyncSettings() {
 
           {/* Offline Queue Status */}
           {queueStats && (queueStats.totalCount > 0) && (
-            <section className="bg-owl-surface border border-owl-border rounded-xl p-6">
+            <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-medium text-owl-text">Çevrimdışı Kuyruk</h3>
                 <span className="text-xs text-owl-text-secondary">
@@ -460,7 +468,7 @@ export function SyncSettings() {
 
               <div className="space-y-4">
                 {/* Stats Grid */}
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {queueStats.pendingCount > 0 && (
                     <div className="p-4 border border-owl-warning rounded-lg">
                       <div className="text-2xl font-bold text-owl-warning">

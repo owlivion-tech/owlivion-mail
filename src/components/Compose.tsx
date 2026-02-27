@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import DOMPurify from 'dompurify';
 import { useShortcut } from '../hooks/useKeyboardShortcuts';
+import { isMobile } from '../hooks/usePlatform';
 import { RecipientInput } from './compose/RecipientInput';
 import { AttachmentList } from './compose/AttachmentList';
 import { RichTextEditor } from './compose/RichTextEditor';
@@ -446,6 +447,8 @@ export function Compose({
     setAttachments([...attachments, ...newAttachments]);
   }
 
+  const mobile = isMobile();
+
   if (!isOpen) return null;
 
   return (
@@ -454,7 +457,11 @@ export function Compose({
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
-      <div className="bg-owl-surface border border-owl-border rounded-xl shadow-owl-lg w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden">
+      <div className={`bg-owl-surface shadow-owl-lg flex flex-col overflow-hidden ${
+        mobile
+          ? 'w-full h-full'
+          : 'border border-owl-border rounded-xl w-full max-w-3xl max-h-[90vh]'
+      }`}>
         {/* SECURITY: Notification Toast (replaces alert) */}
         {notification && (
           <div
@@ -478,9 +485,9 @@ export function Compose({
           </div>
         )}
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-owl-border">
+        <div className={`flex items-center justify-between border-b border-owl-border ${mobile ? 'px-4 py-3' : 'px-6 py-4'}`}>
           <div className="flex items-center gap-3">
-            <h2 className="text-lg font-semibold text-owl-text">
+            <h2 className={`font-semibold text-owl-text ${mobile ? 'text-base' : 'text-lg'}`}>
               {mode === 'new' && 'Yeni E-posta'}
               {mode === 'reply' && 'Yanıtla'}
               {mode === 'replyAll' && 'Tümünü Yanıtla'}
@@ -536,7 +543,7 @@ export function Compose({
         </div>
 
         {/* Recipients */}
-        <div className="px-6 py-3 space-y-2 border-b border-owl-border">
+        <div className={`py-3 space-y-2 border-b border-owl-border ${mobile ? 'px-4' : 'px-6'}`}>
           {/* To */}
           <div className="flex items-start gap-3">
             <label className="text-sm text-owl-text-secondary w-12 pt-2">Kime:</label>
@@ -551,13 +558,13 @@ export function Compose({
               <div className="flex gap-2 pt-2">
                 <button
                   onClick={() => setShowCc(true)}
-                  className="text-xs text-owl-text-secondary hover:text-owl-accent"
+                  className="text-sm px-3 py-2 text-owl-text-secondary hover:text-owl-accent"
                 >
                   CC
                 </button>
                 <button
                   onClick={() => setShowBcc(true)}
-                  className="text-xs text-owl-text-secondary hover:text-owl-accent"
+                  className="text-sm px-3 py-2 text-owl-text-secondary hover:text-owl-accent"
                 >
                   BCC
                 </button>
@@ -620,7 +627,7 @@ export function Compose({
 
         {/* Attachments */}
         {attachments.length > 0 && (
-          <div className="px-6 py-3 border-t border-owl-border">
+          <div className={`py-3 border-t border-owl-border ${mobile ? 'px-4' : 'px-6'}`}>
             <AttachmentList
               attachments={attachments}
               onRemove={handleRemoveAttachment}
@@ -629,12 +636,12 @@ export function Compose({
         )}
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-owl-border bg-owl-surface-2/50 flex items-center justify-between">
+        <div className={`border-t border-owl-border bg-owl-surface-2/50 flex items-center justify-between ${mobile ? 'px-4 py-3' : 'px-6 py-4'}`}>
           <div className="flex items-center gap-2">
             {/* Attach Button */}
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="p-2 text-owl-text-secondary hover:text-owl-text hover:bg-owl-surface rounded-lg transition-colors"
+              className="p-2.5 text-owl-text-secondary hover:text-owl-text hover:bg-owl-surface rounded-lg transition-colors"
               title="Dosya ekle"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -651,7 +658,7 @@ export function Compose({
 
             {/* AI Button */}
             <button
-              className="p-2 text-owl-text-secondary hover:text-owl-accent hover:bg-owl-accent/10 rounded-lg transition-colors"
+              className="p-2.5 text-owl-text-secondary hover:text-owl-accent hover:bg-owl-accent/10 rounded-lg transition-colors"
               title="AI ile yanıt oluştur"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -662,7 +669,7 @@ export function Compose({
             {/* Template Button */}
             <button
               onClick={() => setShowTemplateSelector(true)}
-              className="p-2 text-owl-text-secondary hover:text-owl-primary hover:bg-owl-primary/10 rounded-lg transition-colors"
+              className="p-2.5 text-owl-text-secondary hover:text-owl-primary hover:bg-owl-primary/10 rounded-lg transition-colors"
               title="Email şablonu kullan (Ctrl+T)"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -672,13 +679,15 @@ export function Compose({
           </div>
 
           <div className="flex items-center gap-3">
-            <span className="text-xs text-owl-text-secondary">
-              <kbd className="px-1.5 py-0.5 bg-owl-surface border border-owl-border rounded text-[10px]">Ctrl+Enter</kbd> gönder
-            </span>
+            {!mobile && (
+              <span className="text-xs text-owl-text-secondary">
+                <kbd className="px-1.5 py-0.5 bg-owl-surface border border-owl-border rounded text-[10px]">Ctrl+Enter</kbd> gonder
+              </span>
+            )}
             <button
               onClick={handleSend}
               disabled={isSending || to.length === 0}
-              className="flex items-center gap-2 px-6 py-2 bg-owl-accent hover:bg-owl-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
+              className="flex items-center gap-2 px-6 py-2.5 bg-owl-accent hover:bg-owl-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
             >
               {isSending ? (
                 <>

@@ -25,7 +25,7 @@ export function AISettings({ settings, onSettingsChange }: AISettingsProps) {
       </div>
 
       {/* API Key */}
-      <section className="bg-owl-surface border border-owl-border rounded-xl p-6">
+      <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
         <h3 className="text-lg font-medium text-owl-text mb-4">Gemini API Anahtarı</h3>
 
         <div className="space-y-4">
@@ -71,7 +71,7 @@ export function AISettings({ settings, onSettingsChange }: AISettingsProps) {
       </section>
 
       {/* AI Features */}
-      <section className="bg-owl-surface border border-owl-border rounded-xl p-6">
+      <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
         <h3 className="text-lg font-medium text-owl-text mb-4">AI Özellikleri</h3>
 
         <div className="space-y-4">
@@ -126,7 +126,7 @@ export function AISettings({ settings, onSettingsChange }: AISettingsProps) {
       </section>
 
       {/* How it works */}
-      <section className="bg-owl-surface border border-owl-border rounded-xl p-6">
+      <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
         <h3 className="text-lg font-medium text-owl-text mb-4">Nasıl Çalışır?</h3>
 
         <div className="space-y-4 text-sm text-owl-text-secondary">

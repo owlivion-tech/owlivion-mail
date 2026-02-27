@@ -8,6 +8,7 @@ import { FilterForm } from '../components/filters/FilterForm';
 import { FilterTestModal } from '../components/filters/FilterTestModal';
 import { filterList as fetchFilters, filterAdd, filterUpdate, filterDelete, filterToggle, filterApplyBatch, filterExport, filterImport } from '../services/filterService';
 import { listAccounts, syncEmailsWithFilters } from '../services/mailService';
+import { isMobile } from '../hooks/usePlatform';
 import type { EmailFilter, NewEmailFilter, Account } from '../types';
 
 interface FiltersProps {
@@ -303,106 +304,137 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
     }
   };
 
+  const mobile = isMobile();
+
   return (
-    <div className="flex flex-col h-full bg-gray-900">
+    <div className="flex flex-col h-full bg-owl-bg">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={onBack}
-            className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
-            title="Geri dön"
-          >
-            <Icons.ArrowLeft />
-          </button>
-          <h1 className="text-2xl font-bold text-gray-100">Email Filtreleri</h1>
+      <div className={`border-b border-owl-border ${mobile ? 'px-4 py-3' : 'px-6 py-4'}`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onBack}
+              className="p-2 hover:bg-owl-surface-2 rounded-lg transition-colors text-owl-text"
+              title="Geri don"
+            >
+              <Icons.ArrowLeft />
+            </button>
+            <h1 className={`font-bold text-owl-text ${mobile ? 'text-lg' : 'text-2xl'}`}>Email Filtreleri</h1>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Account Selector */}
+            {accounts.length > 1 && (
+              <select
+                value={selectedAccountId}
+                onChange={(e) => setSelectedAccountId(Number(e.target.value))}
+                className={`bg-owl-surface-2 border border-owl-border rounded-lg text-owl-text focus:outline-none focus:border-owl-accent ${mobile ? 'px-2 py-1.5 text-sm max-w-[140px]' : 'px-4 py-2'}`}
+              >
+                {accounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {mobile ? account.email : `${account.displayName} (${account.email})`}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {/* Refresh Button */}
+            <button
+              onClick={loadFilters}
+              disabled={loading}
+              className="p-2 hover:bg-owl-surface-2 rounded-lg transition-colors disabled:opacity-50 text-owl-text"
+              title="Yenile"
+            >
+              <Icons.Refresh />
+            </button>
+
+            {/* Create Filter Button */}
+            <button
+              onClick={handleCreateFilter}
+              disabled={selectedAccountId <= 0}
+              className={`flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${mobile ? 'p-2' : 'px-4 py-2'}`}
+            >
+              <Icons.Plus />
+              {!mobile && 'Yeni Filtre'}
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          {/* Account Selector */}
-          {accounts.length > 1 && (
-            <select
-              value={selectedAccountId}
-              onChange={(e) => setSelectedAccountId(Number(e.target.value))}
-              className="px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-100 focus:outline-none focus:border-blue-500"
-            >
-              {accounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.displayName} ({account.email})
-                </option>
-              ))}
-            </select>
-          )}
-
-          {/* Refresh Button */}
-          <button
-            onClick={loadFilters}
-            disabled={loading}
-            className="p-2 hover:bg-gray-800 rounded-lg transition-colors disabled:opacity-50"
-            title="Yenile"
-          >
-            <Icons.Refresh />
-          </button>
-
-          {/* Sync with Filters Button */}
-          {filters.length > 0 && (
+        {/* Action buttons row - desktop inline, mobile as scrollable row */}
+        {!mobile && filters.length > 0 && (
+          <div className="flex items-center gap-3 mt-3">
             <button
               onClick={handleSyncWithFilters}
               disabled={selectedAccountId <= 0 || isSyncing}
               className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Email senkronizasyonu yap ve filtreleri otomatik uygula"
             >
               <Icons.Refresh />
               {isSyncing ? 'Senkronize ediliyor...' : 'Filtrelerle Senkronize Et'}
             </button>
-          )}
-
-          {/* Import Button */}
-          <button
-            onClick={handleImportFilters}
-            disabled={selectedAccountId <= 0}
-            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            İçe Aktar
-          </button>
-
-          {/* Export Button */}
-          {filters.length > 0 && (
+            <button
+              onClick={handleImportFilters}
+              disabled={selectedAccountId <= 0}
+              className="px-4 py-2 bg-owl-surface-2 hover:bg-owl-border text-owl-text rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Ice Aktar
+            </button>
             <button
               onClick={handleExportFilters}
               disabled={selectedAccountId <= 0}
-              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 bg-owl-surface-2 hover:bg-owl-border text-owl-text rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Dışa Aktar
+              Disa Aktar
             </button>
-          )}
-
-          {/* Apply All Button */}
-          {filters.length > 0 && (
             <button
               onClick={handleApplyAllFilters}
               disabled={selectedAccountId <= 0 || isBatchProcessing}
               className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Icons.Play />
-              {isBatchProcessing ? 'Uygulanıyor...' : 'Tümünü Uygula'}
+              {isBatchProcessing ? 'Uygulaniyor...' : 'Tumunu Uygula'}
             </button>
-          )}
+          </div>
+        )}
 
-          {/* Create Filter Button */}
-          <button
-            onClick={handleCreateFilter}
-            disabled={selectedAccountId <= 0}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Icons.Plus />
-            Yeni Filtre
-          </button>
-        </div>
+        {/* Mobile action buttons as compact row */}
+        {mobile && filters.length > 0 && (
+          <div className="flex items-center gap-2 mt-2 overflow-x-auto pb-1">
+            <button
+              onClick={handleSyncWithFilters}
+              disabled={selectedAccountId <= 0 || isSyncing}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 text-white rounded-lg text-xs whitespace-nowrap disabled:opacity-50"
+            >
+              <Icons.Refresh />
+              {isSyncing ? 'Senk...' : 'Senkronize'}
+            </button>
+            <button
+              onClick={handleApplyAllFilters}
+              disabled={selectedAccountId <= 0 || isBatchProcessing}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs whitespace-nowrap disabled:opacity-50"
+            >
+              <Icons.Play />
+              {isBatchProcessing ? 'Uyg...' : 'Tumunu Uygula'}
+            </button>
+            <button
+              onClick={handleImportFilters}
+              disabled={selectedAccountId <= 0}
+              className="px-3 py-1.5 bg-owl-surface-2 text-owl-text rounded-lg text-xs whitespace-nowrap disabled:opacity-50"
+            >
+              Ice Aktar
+            </button>
+            <button
+              onClick={handleExportFilters}
+              disabled={selectedAccountId <= 0}
+              className="px-3 py-1.5 bg-owl-surface-2 text-owl-text rounded-lg text-xs whitespace-nowrap disabled:opacity-50"
+            >
+              Disa Aktar
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-6 py-6">
+      <div className={`flex-1 overflow-y-auto ${mobile ? 'px-3 py-3' : 'px-6 py-6'}`}>
         {selectedAccountId <= 0 ? (
           <div className="flex flex-col items-center justify-center h-full">
             <p className="text-gray-400 text-center">

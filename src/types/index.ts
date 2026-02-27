@@ -864,3 +864,73 @@ export interface AuditLogFilters {
   success?: boolean;
   device_id?: string;
 }
+
+// ============================================================================
+// Label Types
+// ============================================================================
+
+export interface Label {
+  id: number;
+  accountId: number;
+  name: string;
+  color: string;
+  isSystem: boolean;
+  createdAt: string;
+}
+
+export const LABEL_COLORS = [
+  { name: 'red', hex: '#ef4444' },
+  { name: 'orange', hex: '#f97316' },
+  { name: 'amber', hex: '#f59e0b' },
+  { name: 'yellow', hex: '#eab308' },
+  { name: 'lime', hex: '#84cc16' },
+  { name: 'green', hex: '#22c55e' },
+  { name: 'teal', hex: '#14b8a6' },
+  { name: 'cyan', hex: '#06b6d4' },
+  { name: 'blue', hex: '#3b82f6' },
+  { name: 'indigo', hex: '#6366f1' },
+  { name: 'violet', hex: '#8b5cf6' },
+  { name: 'purple', hex: '#a855f7' },
+  { name: 'fuchsia', hex: '#d946ef' },
+  { name: 'pink', hex: '#ec4899' },
+  { name: 'rose', hex: '#f43f5e' },
+  { name: 'gray', hex: '#78716c' },
+] as const;
+
+// ============================================================================
+// Attachment Threat Analysis Types
+// ============================================================================
+
+export type ThreatLevel = 'critical' | 'high' | 'medium' | 'low' | 'safe';
+
+export interface ThreatIndicator {
+  type: string;
+  description?: string;
+  detail?: string;
+  severity: ThreatLevel;
+}
+
+export interface AttachmentThreatAnalysis {
+  filename?: string;
+  contentType?: string;
+  threatLevel?: ThreatLevel;
+  riskLevel?: string;
+  score: number; // 0-100
+  indicators?: ThreatIndicator[];
+  reasons?: (string | undefined)[];
+  recommendation?: string;
+  recommendations?: string[];
+  detectedThreats?: unknown[];
+  isMalicious?: boolean;
+  analyzedAt?: string;
+}
+
+// ============================================================================
+// AI Categorization Types
+// ============================================================================
+
+export interface CategorizationResult {
+  category: string;
+  confidence: number;
+  subcategory?: string;
+}

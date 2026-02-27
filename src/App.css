@@ -332,3 +332,71 @@ input[type="number"] {
   background: transparent;
   border-radius: 0;
 }
+
+/* ============================================================================
+   Mobile Layout Styles
+   ============================================================================ */
+
+/* Drawer slide-in animation */
+@keyframes slideInLeft {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+.animate-slide-in-left {
+  animation: slideInLeft 0.25s ease-out;
+}
+
+/* Mobile layout */
+.mobile-layout {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* Mobile-specific touch targets */
+.mobile-layout button {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Safe area support */
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Prevent text selection on mobile swipe */
+.mobile-layout .email-row {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Mobile email content - wider images, better readability */
+.mobile-layout .email-content {
+  font-size: 15px;
+  line-height: 1.7;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.mobile-layout .email-content img {
+  max-width: 100% !important;
+  height: auto !important;
+}
+
+.mobile-layout .email-content table {
+  max-width: 100% !important;
+  overflow-x: auto;
+  display: block;
+}
+
+.mobile-layout .email-content pre {
+  overflow-x: auto;
+  white-space: pre-wrap;
+  max-width: 100%;
+}
