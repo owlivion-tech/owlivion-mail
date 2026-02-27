@@ -59,14 +59,35 @@ body {
   outline-offset: 2px;
 }
 
-/* Email Content Styles */
+/* Email Content Styles - Force dark mode on light-themed email HTML */
 .email-content {
   line-height: 1.6;
-  color: #e4e4e7;
+  color: #d4d4d8 !important;
+  background-color: transparent !important;
+}
+
+.email-content div,
+.email-content td,
+.email-content th,
+.email-content table,
+.email-content tr,
+.email-content tbody,
+.email-content thead,
+.email-content section,
+.email-content article,
+.email-content header,
+.email-content footer,
+.email-content span,
+.email-content p,
+.email-content h1, .email-content h2, .email-content h3,
+.email-content h4, .email-content h5, .email-content h6,
+.email-content li, .email-content ul, .email-content ol {
+  background-color: transparent !important;
+  color: #d4d4d8 !important;
 }
 
 .email-content a {
-  color: #8b5cf6;
+  color: #a78bfa !important;
   text-decoration: underline;
 }
 
@@ -75,11 +96,23 @@ body {
   height: auto;
 }
 
+.email-content hr {
+  border-color: #2a2a3a !important;
+}
+
+.email-content td, .email-content th {
+  border-color: #2a2a3a !important;
+}
+
 .email-content blockquote {
-  border-left: 3px solid #2a2a3a;
+  border-left: 3px solid #3a3a4a !important;
   padding-left: 1rem;
   margin: 1rem 0;
-  color: #71717a;
+  color: #a1a1aa !important;
+}
+
+.email-content strong, .email-content b {
+  color: #e4e4e7 !important;
 }
 
 /* Command Palette Backdrop */
