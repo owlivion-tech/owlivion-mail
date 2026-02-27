@@ -9,12 +9,15 @@ use crate::mail::{
 };
 use imap::Session;
 use mail_parser::MimeHeaders;
-use native_tls::{TlsConnector, TlsStream};
+use rustls::StreamOwned;
 use std::net::TcpStream;
+use std::sync::Arc;
+
+type RustlsStream = StreamOwned<rustls::ClientConnection, TcpStream>;
 
 /// IMAP Client wrapper - supports both TLS and plain connections
 pub struct ImapClient {
-    session_tls: Option<Session<TlsStream<TcpStream>>>,
+    session_tls: Option<Session<RustlsStream>>,
     config: ImapConfig,
 }
 
@@ -27,26 +30,36 @@ impl ImapClient {
         }
     }
 
+    /// Create a rustls TLS connection to the given host
+    fn create_rustls_stream(host: &str, address: &str) -> MailResult<RustlsStream> {
+        let mut root_store = rustls::RootCertStore::empty();
+        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+
+        let config = rustls::ClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+
+        let server_name = rustls::pki_types::ServerName::try_from(host.to_string())
+            .map_err(|e| MailError::Connection(format!("Invalid server name: {}", e)))?;
+
+        let conn = rustls::ClientConnection::new(Arc::new(config), server_name)
+            .map_err(|e| MailError::Connection(format!("TLS error: {}", e)))?;
+
+        let stream = TcpStream::connect(address)
+            .map_err(|e| MailError::Connection(e.to_string()))?;
+        stream.set_read_timeout(Some(std::time::Duration::from_secs(30))).ok();
+        stream.set_write_timeout(Some(std::time::Duration::from_secs(30))).ok();
+
+        Ok(StreamOwned::new(conn, stream))
+    }
+
     /// Connect to the IMAP server
     pub fn connect(&mut self) -> MailResult<()> {
-        let tls = TlsConnector::builder()
-            .danger_accept_invalid_certs(false)
-            .build()
-            .map_err(|e| MailError::Connection(e.to_string()))?;
-
         let address = format!("{}:{}", self.config.host, self.config.port);
 
         match self.config.security {
             SecurityType::SSL => {
-                // Direct TLS connection (port 993)
-                let stream = TcpStream::connect(&address)
-                    .map_err(|e| MailError::Connection(e.to_string()))?;
-                stream.set_read_timeout(Some(std::time::Duration::from_secs(30))).ok();
-                stream.set_write_timeout(Some(std::time::Duration::from_secs(30))).ok();
-
-                let tls_stream = tls
-                    .connect(&self.config.host, stream)
-                    .map_err(|e| MailError::Connection(e.to_string()))?;
+                let tls_stream = Self::create_rustls_stream(&self.config.host, &address)?;
 
                 let client = imap::Client::new(tls_stream);
                 let session = client
@@ -56,18 +69,9 @@ impl ImapClient {
                 self.session_tls = Some(session);
             }
             SecurityType::STARTTLS => {
-                // For STARTTLS, we need to connect plain first, then upgrade
-                // The imap crate 2.4 doesn't have built-in STARTTLS support
-                // So we'll use SSL on port 993 as fallback
+                // Fallback to SSL on port 993 (STARTTLS upgrade not supported with rustls sync)
                 let ssl_address = format!("{}:993", self.config.host);
-                let stream = TcpStream::connect(&ssl_address)
-                    .map_err(|e| MailError::Connection(e.to_string()))?;
-                stream.set_read_timeout(Some(std::time::Duration::from_secs(30))).ok();
-                stream.set_write_timeout(Some(std::time::Duration::from_secs(30))).ok();
-
-                let tls_stream = tls
-                    .connect(&self.config.host, stream)
-                    .map_err(|e| MailError::Connection(e.to_string()))?;
+                let tls_stream = Self::create_rustls_stream(&self.config.host, &ssl_address)?;
 
                 let client = imap::Client::new(tls_stream);
                 let session = client
@@ -88,7 +92,7 @@ impl ImapClient {
     }
 
     /// Get mutable reference to session
-    fn session(&mut self) -> MailResult<&mut Session<TlsStream<TcpStream>>> {
+    fn session(&mut self) -> MailResult<&mut Session<RustlsStream>> {
         self.session_tls.as_mut().ok_or(MailError::NotConnected)
     }
 

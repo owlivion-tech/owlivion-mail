@@ -5,6 +5,7 @@
 use crate::mail::MailError;
 use std::io::{Read, Write};
 use std::net::TcpStream;
+use std::sync::Arc;
 
 /// Attachment data for sending
 #[derive(Clone)]
@@ -44,11 +45,23 @@ pub async fn send_email_oauth(
     tokio::task::spawn_blocking(move || {
         log::info!("SMTP OAuth: Connecting to {}:{}...", smtp_host, smtp_port);
 
-        // Connect to SMTP server with TLS
-        let tls_connector = native_tls::TlsConnector::builder()
-            .build()
+        // Connect to SMTP server with rustls TLS
+        let mut root_store = rustls::RootCertStore::empty();
+        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+
+        let config = rustls::ClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+
+        let server_name = rustls::pki_types::ServerName::try_from(smtp_host.clone())
             .map_err(|e| {
-                log::error!("TLS builder error: {}", e);
+                log::error!("Invalid server name: {}", e);
+                MailError::Smtp(format!("Invalid server name: {}", e))
+            })?;
+
+        let conn = rustls::ClientConnection::new(Arc::new(config), server_name)
+            .map_err(|e| {
+                log::error!("TLS config error: {}", e);
                 MailError::Smtp(format!("TLS error: {}", e))
             })?;
 
@@ -60,12 +73,7 @@ pub async fn send_email_oauth(
 
         log::info!("TCP connected, starting TLS handshake...");
 
-        let mut tls_stream = tls_connector
-            .connect(&smtp_host, stream)
-            .map_err(|e| {
-                log::error!("TLS handshake failed: {}", e);
-                MailError::Smtp(format!("TLS handshake failed: {}", e))
-            })?;
+        let mut tls_stream = rustls::StreamOwned::new(conn, stream);
 
         // Read SMTP banner
         let mut response = read_response(&mut tls_stream)?;
@@ -225,7 +233,7 @@ pub async fn send_email_oauth(
 }
 
 /// Send SMTP command
-fn send_command(stream: &mut native_tls::TlsStream<TcpStream>, command: &str) -> Result<(), MailError> {
+fn send_command(stream: &mut rustls::StreamOwned<rustls::ClientConnection, TcpStream>, command: &str) -> Result<(), MailError> {
     stream
         .write_all(command.as_bytes())
         .map_err(|e| MailError::Smtp(format!("Write error: {}", e)))?;
@@ -236,7 +244,7 @@ fn send_command(stream: &mut native_tls::TlsStream<TcpStream>, command: &str) ->
 }
 
 /// Read SMTP response
-fn read_response(stream: &mut native_tls::TlsStream<TcpStream>) -> Result<String, MailError> {
+fn read_response(stream: &mut rustls::StreamOwned<rustls::ClientConnection, TcpStream>) -> Result<String, MailError> {
     let mut buffer = [0u8; 4096];
     let n = stream
         .read(&mut buffer)

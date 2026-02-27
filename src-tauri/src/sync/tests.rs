@@ -419,6 +419,8 @@ mod integration_tests {
                 Platform::Linux => "linux",
                 Platform::Windows => "windows",
                 Platform::MacOS => "macos",
+                Platform::Android => "android",
+                Platform::IOS => "ios",
             }
         );
     }

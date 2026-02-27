@@ -13,6 +13,26 @@ use ring::hkdf;
 use ring::rand::{SecureRandom, SystemRandom};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::OnceLock;
+
+/// App data directory set by Tauri during setup (required for Android)
+static APP_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Set the app data directory (called from Tauri setup)
+pub fn set_app_data_dir(dir: PathBuf) {
+    let _ = APP_DATA_DIR.set(dir);
+}
+
+/// Get the app data directory (Tauri-provided or desktop fallback)
+fn get_app_data_dir() -> Result<PathBuf, String> {
+    if let Some(dir) = APP_DATA_DIR.get() {
+        return Ok(dir.clone());
+    }
+    // Desktop fallback
+    let app_dir = directories::ProjectDirs::from("com", "owlivion", "owlivion-mail")
+        .ok_or_else(|| "Failed to get app directories".to_string())?;
+    Ok(app_dir.data_dir().to_path_buf())
+}
 use zeroize::Zeroize;
 
 const NONCE_LEN: usize = 12;
@@ -38,10 +58,8 @@ impl std::ops::Deref for SecureString {
 
 /// Get the salt file path in app data directory
 fn get_salt_file_path() -> Result<PathBuf, String> {
-    let app_dir = directories::ProjectDirs::from("com", "owlivion", "owlivion-mail")
-        .ok_or_else(|| "Failed to get app directories".to_string())?;
-    let data_dir = app_dir.data_dir();
-    fs::create_dir_all(data_dir).map_err(|e| format!("Failed to create data directory: {}", e))?;
+    let data_dir = get_app_data_dir()?;
+    fs::create_dir_all(&data_dir).map_err(|e| format!("Failed to create data directory: {}", e))?;
     Ok(data_dir.join(".encryption_salt"))
 }
 
@@ -123,12 +141,30 @@ fn get_or_create_salt() -> Result<[u8; SALT_LEN], String> {
 fn get_machine_id() -> Result<String, String> {
     let mut id_parts: Vec<String> = Vec::new();
 
-    // 1. Try to read machine-id (Linux)
-    #[cfg(target_os = "linux")]
+    // 1. Try to read machine-id (Linux, not Android)
+    #[cfg(all(target_os = "linux", not(target_os = "android")))]
     if let Ok(id) = fs::read_to_string("/etc/machine-id") {
         let trimmed = id.trim().to_string();
         if !trimmed.is_empty() {
             id_parts.push(trimmed);
+        }
+    }
+
+    // 1b. Android: use app data dir as stable identifier
+    #[cfg(target_os = "android")]
+    if let Ok(data_dir) = get_app_data_dir() {
+        let android_id_path = data_dir.join(".device_id");
+        if let Ok(id) = fs::read_to_string(&android_id_path) {
+            let trimmed = id.trim().to_string();
+            if !trimmed.is_empty() {
+                id_parts.push(trimmed);
+            }
+        } else {
+            // Generate and persist a stable device UUID
+            let device_id = uuid::Uuid::new_v4().to_string();
+            let _ = fs::create_dir_all(&data_dir);
+            let _ = fs::write(&android_id_path, &device_id);
+            id_parts.push(device_id);
         }
     }
 
@@ -155,8 +191,10 @@ fn get_machine_id() -> Result<String, String> {
         }
     }
 
-    // 4. Get home directory path as additional entropy
-    if let Some(home) = directories::BaseDirs::new() {
+    // 4. Get home/data directory path as additional entropy
+    if let Ok(data_dir) = get_app_data_dir() {
+        id_parts.push(data_dir.to_string_lossy().to_string());
+    } else if let Some(home) = directories::BaseDirs::new() {
         id_parts.push(home.home_dir().to_string_lossy().to_string());
     }
 

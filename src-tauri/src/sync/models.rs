@@ -86,6 +86,9 @@ pub enum Platform {
     Windows,
     MacOS,
     Linux,
+    Android,
+    #[serde(rename = "ios")]
+    IOS,
 }
 
 impl Platform {
@@ -97,6 +100,12 @@ impl Platform {
         #[cfg(target_os = "macos")]
         return Platform::MacOS;
 
+        #[cfg(target_os = "android")]
+        return Platform::Android;
+
+        #[cfg(target_os = "ios")]
+        return Platform::IOS;
+
         #[cfg(target_os = "linux")]
         return Platform::Linux;
     }
@@ -106,6 +115,8 @@ impl Platform {
             Platform::Windows => "windows",
             Platform::MacOS => "macos",
             Platform::Linux => "linux",
+            Platform::Android => "android",
+            Platform::IOS => "ios",
         }
     }
 }
@@ -175,6 +186,10 @@ pub struct AccountConfig {
     /// Whether this account is default
     #[serde(default)]
     pub is_default: bool,
+
+    /// Account password (plaintext, protected by sync encryption layer)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
 
     /// OAuth provider (if using OAuth)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -516,7 +531,7 @@ mod tests {
         let platform = Platform::current();
         assert!(matches!(
             platform,
-            Platform::Windows | Platform::MacOS | Platform::Linux
+            Platform::Windows | Platform::MacOS | Platform::Linux | Platform::Android | Platform::IOS
         ));
     }
 
@@ -534,6 +549,7 @@ mod tests {
             signature: "<p>Best regards</p>".to_string(),
             sync_days: 30,
             is_default: true,
+            password: None,
             oauth_provider: None,
             updated_at: Some(Utc::now()),
             deleted: false,

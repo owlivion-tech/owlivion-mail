@@ -1,6 +1,9 @@
 //! System Tray Implementation
 //!
 //! Provides system tray/panel icon functionality with menu actions.
+//! Only available on desktop platforms (not Android/iOS).
+
+#![cfg(desktop)]
 
 use tauri::{
     image::Image,

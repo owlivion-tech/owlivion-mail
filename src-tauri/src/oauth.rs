@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(desktop)]
 use tiny_http::{Response, Server};
 
 #[allow(unused_imports)]
@@ -55,10 +56,17 @@ pub struct OAuthResult {
     pub display_name: Option<String>,
 }
 
+/// Get the appropriate redirect URI for the current platform
+fn get_redirect_uri() -> String {
+    #[cfg(target_os = "android")]
+    return "com.owlivion.mail://oauth/callback".to_string();
+
+    #[cfg(not(target_os = "android"))]
+    return "http://localhost:8080/callback".to_string();
+}
+
 /// Gmail OAuth2 configuration
 pub fn gmail_config() -> OAuthConfig {
-    // TODO: These should come from environment variables or config file
-    // For now, using placeholder values - users need to create their own OAuth app
     OAuthConfig {
         client_id: std::env::var("GOOGLE_CLIENT_ID")
             .unwrap_or_else(|_| "YOUR_GOOGLE_CLIENT_ID".to_string()),
@@ -66,7 +74,7 @@ pub fn gmail_config() -> OAuthConfig {
             .unwrap_or_else(|_| "YOUR_GOOGLE_CLIENT_SECRET".to_string()),
         auth_url: "https://accounts.google.com/o/oauth2/v2/auth".to_string(),
         token_url: "https://oauth2.googleapis.com/token".to_string(),
-        redirect_uri: "http://localhost:8080/callback".to_string(),
+        redirect_uri: get_redirect_uri(),
         scopes: vec![
             "https://mail.google.com/".to_string(),
             "https://www.googleapis.com/auth/userinfo.email".to_string(),
@@ -85,7 +93,7 @@ pub fn microsoft_config() -> OAuthConfig {
             .unwrap_or_else(|_| "YOUR_MICROSOFT_CLIENT_SECRET".to_string()),
         auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize".to_string(),
         token_url: "https://login.microsoftonline.com/common/oauth2/v2.0/token".to_string(),
-        redirect_uri: "http://localhost:8080/callback".to_string(),
+        redirect_uri: get_redirect_uri(),
         scopes: vec![
             "https://outlook.office365.com/IMAP.AccessAsUser.All".to_string(),
             "https://outlook.office365.com/SMTP.Send".to_string(),
@@ -221,9 +229,10 @@ async fn fetch_user_info(
     Ok((email, display_name))
 }
 
-/// Start a local HTTP server to handle OAuth redirect
+/// Start a local HTTP server to handle OAuth redirect (desktop only)
 /// Now with proper cleanup and shutdown mechanism
 /// Returns (authorization_code, state) tuple
+#[cfg(desktop)]
 pub fn start_callback_server(
     callback_result: Arc<Mutex<Option<Result<(String, String), OAuthError>>>>,
 ) -> Result<(), OAuthError> {
@@ -340,7 +349,8 @@ pub fn start_callback_server(
     Ok(())
 }
 
-/// Signal the OAuth server to shut down
+/// Signal the OAuth server to shut down (desktop only)
+#[cfg(desktop)]
 pub fn shutdown_callback_server() {
     log::info!("Signaling OAuth server shutdown");
     OAUTH_SERVER_SHUTDOWN.store(true, Ordering::SeqCst);
