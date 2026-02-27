@@ -26,10 +26,10 @@ import { useMobileNavigation } from "./stores/mobileNavigationStore";
 // SECURITY: 'style' attribute removed to prevent CSS injection attacks (e.g., expression(), url(javascript:))
 const purifyConfig = {
   ALLOWED_TAGS: ['p', 'br', 'b', 'i', 'u', 'strong', 'em', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'code', 'span', 'div', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'hr'],
-  ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'align', 'valign', 'width', 'height', 'colspan', 'rowspan'],
+  ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'style', 'align', 'valign', 'width', 'height', 'colspan', 'rowspan'],
   ALLOW_DATA_ATTR: false,
   FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select', 'style', 'link', 'meta', 'base'],
-  FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur', 'style', 'srcset', 'data-src'],
+  FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur', 'srcset', 'data-src'],
   RETURN_TRUSTED_TYPE: false,
 };
 
@@ -430,6 +430,8 @@ function MailPanel({
   onToggleUnifiedInbox,
   sortBy,
   onSortByChange,
+  sortDirection,
+  onSortDirectionChange,
 }: {
   emails: Email[];
   selectedId: string | null;
@@ -461,9 +463,26 @@ function MailPanel({
   onToggleUnifiedInbox: () => void;
   sortBy: 'date' | 'account' | 'unread' | 'priority';
   onSortByChange: (sort: 'date' | 'account' | 'unread' | 'priority') => void;
+  sortDirection: 'asc' | 'desc';
+  onSortDirectionChange: (dir: 'asc' | 'desc') => void;
 }) {
   const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
   const [showAllFolders, setShowAllFolders] = useState(false);
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const sortMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close sort menu on outside click
+  useEffect(() => {
+    if (!sortMenuOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (sortMenuRef.current && !sortMenuRef.current.contains(e.target as Node)) {
+        setSortMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [sortMenuOpen]);
+
   const selectedAccount = typeof selectedAccountId === 'number' ? accounts.find(a => a.id === selectedAccountId) : undefined;
 
   // Build folder tree
@@ -588,26 +607,33 @@ function MailPanel({
     }
 
     // Apply sorting
+    const dir = sortDirection === 'asc' ? 1 : -1;
     result = [...result].sort((a, b) => {
+      let cmp = 0;
       switch (sortBy) {
         case 'date':
-          return b.date.getTime() - a.date.getTime();
+          cmp = b.date.getTime() - a.date.getTime();
+          break;
         case 'unread':
-          if (a.read !== b.read) return a.read ? 1 : -1;
-          return b.date.getTime() - a.date.getTime();
+          if (a.read !== b.read) { cmp = a.read ? 1 : -1; break; }
+          cmp = b.date.getTime() - a.date.getTime();
+          break;
         case 'account':
-          if (a.accountId !== b.accountId) return (a.accountId || '').localeCompare(b.accountId || '');
-          return b.date.getTime() - a.date.getTime();
+          if (a.accountId !== b.accountId) { cmp = (a.accountId || '').localeCompare(b.accountId || ''); break; }
+          cmp = b.date.getTime() - a.date.getTime();
+          break;
         case 'priority':
         default:
-          if (a.read !== b.read) return a.read ? 1 : -1;
-          if (a.starred !== b.starred) return a.starred ? -1 : 1;
-          return b.date.getTime() - a.date.getTime();
+          if (a.read !== b.read) { cmp = a.read ? 1 : -1; break; }
+          if (a.starred !== b.starred) { cmp = a.starred ? -1 : 1; break; }
+          cmp = b.date.getTime() - a.date.getTime();
+          break;
       }
+      return cmp * dir;
     });
 
     return result;
-  }, [emails, activeFolder, searchQuery, isDraftsFolder, drafts, sortBy]);
+  }, [emails, activeFolder, searchQuery, isDraftsFolder, drafts, sortBy, sortDirection]);
 
   return (
     <div className="w-[380px] bg-owl-surface border-r border-owl-border flex flex-col">
@@ -682,23 +708,6 @@ function MailPanel({
                 }`}
               />
             </button>
-          </div>
-        )}
-
-        {/* Sort Dropdown */}
-        {accounts.length > 0 && (
-          <div className="mt-2 flex items-center gap-2 px-3">
-            <span className="text-xs text-owl-text-secondary">Sıralama:</span>
-            <select
-              value={sortBy}
-              onChange={(e) => onSortByChange(e.target.value as 'date' | 'account' | 'unread' | 'priority')}
-              className="flex-1 bg-owl-bg text-sm text-owl-text rounded px-2 py-1 border border-owl-border focus:outline-none focus:border-owl-accent"
-            >
-              <option value="priority">Öncelik (Önerilen)</option>
-              <option value="date">Tarihe Göre</option>
-              <option value="account">Hesaba Göre</option>
-              <option value="unread">Okunmamışlar Önce</option>
-            </select>
           </div>
         )}
 
@@ -913,15 +922,65 @@ function MailPanel({
             <div className="text-xs font-medium text-owl-text-secondary uppercase tracking-wider">
               {activeFolderName}
             </div>
-            <span className="text-xs text-owl-text-secondary">
-              {isSearching ? (
-                'Searching...'
-              ) : searchQuery && searchResultsCount !== undefined ? (
-                `${searchResultsCount} results`
-              ) : (
-                `${filteredEmails.length} emails`
-              )}
-            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-owl-text-secondary">
+                {isSearching ? (
+                  'Searching...'
+                ) : searchQuery && searchResultsCount !== undefined ? (
+                  `${searchResultsCount} results`
+                ) : (
+                  `${filteredEmails.length} emails`
+                )}
+              </span>
+              {/* Sort button */}
+              <div className="relative" ref={sortMenuRef}>
+                <button
+                  onClick={() => setSortMenuOpen(!sortMenuOpen)}
+                  className="p-1 rounded hover:bg-owl-bg text-owl-text-secondary hover:text-owl-text transition-colors"
+                  title="Sıralama"
+                >
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                    <path d="M2 4h10M4 7h6M6 10h2" />
+                  </svg>
+                </button>
+                {sortMenuOpen && (
+                  <div className="absolute right-0 top-full mt-1 w-48 bg-owl-surface border border-owl-border rounded-lg shadow-xl z-50 py-1">
+                    {([
+                      { value: 'priority', label: 'Öncelik' },
+                      { value: 'date', label: 'Tarihe Göre' },
+                      { value: 'unread', label: 'Okunmamışlar Önce' },
+                      { value: 'account', label: 'Hesaba Göre' },
+                    ] as const).map(opt => (
+                      <button
+                        key={opt.value}
+                        onClick={() => { onSortByChange(opt.value); setSortMenuOpen(false); }}
+                        className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
+                          sortBy === opt.value
+                            ? 'text-owl-accent bg-owl-accent/10'
+                            : 'text-owl-text hover:bg-owl-bg'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                    <div className="border-t border-owl-border my-1" />
+                    <button
+                      onClick={() => { onSortDirectionChange(sortDirection === 'desc' ? 'asc' : 'desc'); setSortMenuOpen(false); }}
+                      className="w-full text-left px-3 py-1.5 text-xs text-owl-text hover:bg-owl-bg transition-colors flex items-center justify-between"
+                    >
+                      <span>{sortDirection === 'desc' ? 'Eskiden Yeniye' : 'Yeniden Eskiye'}</span>
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                        {sortDirection === 'desc' ? (
+                          <path d="M6 2v8M3 7l3 3 3-3" />
+                        ) : (
+                          <path d="M6 10V2M3 5l3-3 3 3" />
+                        )}
+                      </svg>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
           {filteredEmails.map((email) => (
             <button
@@ -1189,7 +1248,7 @@ function EmailView({
   }
 
   const shouldShowImages = showImages || isTrustedSender;
-  const hasHtmlContent = email.bodyHtml && email.hasImages;
+  const hasHtmlContent = !!email.bodyHtml;
 
   // Use processed HTML (with CID images replaced) if available
   const htmlToSanitize = processedHtml || email.bodyHtml;
@@ -1197,7 +1256,7 @@ function EmailView({
   // Sanitize HTML with DOMPurify for XSS protection
   const sanitizedHtml = hasHtmlContent && htmlToSanitize
     ? sanitizeEmailHtml(htmlToSanitize, !shouldShowImages)
-    : htmlToSanitize;
+    : null;
 
   return (
     <div className="flex-1 flex flex-col bg-owl-bg">
@@ -1680,6 +1739,7 @@ function App() {
   // Unified Inbox state
   const [unifiedInboxMode, setUnifiedInboxMode] = useState(true); // DEFAULT: true (user preference)
   const [sortBy, setSortBy] = useState<'date' | 'account' | 'unread' | 'priority'>('priority'); // DEFAULT: priority
+  const [sortDirection, setSortDirection] = useState<'desc' | 'asc'>('desc'); // DEFAULT: newest/unread first
   const [accountFetchStatuses, setAccountFetchStatuses] = useState<any[]>([]); // Track account fetch status for error display
 
   // Log account fetch errors (TODO: Add UI banner for failed accounts)
@@ -1710,8 +1770,9 @@ function App() {
   const knownEmailIds = useRef<Set<string>>(new Set());
   const isInitialLoad = useRef(true);
 
-  // Email cache per account (to avoid re-fetching when switching)
-  const emailCache = useRef<Map<number, Email[]>>(new Map());
+  // Email cache: per account+folder (key = "accountId:folderPath")
+  const emailCache = useRef<Map<string, Email[]>>(new Map());
+  const cacheKey = (accountId: number | string, folder: string) => `${accountId}:${folder}`;
 
   // Settings state for API keys and auto-sync
   const [geminiApiKey, setGeminiApiKey] = useState<string | undefined>(undefined);
@@ -1992,9 +2053,9 @@ function App() {
                 });
                 console.log('Mapped emails count:', loadedEmails.length);
                 // Save to cache
-                emailCache.current.set(firstAccount.id, loadedEmails);
+                emailCache.current.set(cacheKey(firstAccount.id, 'INBOX'), loadedEmails);
                 setEmails(loadedEmails);
-                isInitialLoad.current = false; // Mark initial load as complete
+                isInitialLoad.current = false;
                 console.log('State updated with emails, cached for account:', firstAccount.id);
               } else {
                 console.log('No emails in result or result is empty');
@@ -2026,7 +2087,7 @@ function App() {
                       hasAttachments: e.hasAttachments ?? false,
                       hasImages: false,
                     }));
-                    emailCache.current.set(firstAccount.id, loadedEmails);
+                    emailCache.current.set(cacheKey(firstAccount.id, 'INBOX'), loadedEmails);
                     setEmails(loadedEmails);
                   }
                 } catch (retryErr) {
@@ -2141,13 +2202,12 @@ function App() {
         if (newEmails.length > 0 && !isInitialLoad.current) {
           console.log('Found', newEmails.length, 'new emails');
           setEmails(prev => {
-            // Add new emails at the beginning, avoiding duplicates
             const existingIds = new Set(prev.map(e => e.id));
             const uniqueNewEmails = newEmails.filter(e => !existingIds.has(e.id));
             const updatedEmails = [...uniqueNewEmails, ...prev];
-            // Update cache (only for single account)
+            // Update cache
             if (selectedAccountId && typeof selectedAccountId === 'number') {
-              emailCache.current.set(selectedAccountId, updatedEmails);
+              emailCache.current.set(cacheKey(selectedAccountId, 'INBOX'), updatedEmails);
             }
             return updatedEmails;
           });
@@ -2177,7 +2237,7 @@ function App() {
     return () => clearInterval(pollInterval);
   }, [selectedAccountId, accounts, checkForNewEmails, emails, autoSyncEnabled, autoSyncInterval]);
 
-  // Sync emails handler
+  // Sync emails handler - fetches from IMAP and updates cache
   const handleSync = useCallback(async () => {
     if (isSyncing || accounts.length === 0 || !selectedAccountId) return;
     setIsSyncing(true);
@@ -2185,34 +2245,36 @@ function App() {
       const { connectAccount, listEmails } = await import('./services/mailService');
       const account = accounts.find(a => a.id === selectedAccountId) || accounts[0];
 
-      // Reconnect to refresh connection
       await connectAccount(account.id.toString());
 
-      // Fetch emails from current folder (activeFolder is now the IMAP path)
       const folderToSync = activeFolder === '__starred__' ? 'INBOX' : activeFolder;
       const result = await listEmails(account.id.toString(), 0, 500, folderToSync);
-      console.log('Sync result for folder', folderToSync, ':', result);
 
       if (result && result.emails) {
+        // Preserve already-fetched email bodies from current state
+        const existingBodies = new Map<string, { body: string; bodyHtml?: string; bodyText?: string; hasImages: boolean }>();
+        emails.forEach(e => {
+          if (e.bodyHtml || (e.body && e.body.length > 200)) {
+            existingBodies.set(e.id, { body: e.body, bodyHtml: e.bodyHtml, bodyText: e.bodyText, hasImages: e.hasImages });
+          }
+        });
+
         let newEmailCount = 0;
         const loadedEmails: Email[] = result.emails.map((e: any) => {
           const emailId = e.uid?.toString() || e.id?.toString();
 
-          // Check if this is a new email
           if (emailId && !knownEmailIds.current.has(emailId)) {
             newEmailCount++;
             knownEmailIds.current.add(emailId);
-
-            // Show notification for the first new email (to avoid spam)
             if (newEmailCount === 1 && notificationsEnabled) {
-              const senderName = e.fromName || e.from || 'Bilinmeyen';
-              const subject = e.subject || '(Konu yok)';
-              showNewEmailNotification(senderName, subject, e.preview);
+              showNewEmailNotification(e.fromName || e.from || 'Bilinmeyen', e.subject || '(Konu yok)', e.preview);
             } else if (newEmailCount > 1 && notificationsEnabled) {
-              // Play sound for additional new emails
               playNotificationSound();
             }
           }
+
+          // Merge with existing body data if available
+          const existing = existingBodies.get(emailId);
 
           return {
             id: emailId,
@@ -2220,32 +2282,33 @@ function App() {
             to: [{ name: '', email: '' }],
             subject: e.subject || '(Konu yok)',
             preview: e.preview || '',
-            body: e.bodyText || '',
-            bodyHtml: e.bodyHtml,
-            bodyText: e.bodyText,
+            body: existing?.body || e.bodyText || '',
+            bodyHtml: existing?.bodyHtml || e.bodyHtml,
+            bodyText: existing?.bodyText || e.bodyText,
             date: new Date(e.date || Date.now()),
             read: e.isRead ?? false,
             starred: e.isStarred ?? false,
             hasAttachments: e.hasAttachments ?? false,
-            hasImages: false,
+            hasImages: existing?.hasImages || false,
           };
         });
-        // Update cache (only for single account)
-        if (selectedAccountId && typeof selectedAccountId === 'number') {
-          emailCache.current.set(selectedAccountId, loadedEmails);
-        }
+
+        // Update cache
+        const key = typeof selectedAccountId === 'number'
+          ? cacheKey(selectedAccountId, folderToSync)
+          : cacheKey('all', folderToSync);
+        emailCache.current.set(key, loadedEmails);
         setEmails(loadedEmails);
-        console.log('Synced emails:', loadedEmails.length, 'New:', newEmailCount);
+        console.log('Synced:', loadedEmails.length, 'New:', newEmailCount);
       }
     } catch (err) {
       console.error('Sync failed:', err);
       const errorMessage = err instanceof Error ? err.message : String(err);
-      // Show error notification
-      alert(`Senkronizasyon başarısız: ${errorMessage}\n\nEğer sorun devam ederse, hesabı yeniden ekleyin.`);
+      alert(`Senkronizasyon basarisiz: ${errorMessage}`);
     } finally {
       setIsSyncing(false);
     }
-  }, [accounts, isSyncing, selectedAccountId, notificationsEnabled, activeFolder]);
+  }, [accounts, isSyncing, selectedAccountId, notificationsEnabled, activeFolder, emails]);
 
   // Handle account change
   const handleAccountChange = useCallback(async (accountId: number | 'all') => {
@@ -2253,27 +2316,36 @@ function App() {
 
     setSelectedAccountId(accountId);
     setSelectedEmail(null);
-    setFetchedEmailIds(new Set());
     setActiveFolder('INBOX'); // Reset to inbox when switching accounts
 
     // Handle "All Accounts" unified inbox
     if (accountId === 'all') {
-      setEmails([]); // Clear current emails
+      // Check unified cache
+      const key = cacheKey('all', 'INBOX');
+      const cached = emailCache.current.get(key);
+      if (cached && cached.length > 0) {
+        console.log('Using cached unified inbox:', cached.length);
+        setEmails(cached);
+        knownEmailIds.current = new Set(cached.map(e => e.id));
+        isInitialLoad.current = false;
+        setImapFolders([]);
+        return;
+      }
+
+      setEmails([]);
       knownEmailIds.current = new Set();
       isInitialLoad.current = true;
-      setImapFolders([]); // Clear folders for unified view
+      setImapFolders([]);
 
       try {
         setIsSyncing(true);
         const { listAllAccountsEmails } = await import('./services/mailService');
 
         const result = await listAllAccountsEmails(0, 500, 'INBOX', sortBy);
-        console.log('Unified inbox - listAllAccountsEmails result:', result);
 
         if (result && result.emails) {
           const loadedEmails: Email[] = result.emails.map((e: any) => {
             const emailId = e.uid?.toString() || e.id?.toString();
-            // Make ID unique across accounts in unified inbox
             const uniqueId = e.accountId ? `${e.accountId}-${emailId}` : emailId;
             knownEmailIds.current.add(uniqueId);
             return {
@@ -2290,13 +2362,13 @@ function App() {
               starred: e.isStarred ?? false,
               hasAttachments: e.hasAttachments ?? false,
               hasImages: false,
-              accountId: e.accountId, // Preserve account ID for badges
+              accountId: e.accountId,
             };
           });
 
+          emailCache.current.set(key, loadedEmails);
           setEmails(loadedEmails);
           setAccountFetchStatuses(result.accountResults || []);
-          console.log('Unified inbox loaded:', loadedEmails.length, 'emails from', result.accountResults?.length || 0, 'accounts');
           isInitialLoad.current = false;
         }
       } catch (err) {
@@ -2307,48 +2379,37 @@ function App() {
       return;
     }
 
-    // Single account logic
-    // Check if we have cached emails for this account
-    const cachedEmails = emailCache.current.get(accountId);
+    // Single account logic - check cache
+    const key = cacheKey(accountId, 'INBOX');
+    const cachedEmails = emailCache.current.get(key);
     if (cachedEmails && cachedEmails.length > 0) {
-      console.log('Using cached emails for account:', accountId, 'count:', cachedEmails.length);
-      // Ensure all cached emails have accountId (for backward compatibility with old cache)
-      const emailsWithAccountId = cachedEmails.map(email => ({
-        ...email,
-        accountId: email.accountId || accountId.toString()
-      }));
-      setEmails(emailsWithAccountId);
-      // Update known email IDs from cache
-      knownEmailIds.current = new Set(emailsWithAccountId.map(e => e.id));
+      console.log('Using cached emails for', key, 'count:', cachedEmails.length);
+      setEmails(cachedEmails);
+      knownEmailIds.current = new Set(cachedEmails.map(e => e.id));
       isInitialLoad.current = false;
-      // Still fetch folders for the new account
       fetchFolders(accountId);
-      return; // No need to fetch emails from server
+      return;
     }
 
     // No cache - fetch from server
-    setEmails([]); // Clear current emails
-    knownEmailIds.current = new Set(); // Reset known emails for new account
-    isInitialLoad.current = true; // Mark as initial load for new account
+    setEmails([]);
+    knownEmailIds.current = new Set();
+    isInitialLoad.current = true;
 
     try {
       setIsSyncing(true);
       const { connectAccount, listEmails, listFolders } = await import('./services/mailService');
 
       await connectAccount(accountId.toString());
-      console.log('Connected to account:', accountId);
 
-      // Fetch folders
       try {
         const folders = await listFolders(accountId.toString());
-        console.log('Fetched IMAP folders for account:', accountId, folders);
         setImapFolders(folders);
       } catch (folderErr) {
         console.error('Failed to fetch folders:', folderErr);
       }
 
       const result = await listEmails(accountId.toString(), 0, 500, 'INBOX');
-      console.log('Account switch - listEmails result:', result);
 
       if (result && result.emails) {
         const loadedEmails: Email[] = result.emails.map((e: any) => {
@@ -2368,14 +2429,12 @@ function App() {
             starred: e.isStarred ?? false,
             hasAttachments: e.hasAttachments ?? false,
             hasImages: false,
-            accountId: accountId.toString(), // Add accountId for unique keys and badges
+            accountId: accountId.toString(),
           };
         });
-        // Save to cache
-        emailCache.current.set(accountId, loadedEmails);
+        emailCache.current.set(key, loadedEmails);
         setEmails(loadedEmails);
         isInitialLoad.current = false;
-        console.log('Loaded and cached emails for account:', accountId, 'count:', loadedEmails.length);
       }
     } catch (err) {
       console.error('Failed to switch account:', err);
@@ -2384,22 +2443,19 @@ function App() {
     }
   }, [selectedAccountId, fetchFolders, sortBy]);
 
-  // Handle folder change - fetch emails from the selected IMAP folder
+  // Handle folder change - use cache first, fetch from IMAP only if needed
   const handleFolderChange = useCallback(async (folderPath: string) => {
     console.log('handleFolderChange called with:', folderPath, 'current activeFolder:', activeFolder);
 
     setActiveFolder(folderPath);
     setSelectedEmail(null);
-    setFetchedEmailIds(new Set());
 
     // Starred is filtered locally, not a real folder
     if (folderPath === '__starred__') {
-      console.log('Starred folder - filtering locally');
-      return; // Just filter existing emails from cache/current list
+      return;
     }
 
     if (!selectedAccountId || accounts.length === 0) {
-      console.log('No account selected, skipping fetch');
       return;
     }
 
@@ -2408,19 +2464,13 @@ function App() {
                            folderPath.toLowerCase().includes('draft');
 
     if (isDraftsFolder) {
-      console.log('Loading drafts from database...');
       try {
         setIsLoadingDrafts(true);
-        // Cannot load drafts for "All Accounts" - use first account
         const accountToUse = typeof selectedAccountId === 'number' ? selectedAccountId : accounts[0]?.id;
-        if (!accountToUse) {
-          setDrafts([]);
-          return;
-        }
+        if (!accountToUse) { setDrafts([]); return; }
         const draftList = await listDrafts(accountToUse);
         setDrafts(draftList);
-        setEmails([]); // Clear regular emails
-        console.log('Loaded drafts:', draftList.length);
+        setEmails([]);
       } catch (err) {
         console.error('Failed to load drafts:', err);
         setDrafts([]);
@@ -2430,14 +2480,22 @@ function App() {
       return;
     }
 
-    console.log('Switching to folder:', folderPath);
+    // Check cache first
+    const accountId = typeof selectedAccountId === 'number' ? selectedAccountId : selectedAccountId;
+    const key = cacheKey(accountId, folderPath);
+    const cached = emailCache.current.get(key);
+    if (cached && cached.length > 0) {
+      console.log('Using cached emails for', key, 'count:', cached.length);
+      setEmails(cached);
+      return;
+    }
 
+    // No cache - fetch from IMAP
     try {
       setIsSyncing(true);
       const { listEmails } = await import('./services/mailService');
 
       const result = await listEmails(selectedAccountId.toString(), 0, 500, folderPath);
-      console.log('Folder switch - listEmails result:', result);
 
       if (result && result.emails) {
         const loadedEmails: Email[] = result.emails.map((e: any) => {
@@ -2458,8 +2516,9 @@ function App() {
             hasImages: false,
           };
         });
+        emailCache.current.set(key, loadedEmails);
         setEmails(loadedEmails);
-        console.log('Loaded emails for folder:', folderPath, 'count:', loadedEmails.length);
+        console.log('Fetched & cached emails for', key, 'count:', loadedEmails.length);
       } else {
         setEmails([]);
       }
@@ -2521,26 +2580,34 @@ function App() {
         // Check if email has images
         const hasImages = fullEmail.bodyHtml ? /<img[^>]+src=/i.test(fullEmail.bodyHtml) : false;
 
-        // Update the email in state with full content
-        setEmails(prev => prev.map(e => {
-          if (e.id === selectedEmail) {
-            return {
-              ...e,
-              body: fullEmail.bodyText || fullEmail.bodyHtml || e.body,
-              bodyText: fullEmail.bodyText,
-              bodyHtml: fullEmail.bodyHtml,
-              hasImages,
-            };
+        // Update the email in state and cache with full content
+        setEmails(prev => {
+          const updated = prev.map(e => {
+            if (e.id === selectedEmail) {
+              return {
+                ...e,
+                body: fullEmail.bodyText || fullEmail.bodyHtml || e.body,
+                bodyText: fullEmail.bodyText,
+                bodyHtml: fullEmail.bodyHtml,
+                hasImages,
+              };
+            }
+            return e;
+          });
+          // Update cache with body content
+          if (typeof selectedAccountId === 'number') {
+            const key = cacheKey(selectedAccountId, activeFolder === '__starred__' ? 'INBOX' : activeFolder);
+            emailCache.current.set(key, updated);
           }
-          return e;
-        }));
+          return updated;
+        });
       } catch (err) {
         console.error('Failed to fetch email content:', err);
       }
     };
 
     fetchEmailContent();
-  }, [selectedEmail, accounts, fetchedEmailIds, selectedAccountId]);
+  }, [selectedEmail, accounts, fetchedEmailIds, selectedAccountId, activeFolder]);
 
   // Get visible emails for navigation
   const visibleEmails = useMemo(() => {
@@ -2564,27 +2631,33 @@ function App() {
     }
 
     // Apply sorting
+    const dir = sortDirection === 'asc' ? 1 : -1;
     result = [...result].sort((a, b) => {
+      let cmp = 0;
       switch (sortBy) {
         case 'date':
-          return b.date.getTime() - a.date.getTime();
+          cmp = b.date.getTime() - a.date.getTime();
+          break;
         case 'unread':
-          if (a.read !== b.read) return a.read ? 1 : -1;
-          return b.date.getTime() - a.date.getTime();
+          if (a.read !== b.read) { cmp = a.read ? 1 : -1; break; }
+          cmp = b.date.getTime() - a.date.getTime();
+          break;
         case 'account':
-          if (a.accountId !== b.accountId) return (a.accountId || '').localeCompare(b.accountId || '');
-          return b.date.getTime() - a.date.getTime();
+          if (a.accountId !== b.accountId) { cmp = (a.accountId || '').localeCompare(b.accountId || ''); break; }
+          cmp = b.date.getTime() - a.date.getTime();
+          break;
         case 'priority':
         default:
-          // Unread first, then starred, then by date
-          if (a.read !== b.read) return a.read ? 1 : -1;
-          if (a.starred !== b.starred) return a.starred ? -1 : 1;
-          return b.date.getTime() - a.date.getTime();
+          if (a.read !== b.read) { cmp = a.read ? 1 : -1; break; }
+          if (a.starred !== b.starred) { cmp = a.starred ? -1 : 1; break; }
+          cmp = b.date.getTime() - a.date.getTime();
+          break;
       }
+      return cmp * dir;
     });
 
     return result;
-  }, [emails, activeFolder, searchQuery, searchResults, isSearching, sortBy]);
+  }, [emails, activeFolder, searchQuery, searchResults, isSearching, sortBy, sortDirection]);
 
   // Handle search input changes
   const handleSearchChange = useCallback((query: string) => {
@@ -3321,6 +3394,8 @@ function App() {
         onToggleUnifiedInbox={() => setUnifiedInboxMode(!unifiedInboxMode)}
         sortBy={sortBy}
         onSortByChange={setSortBy}
+        sortDirection={sortDirection}
+        onSortDirectionChange={setSortDirection}
       />
       <EmailView
         email={currentEmail}
