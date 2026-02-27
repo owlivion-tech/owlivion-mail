@@ -587,8 +587,27 @@ function MailPanel({
       );
     }
 
+    // Apply sorting
+    result = [...result].sort((a, b) => {
+      switch (sortBy) {
+        case 'date':
+          return b.date.getTime() - a.date.getTime();
+        case 'unread':
+          if (a.read !== b.read) return a.read ? 1 : -1;
+          return b.date.getTime() - a.date.getTime();
+        case 'account':
+          if (a.accountId !== b.accountId) return (a.accountId || '').localeCompare(b.accountId || '');
+          return b.date.getTime() - a.date.getTime();
+        case 'priority':
+        default:
+          if (a.read !== b.read) return a.read ? 1 : -1;
+          if (a.starred !== b.starred) return a.starred ? -1 : 1;
+          return b.date.getTime() - a.date.getTime();
+      }
+    });
+
     return result;
-  }, [emails, activeFolder, searchQuery, isDraftsFolder, drafts]);
+  }, [emails, activeFolder, searchQuery, isDraftsFolder, drafts, sortBy]);
 
   return (
     <div className="w-[380px] bg-owl-surface border-r border-owl-border flex flex-col">
@@ -666,8 +685,8 @@ function MailPanel({
           </div>
         )}
 
-        {/* Sort Dropdown (only in unified mode) */}
-        {unifiedInboxMode && accounts.length > 1 && (
+        {/* Sort Dropdown */}
+        {accounts.length > 0 && (
           <div className="mt-2 flex items-center gap-2 px-3">
             <span className="text-xs text-owl-text-secondary">Sıralama:</span>
             <select
@@ -2543,8 +2562,29 @@ function App() {
       case "__trash__": result = result.filter(e => e.deleted); break;
       default: result = result.filter(e => !e.archived && !e.deleted);
     }
+
+    // Apply sorting
+    result = [...result].sort((a, b) => {
+      switch (sortBy) {
+        case 'date':
+          return b.date.getTime() - a.date.getTime();
+        case 'unread':
+          if (a.read !== b.read) return a.read ? 1 : -1;
+          return b.date.getTime() - a.date.getTime();
+        case 'account':
+          if (a.accountId !== b.accountId) return (a.accountId || '').localeCompare(b.accountId || '');
+          return b.date.getTime() - a.date.getTime();
+        case 'priority':
+        default:
+          // Unread first, then starred, then by date
+          if (a.read !== b.read) return a.read ? 1 : -1;
+          if (a.starred !== b.starred) return a.starred ? -1 : 1;
+          return b.date.getTime() - a.date.getTime();
+      }
+    });
+
     return result;
-  }, [emails, activeFolder, searchQuery, searchResults, isSearching]);
+  }, [emails, activeFolder, searchQuery, searchResults, isSearching, sortBy]);
 
   // Handle search input changes
   const handleSearchChange = useCallback((query: string) => {
