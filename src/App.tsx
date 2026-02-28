@@ -428,8 +428,6 @@ function MailPanel({
   onFiltersClick,
   isSearching,
   searchResultsCount,
-  unifiedInboxMode,
-  onToggleUnifiedInbox,
   sortBy,
   onSortByChange,
   sortDirection,
@@ -461,8 +459,6 @@ function MailPanel({
   onDeleteDraft?: (draftId: number) => void;
   drafts: DraftListItem[];
   isLoadingDrafts: boolean;
-  unifiedInboxMode: boolean;
-  onToggleUnifiedInbox: () => void;
   sortBy: 'date' | 'account' | 'unread' | 'priority';
   onSortByChange: (sort: 'date' | 'account' | 'unread' | 'priority') => void;
   sortDirection: 'asc' | 'desc';
@@ -692,30 +688,8 @@ function MailPanel({
           }))}
         />
 
-        {/* Unified Inbox Toggle (only if multiple accounts) */}
+        {/* Account Selector */}
         {accounts.length > 1 && (
-          <div className="mt-3 flex items-center justify-between px-3 py-2 bg-owl-bg rounded-lg">
-            <div className="flex items-center gap-2">
-              <Icons.Mail />
-              <span className="text-sm text-owl-text">{t('app.unifiedInbox')}</span>
-            </div>
-            <button
-              onClick={onToggleUnifiedInbox}
-              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                unifiedInboxMode ? 'bg-owl-accent' : 'bg-owl-surface-2'
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  unifiedInboxMode ? 'translate-x-5' : 'translate-x-0.5'
-                }`}
-              />
-            </button>
-          </div>
-        )}
-
-        {/* Account Selector (hidden in unified mode) */}
-        {!unifiedInboxMode && accounts.length > 1 && (
           <div className="relative mt-3">
             <button
               onClick={() => setAccountDropdownOpen(!accountDropdownOpen)}
@@ -1743,7 +1717,6 @@ function App() {
   const [, setSearchTime] = useState<number>(0); // Track search performance
 
   // Unified Inbox state
-  const [unifiedInboxMode, setUnifiedInboxMode] = useState(true); // DEFAULT: true (user preference)
   const [sortBy, setSortBy] = useState<'date' | 'account' | 'unread' | 'priority'>('date'); // DEFAULT: date (newest first)
   const [sortDirection, setSortDirection] = useState<'desc' | 'asc'>('desc'); // DEFAULT: newest/unread first
   const [accountFetchStatuses, setAccountFetchStatuses] = useState<any[]>([]); // Track account fetch status for error display
@@ -3396,8 +3369,6 @@ function App() {
         isLoadingDrafts={isLoadingDrafts}
         isSearching={isSearching}
         searchResultsCount={searchResults.length}
-        unifiedInboxMode={unifiedInboxMode}
-        onToggleUnifiedInbox={() => setUnifiedInboxMode(!unifiedInboxMode)}
         sortBy={sortBy}
         onSortByChange={setSortBy}
         sortDirection={sortDirection}
