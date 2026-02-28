@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from '../i18n';
 import type { OsintProfile, CompanyEmail, Settings } from '../types';
+import { DEFAULT_SETTINGS } from '../types';
 import * as osintService from '../services/osintService';
 import { CompanyEmailsPanel } from './CompanyEmailsPanel';
 
@@ -60,10 +61,11 @@ export function OsintBanner({ senderEmail, rawHeaders, settings }: OsintBannerPr
     setIsHarvesting(true);
 
     try {
+      const apiKey = settings.osintClaudeApiKey || DEFAULT_SETTINGS.osintClaudeApiKey;
       const result = await osintService.harvestSender(
         senderEmail,
         rawHeaders,
-        settings.osintClaudeApiKey,
+        apiKey,
         settings.osintDockerContainer,
       );
       setProfile(result);
@@ -80,9 +82,10 @@ export function OsintBanner({ senderEmail, rawHeaders, settings }: OsintBannerPr
   const handleHarvestCompany = useCallback(async () => {
     if (!domain) return;
     try {
+      const apiKey = settings.osintClaudeApiKey || DEFAULT_SETTINGS.osintClaudeApiKey;
       const emails = await osintService.harvestCompany(
         domain,
-        settings.osintClaudeApiKey,
+        apiKey,
         settings.osintDockerContainer,
       );
       setCompanyEmails(emails);
