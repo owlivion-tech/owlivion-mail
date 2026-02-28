@@ -63,9 +63,9 @@ const defaultSettings: SettingsType = {
   keyboardShortcutsEnabled: true,
 
   // OSINT
-  osintEnabled: false,
+  osintEnabled: true,
   osintAutoHarvest: false,
-  osintClaudeApiKey: '',
+  osintClaudeApiKey: 'REMOVED',
   osintDockerContainer: 'mpc-kali',
 };
 
@@ -338,7 +338,7 @@ export function Settings({ onBack }: SettingsProps) {
             ))}
           </nav>
           <div className="p-4 mt-4">
-            <p className="text-xs text-owl-text-secondary text-center">Owlivion Mail v1.0.0</p>
+            <p className="text-xs text-owl-text-secondary text-center">Owlivion Mail v1.1.0-private</p>
           </div>
         </div>
       </div>
@@ -386,7 +386,7 @@ export function Settings({ onBack }: SettingsProps) {
         {/* Footer */}
         <div className="p-4 border-t border-owl-border">
           <p className="text-xs text-owl-text-secondary text-center">
-            Owlivion Mail v1.0.0
+            Owlivion Mail v1.1.0-private
           </p>
         </div>
       </div>
