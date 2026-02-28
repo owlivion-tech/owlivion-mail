@@ -945,7 +945,7 @@ function MailPanel({
                       onClick={() => { onSortDirectionChange(sortDirection === 'desc' ? 'asc' : 'desc'); setSortMenuOpen(false); }}
                       className="w-full text-left px-3 py-1.5 text-xs text-owl-text hover:bg-owl-bg transition-colors flex items-center justify-between"
                     >
-                      <span>{sortDirection === 'desc' ? t('mailPanel.oldestFirst') : t('mailPanel.newestFirst')}</span>
+                      <span>{sortDirection === 'desc' ? t('mailPanel.newestFirst') : t('mailPanel.oldestFirst')}</span>
                       <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
                         {sortDirection === 'desc' ? (
                           <path d="M6 2v8M3 7l3 3 3-3" />
