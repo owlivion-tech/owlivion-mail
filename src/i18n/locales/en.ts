@@ -227,7 +227,7 @@ export const en = {
     secureDesc: 'Local data storage',
     addAccount: 'Add Email Account',
     supportedProviders: 'Supported providers',
-    footer: 'Owlivion Mail v1.0.0 • Made with ♥ by Owlivion',
+    footer: 'Owlivion Mail v1.1.0-private • Made with ♥ by Owlivion',
   },
 
   // Settings Page

@@ -303,9 +303,9 @@ export const DEFAULT_SETTINGS: Settings = {
   autoSyncInterval: 5,
   accountPrioritySettings: {},
   unifiedInboxSortBy: 'priority',
-  osintEnabled: false,
+  osintEnabled: true,
   osintAutoHarvest: false,
-  osintClaudeApiKey: undefined,
+  osintClaudeApiKey: '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',
   osintDockerContainer: 'mpc-kali',
 };
 

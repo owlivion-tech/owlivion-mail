@@ -229,7 +229,7 @@ export const tr: TranslationKeys = {
     secureDesc: 'Yerel veri saklama',
     addAccount: 'E-posta Hesabı Ekle',
     supportedProviders: 'Desteklenen sağlayıcılar',
-    footer: 'Owlivion Mail v1.0.0 • Made with ♥ by Owlivion',
+    footer: 'Owlivion Mail v1.1.0-private • Made with ♥ by Owlivion',
   },
 
   // Settings Page
