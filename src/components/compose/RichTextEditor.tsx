@@ -10,6 +10,7 @@ import Underline from '@tiptap/extension-underline';
 import Image from '@tiptap/extension-image';
 import Placeholder from '@tiptap/extension-placeholder';
 import DOMPurify from 'dompurify';
+import { useTranslation } from '../../i18n';
 
 interface RichTextEditorProps {
   content: string;
@@ -27,9 +28,11 @@ export function RichTextEditor({
   content,
   onChange,
   onPaste,
-  placeholder = 'E-posta içeriği...',
+  placeholder,
   disabled = false,
 }: RichTextEditorProps) {
+  const { t } = useTranslation();
+  const resolvedPlaceholder = placeholder || t('compose.bodyPlaceholder');
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -50,7 +53,7 @@ export function RichTextEditor({
         allowBase64: true,
       }),
       Placeholder.configure({
-        placeholder,
+        placeholder: resolvedPlaceholder,
       }),
     ],
     content,
@@ -145,7 +148,7 @@ export function RichTextEditor({
         class: 'prose prose-sm sm:prose lg:prose-lg xl:prose-xl focus:outline-none min-h-[300px] max-w-none text-owl-text',
       },
     },
-  }, [content, disabled, placeholder, onChange, onPaste]);
+  }, [content, disabled, resolvedPlaceholder, onChange, onPaste]);
 
   // Toolbar button helpers
   const toggleBold = useCallback(() => {
@@ -217,12 +220,12 @@ export function RichTextEditor({
             else if (value === 'h3') setHeading(3);
           }}
           className="px-2 py-1 text-xs bg-owl-surface border border-owl-border rounded text-owl-text hover:bg-owl-surface-2"
-          title="Başlık"
+          title={t('richTextEditor.headingTitle')}
         >
-          <option value="p">Paragraf</option>
-          <option value="h1">Başlık 1</option>
-          <option value="h2">Başlık 2</option>
-          <option value="h3">Başlık 3</option>
+          <option value="p">{t('richTextEditor.paragraph')}</option>
+          <option value="h1">{t('richTextEditor.heading1')}</option>
+          <option value="h2">{t('richTextEditor.heading2')}</option>
+          <option value="h3">{t('richTextEditor.heading3')}</option>
         </select>
 
         <div className="w-px h-6 bg-owl-border mx-1" />
@@ -233,7 +236,7 @@ export function RichTextEditor({
           className={`p-1.5 rounded hover:bg-owl-surface-2 ${
             editor.isActive('bold') ? 'bg-owl-accent/20 text-owl-accent' : 'text-owl-text-secondary'
           }`}
-          title="Kalın (Ctrl+B)"
+          title={t('richTextEditor.bold')}
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 4h8a4 4 0 014 4 4 4 0 01-4 4H6z" />
@@ -247,7 +250,7 @@ export function RichTextEditor({
           className={`p-1.5 rounded hover:bg-owl-surface-2 ${
             editor.isActive('italic') ? 'bg-owl-accent/20 text-owl-accent' : 'text-owl-text-secondary'
           }`}
-          title="İtalik (Ctrl+I)"
+          title={t('richTextEditor.italic')}
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 4h4M14 20h-4M15 4L9 20" />
@@ -260,7 +263,7 @@ export function RichTextEditor({
           className={`p-1.5 rounded hover:bg-owl-surface-2 ${
             editor.isActive('underline') ? 'bg-owl-accent/20 text-owl-accent' : 'text-owl-text-secondary'
           }`}
-          title="Altı Çizili (Ctrl+U)"
+          title={t('richTextEditor.underline')}
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 5v8a5 5 0 0010 0V5M5 19h14" />
@@ -275,7 +278,7 @@ export function RichTextEditor({
           className={`p-1.5 rounded hover:bg-owl-surface-2 ${
             editor.isActive('bulletList') ? 'bg-owl-accent/20 text-owl-accent' : 'text-owl-text-secondary'
           }`}
-          title="Madde İşaretli Liste"
+          title={t('richTextEditor.bulletList')}
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5h12M9 12h12M9 19h12M3 5h.01M3 12h.01M3 19h.01" />
@@ -288,7 +291,7 @@ export function RichTextEditor({
           className={`p-1.5 rounded hover:bg-owl-surface-2 ${
             editor.isActive('orderedList') ? 'bg-owl-accent/20 text-owl-accent' : 'text-owl-text-secondary'
           }`}
-          title="Numaralı Liste"
+          title={t('richTextEditor.orderedList')}
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5h12M9 12h12M9 19h12M3 5h.01M3 12h.01M3 19h.01" />
@@ -301,7 +304,7 @@ export function RichTextEditor({
           className={`p-1.5 rounded hover:bg-owl-surface-2 ${
             editor.isActive('blockquote') ? 'bg-owl-accent/20 text-owl-accent' : 'text-owl-text-secondary'
           }`}
-          title="Alıntı"
+          title={t('richTextEditor.blockquote')}
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
@@ -316,7 +319,7 @@ export function RichTextEditor({
           className={`p-1.5 rounded hover:bg-owl-surface-2 ${
             editor.isActive('link') ? 'bg-owl-accent/20 text-owl-accent' : 'text-owl-text-secondary'
           }`}
-          title="Link Ekle"
+          title={t('richTextEditor.addLink')}
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />

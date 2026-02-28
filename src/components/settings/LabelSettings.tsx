@@ -6,12 +6,14 @@ import { useState, useEffect, useCallback } from 'react';
 import type { Label, Account } from '../../types';
 import { LABEL_COLORS } from '../../types';
 import { labelCreate, labelList, labelUpdate, labelDelete } from '../../services/labelService';
+import { useTranslation } from '../../i18n';
 
 interface LabelSettingsProps {
   accounts: Account[];
 }
 
 export function LabelSettings({ accounts }: LabelSettingsProps) {
+  const { t } = useTranslation();
   const [labels, setLabels] = useState<Label[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
@@ -39,11 +41,11 @@ export function LabelSettings({ accounts }: LabelSettingsProps) {
       const data = await labelList(selectedAccount);
       setLabels(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Etiketler yuklenemedi');
+      setError(err instanceof Error ? err.message : t('settings.labelSettings.loadFailed'));
     } finally {
       setLoading(false);
     }
-  }, [selectedAccount]);
+  }, [selectedAccount, t]);
 
   useEffect(() => {
     loadLabels();
@@ -77,7 +79,7 @@ export function LabelSettings({ accounts }: LabelSettingsProps) {
       setIsFormOpen(false);
       loadLabels();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Etiket kaydedilemedi');
+      setError(err instanceof Error ? err.message : t('settings.labelSettings.saveFailed'));
     }
   };
 
@@ -87,7 +89,7 @@ export function LabelSettings({ accounts }: LabelSettingsProps) {
       setConfirmDeleteId(null);
       loadLabels();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Etiket silinemedi');
+      setError(err instanceof Error ? err.message : t('settings.labelSettings.deleteFailed'));
     }
   };
 
@@ -100,9 +102,9 @@ export function LabelSettings({ accounts }: LabelSettingsProps) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-owl-text">Etiketler</h2>
+          <h2 className="text-2xl font-bold text-owl-text">{t('settings.labelSettings.title')}</h2>
           <p className="text-owl-text-secondary mt-1">
-            E-postalarinizi organize etmek icin etiketler olusturun
+            {t('settings.labelSettings.subtitle')}
           </p>
         </div>
         <button
@@ -112,14 +114,14 @@ export function LabelSettings({ accounts }: LabelSettingsProps) {
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
-          Yeni Etiket
+          {t('settings.labelSettings.newLabel')}
         </button>
       </div>
 
       {/* Account filter */}
       {accounts.length > 1 && (
         <div className="flex items-center gap-2">
-          <span className="text-sm text-owl-text-secondary">Hesap:</span>
+          <span className="text-sm text-owl-text-secondary">{t('settings.labelSettings.account')}:</span>
           <select
             value={selectedAccount ?? ''}
             onChange={(e) => setSelectedAccount(e.target.value ? Number(e.target.value) : null)}
@@ -146,15 +148,15 @@ export function LabelSettings({ accounts }: LabelSettingsProps) {
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
-          Yukleniyor...
+          {t('common.loading')}
         </div>
       ) : labels.length === 0 ? (
         <div className="text-center py-12">
           <svg className="w-12 h-12 mx-auto text-owl-text-secondary/30 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
           </svg>
-          <p className="text-owl-text-secondary">Henuz etiket yok</p>
-          <p className="text-owl-text-secondary text-sm mt-1">Yeni bir etiket olusturarak baslayin</p>
+          <p className="text-owl-text-secondary">{t('settings.labelSettings.noLabels')}</p>
+          <p className="text-owl-text-secondary text-sm mt-1">{t('settings.labelSettings.noLabelsDesc')}</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -170,14 +172,14 @@ export function LabelSettings({ accounts }: LabelSettingsProps) {
                 />
                 <span className="text-owl-text font-medium">{label.name}</span>
                 {label.accountId === null && (
-                  <span className="text-xs text-owl-text-secondary bg-owl-bg px-2 py-0.5 rounded">Global</span>
+                  <span className="text-xs text-owl-text-secondary bg-owl-bg px-2 py-0.5 rounded">{t('settings.labelSettings.global')}</span>
                 )}
               </div>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => openEditForm(label)}
                   className="p-1.5 text-owl-text-secondary hover:text-owl-text rounded-lg hover:bg-owl-bg transition-colors"
-                  title="Duzenle"
+                  title={t('common.edit')}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -189,20 +191,20 @@ export function LabelSettings({ accounts }: LabelSettingsProps) {
                       onClick={() => handleDelete(label.id)}
                       className="px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
                     >
-                      Sil
+                      {t('common.delete')}
                     </button>
                     <button
                       onClick={() => setConfirmDeleteId(null)}
                       className="px-2 py-1 text-xs bg-owl-bg text-owl-text-secondary rounded hover:bg-owl-border transition-colors"
                     >
-                      Iptal
+                      {t('common.cancel')}
                     </button>
                   </div>
                 ) : (
                   <button
                     onClick={() => setConfirmDeleteId(label.id)}
                     className="p-1.5 text-owl-text-secondary hover:text-red-500 rounded-lg hover:bg-owl-bg transition-colors"
-                    title="Sil"
+                    title={t('common.delete')}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -220,20 +222,20 @@ export function LabelSettings({ accounts }: LabelSettingsProps) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-owl-surface rounded-xl border border-owl-border shadow-2xl w-full max-w-md p-6">
             <h3 className="text-lg font-semibold text-owl-text mb-4">
-              {editingLabel ? 'Etiketi Duzenle' : 'Yeni Etiket'}
+              {editingLabel ? t('settings.labelSettings.editLabel') : t('settings.labelSettings.newLabel')}
             </h3>
 
             <div className="space-y-4">
               {/* Name */}
               <div>
                 <label className="block text-sm font-medium text-owl-text-secondary mb-1">
-                  Etiket Adi
+                  {t('settings.labelSettings.labelName')}
                 </label>
                 <input
                   type="text"
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
-                  placeholder="Orn: Is, Kisisel, Onemli..."
+                  placeholder={t('settings.labelSettings.namePlaceholder')}
                   className="w-full bg-owl-bg border border-owl-border rounded-lg px-3 py-2 text-owl-text placeholder-owl-text-secondary/50 focus:outline-none focus:border-owl-accent"
                   autoFocus
                   onKeyDown={(e) => e.key === 'Enter' && handleSave()}
@@ -243,7 +245,7 @@ export function LabelSettings({ accounts }: LabelSettingsProps) {
               {/* Color picker */}
               <div>
                 <label className="block text-sm font-medium text-owl-text-secondary mb-2">
-                  Renk
+                  {t('settings.labelSettings.color')}
                 </label>
                 <div className="grid grid-cols-6 gap-2">
                   {LABEL_COLORS.map(c => (
@@ -266,7 +268,7 @@ export function LabelSettings({ accounts }: LabelSettingsProps) {
               {!editingLabel && accounts.length > 1 && (
                 <div>
                   <label className="block text-sm font-medium text-owl-text-secondary mb-1">
-                    Hesap
+                    {t('settings.labelSettings.account')}
                   </label>
                   <select
                     value={formAccountId ?? ''}
@@ -287,14 +289,14 @@ export function LabelSettings({ accounts }: LabelSettingsProps) {
                 onClick={() => setIsFormOpen(false)}
                 className="px-4 py-2 text-owl-text-secondary hover:text-owl-text bg-owl-bg hover:bg-owl-border rounded-lg transition-colors"
               >
-                Iptal
+                {t('common.cancel')}
               </button>
               <button
                 onClick={handleSave}
                 disabled={!formName.trim()}
                 className="px-4 py-2 bg-owl-accent hover:bg-owl-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
               >
-                {editingLabel ? 'Kaydet' : 'Olustur'}
+                {editingLabel ? t('common.save') : t('settings.labelSettings.create')}
               </button>
             </div>
           </div>

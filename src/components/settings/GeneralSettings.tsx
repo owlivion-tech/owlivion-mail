@@ -5,6 +5,7 @@
 import { useState } from 'react';
 import type { Settings } from '../../types';
 import { playNotificationSound, getSoundName, getSoundDescription, type NotificationSoundType } from '../../utils/notificationSounds';
+import { useTranslation } from '../../i18n';
 
 interface GeneralSettingsProps {
   settings: Settings;
@@ -12,6 +13,7 @@ interface GeneralSettingsProps {
 }
 
 export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsProps) {
+  const { t, lang } = useTranslation();
   const [playingSound, setPlayingSound] = useState<string | null>(null);
 
   const updateSetting = <K extends keyof Settings>(key: K, value: Settings[K]) => {
@@ -28,23 +30,23 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
     <div className="space-y-8">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-semibold text-owl-text">Genel Ayarlar</h2>
+        <h2 className="text-2xl font-semibold text-owl-text">{t('settings.generalSettings.title')}</h2>
         <p className="text-owl-text-secondary mt-1">
-          Uygulama görünümü ve davranış tercihlerinizi ayarlayın
+          {t('settings.generalSettings.subtitle')}
         </p>
       </div>
 
       {/* Appearance */}
       <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
-        <h3 className="text-lg font-medium text-owl-text mb-4">Görünüm</h3>
+        <h3 className="text-lg font-medium text-owl-text mb-4">{t('settings.generalSettings.appearance')}</h3>
 
         <div className="space-y-4">
           {/* Theme */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-owl-text">Tema</label>
+              <label className="text-sm font-medium text-owl-text">{t('settings.generalSettings.theme')}</label>
               <p className="text-xs text-owl-text-secondary mt-0.5">
-                Uygulama renk temasını seçin
+                {t('settings.generalSettings.themeDesc')}
               </p>
             </div>
             <select
@@ -52,23 +54,26 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
               onChange={(e) => updateSetting('theme', e.target.value as Settings['theme'])}
               className="px-4 py-2 bg-owl-bg border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm text-owl-text appearance-none cursor-pointer"
             >
-              <option value="dark" className="bg-owl-bg text-owl-text">Koyu</option>
-              <option value="light" className="bg-owl-bg text-owl-text">Açık</option>
-              <option value="system" className="bg-owl-bg text-owl-text">Sistem</option>
+              <option value="dark" className="bg-owl-bg text-owl-text">{t('settings.generalSettings.dark')}</option>
+              <option value="light" className="bg-owl-bg text-owl-text">{t('settings.generalSettings.light')}</option>
+              <option value="system" className="bg-owl-bg text-owl-text">{t('settings.generalSettings.system')}</option>
             </select>
           </div>
 
           {/* Language */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-owl-text">Dil</label>
+              <label className="text-sm font-medium text-owl-text">{t('settings.generalSettings.language')}</label>
               <p className="text-xs text-owl-text-secondary mt-0.5">
-                Arayüz dilini seçin
+                {t('settings.generalSettings.languageDesc')}
               </p>
             </div>
             <select
               value={settings.language}
-              onChange={(e) => updateSetting('language', e.target.value as Settings['language'])}
+              onChange={(e) => {
+                updateSetting('language', e.target.value as Settings['language']);
+                window.dispatchEvent(new Event('owlivion-settings-updated'));
+              }}
               className="px-4 py-2 bg-owl-bg border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm text-owl-text appearance-none cursor-pointer"
             >
               <option value="tr" className="bg-owl-bg text-owl-text">Türkçe</option>
@@ -79,9 +84,9 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
           {/* Compact View */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-owl-text">Kompakt Liste</label>
+              <label className="text-sm font-medium text-owl-text">{t('settings.generalSettings.compactList')}</label>
               <p className="text-xs text-owl-text-secondary mt-0.5">
-                E-posta listesinde daha fazla öğe göster
+                {t('settings.generalSettings.compactListDesc')}
               </p>
             </div>
             <Toggle
@@ -93,9 +98,9 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
           {/* Show Avatars */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-owl-text">Avatarları Göster</label>
+              <label className="text-sm font-medium text-owl-text">{t('settings.generalSettings.showAvatars')}</label>
               <p className="text-xs text-owl-text-secondary mt-0.5">
-                Gönderici avatarlarını e-posta listesinde göster
+                {t('settings.generalSettings.showAvatarsDesc')}
               </p>
             </div>
             <Toggle
@@ -107,9 +112,9 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
           {/* Conversation View */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-owl-text">Konuşma Görünümü</label>
+              <label className="text-sm font-medium text-owl-text">{t('settings.generalSettings.conversationView')}</label>
               <p className="text-xs text-owl-text-secondary mt-0.5">
-                İlgili e-postaları grupla
+                {t('settings.generalSettings.conversationViewDesc')}
               </p>
             </div>
             <Toggle
@@ -122,15 +127,15 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
 
       {/* Notifications */}
       <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
-        <h3 className="text-lg font-medium text-owl-text mb-4">Bildirimler</h3>
+        <h3 className="text-lg font-medium text-owl-text mb-4">{t('settings.generalSettings.notifications')}</h3>
 
         <div className="space-y-4">
           {/* Enable Notifications */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-owl-text">Bildirimleri Etkinleştir</label>
+              <label className="text-sm font-medium text-owl-text">{t('settings.generalSettings.enableNotifications')}</label>
               <p className="text-xs text-owl-text-secondary mt-0.5">
-                Yeni e-postalar için masaüstü bildirimi al
+                {t('settings.generalSettings.enableNotificationsDesc')}
               </p>
             </div>
             <Toggle
@@ -142,9 +147,9 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
           {/* Notification Sound */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-owl-text">Bildirim Sesi</label>
+              <label className="text-sm font-medium text-owl-text">{t('settings.generalSettings.notificationSound')}</label>
               <p className="text-xs text-owl-text-secondary mt-0.5">
-                Yeni e-postalar için ses çal
+                {t('settings.generalSettings.notificationSoundDesc')}
               </p>
             </div>
             <Toggle
@@ -159,10 +164,10 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
             <div className="pl-4 border-l-2 border-owl-border space-y-3">
               <div>
                 <label className="text-sm font-medium text-owl-text block mb-2">
-                  Ses Türü
+                  {t('settings.generalSettings.soundType')}
                 </label>
                 <div className="space-y-2 mb-3">
-                  <div className="text-xs font-medium text-owl-accent uppercase tracking-wide">🦉 Owlivion Özel Sesler</div>
+                  <div className="text-xs font-medium text-owl-accent uppercase tracking-wide">{t('settings.generalSettings.owlivionSounds')}</div>
                   <div className="grid grid-cols-2 gap-2">
                     {(['call', 'owlivion', 'whisper', 'moonlight'] as NotificationSoundType[]).map((soundType) => (
                       <button
@@ -176,8 +181,8 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
                         }`}
                       >
                         <div className="flex-1 text-left">
-                          <div className="text-sm font-medium">{getSoundName(soundType)}</div>
-                          <div className="text-xs opacity-70">{getSoundDescription(soundType)}</div>
+                          <div className="text-sm font-medium">{getSoundName(soundType, lang)}</div>
+                          <div className="text-xs opacity-70">{getSoundDescription(soundType, lang)}</div>
                         </div>
                         <button
                           type="button"
@@ -191,7 +196,7 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
                               ? 'bg-owl-accent text-white'
                               : 'hover:bg-owl-border text-owl-text-secondary hover:text-owl-text'
                           }`}
-                          title="Sesi dinle"
+                          title={t('settings.generalSettings.listenSound')}
                         >
                           {playingSound === soundType ? (
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -208,7 +213,7 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
                     ))}
                   </div>
                 </div>
-                <div className="text-xs font-medium text-owl-text-secondary uppercase tracking-wide mb-2">Klasik Sesler</div>
+                <div className="text-xs font-medium text-owl-text-secondary uppercase tracking-wide mb-2">{t('settings.generalSettings.classicSounds')}</div>
                 <div className="grid grid-cols-2 gap-2">
                   {(['gentle', 'pop', 'chime', 'ding', 'subtle', 'system'] as NotificationSoundType[]).map((soundType) => (
                     <button
@@ -222,8 +227,8 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
                       }`}
                     >
                       <div className="flex-1 text-left">
-                        <div className="text-sm font-medium">{getSoundName(soundType)}</div>
-                        <div className="text-xs opacity-70">{getSoundDescription(soundType)}</div>
+                        <div className="text-sm font-medium">{getSoundName(soundType, lang)}</div>
+                        <div className="text-xs opacity-70">{getSoundDescription(soundType, lang)}</div>
                       </div>
                       <button
                         type="button"
@@ -237,7 +242,7 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
                             ? 'bg-owl-accent text-white'
                             : 'hover:bg-owl-border text-owl-text-secondary hover:text-owl-text'
                         }`}
-                        title="Sesi dinle"
+                        title={t('settings.generalSettings.listenSound')}
                       >
                         {playingSound === soundType ? (
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -255,7 +260,7 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
                 </div>
               </div>
               <p className="text-xs text-owl-text-secondary">
-                💡 Her ses türünü dinlemek için ▶️ butonuna tıklayın
+                {t('settings.generalSettings.soundTip')}
               </p>
             </div>
           )}
@@ -264,9 +269,9 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
           {/* Badge Count */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-owl-text">Sayaç Rozeti</label>
+              <label className="text-sm font-medium text-owl-text">{t('settings.generalSettings.badgeCounter')}</label>
               <p className="text-xs text-owl-text-secondary mt-0.5">
-                Dock/taskbar'da okunmamış sayısını göster
+                {t('settings.generalSettings.badgeCounterDesc')}
               </p>
             </div>
             <Toggle
@@ -280,15 +285,15 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
 
       {/* Behavior */}
       <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
-        <h3 className="text-lg font-medium text-owl-text mb-4">Davranış</h3>
+        <h3 className="text-lg font-medium text-owl-text mb-4">{t('settings.generalSettings.behavior')}</h3>
 
         <div className="space-y-4">
           {/* Auto Mark Read */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-owl-text">Otomatik Okundu İşaretle</label>
+              <label className="text-sm font-medium text-owl-text">{t('settings.generalSettings.autoMarkRead')}</label>
               <p className="text-xs text-owl-text-secondary mt-0.5">
-                E-postayı görüntülerken otomatik olarak okundu işaretle
+                {t('settings.generalSettings.autoMarkReadDesc')}
               </p>
             </div>
             <Toggle
@@ -301,9 +306,9 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
           {settings.autoMarkRead && (
             <div className="flex items-center justify-between pl-4 border-l-2 border-owl-border">
               <div>
-                <label className="text-sm font-medium text-owl-text">Okundu Gecikmesi</label>
+                <label className="text-sm font-medium text-owl-text">{t('settings.generalSettings.readDelay')}</label>
                 <p className="text-xs text-owl-text-secondary mt-0.5">
-                  E-posta okundu olarak işaretlenmeden önce bekleme süresi
+                  {t('settings.generalSettings.readDelayDesc')}
                 </p>
               </div>
               <select
@@ -311,11 +316,11 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
                 onChange={(e) => updateSetting('autoMarkReadDelay', parseInt(e.target.value))}
                 className="px-4 py-2 bg-owl-bg border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm text-owl-text appearance-none cursor-pointer"
               >
-                <option value="0" className="bg-owl-bg text-owl-text">Hemen</option>
-                <option value="1" className="bg-owl-bg text-owl-text">1 saniye</option>
-                <option value="3" className="bg-owl-bg text-owl-text">3 saniye</option>
-                <option value="5" className="bg-owl-bg text-owl-text">5 saniye</option>
-                <option value="10" className="bg-owl-bg text-owl-text">10 saniye</option>
+                <option value="0" className="bg-owl-bg text-owl-text">{t('settings.generalSettings.immediately')}</option>
+                <option value="1" className="bg-owl-bg text-owl-text">{t('settings.generalSettings.second1')}</option>
+                <option value="3" className="bg-owl-bg text-owl-text">{t('settings.generalSettings.seconds3')}</option>
+                <option value="5" className="bg-owl-bg text-owl-text">{t('settings.generalSettings.seconds5')}</option>
+                <option value="10" className="bg-owl-bg text-owl-text">{t('settings.generalSettings.seconds10')}</option>
               </select>
             </div>
           )}
@@ -323,9 +328,9 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
           {/* Confirm Delete */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-owl-text">Silme Onayı</label>
+              <label className="text-sm font-medium text-owl-text">{t('settings.generalSettings.confirmDelete')}</label>
               <p className="text-xs text-owl-text-secondary mt-0.5">
-                E-posta silmeden önce onay iste
+                {t('settings.generalSettings.confirmDeleteDesc')}
               </p>
             </div>
             <Toggle
@@ -337,9 +342,9 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
           {/* Confirm Send */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-owl-text">Gönderme Onayı</label>
+              <label className="text-sm font-medium text-owl-text">{t('settings.generalSettings.confirmSend')}</label>
               <p className="text-xs text-owl-text-secondary mt-0.5">
-                E-posta göndermeden önce onay iste
+                {t('settings.generalSettings.confirmSendDesc')}
               </p>
             </div>
             <Toggle
@@ -351,9 +356,9 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
           {/* Close to Tray */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-owl-text">System Tray'e Minimize Et</label>
+              <label className="text-sm font-medium text-owl-text">{t('settings.generalSettings.closeToTray')}</label>
               <p className="text-xs text-owl-text-secondary mt-0.5">
-                Pencere kapatıldığında uygulamayı tamamen kapatmak yerine system tray'e gönder
+                {t('settings.generalSettings.closeToTrayDesc')}
               </p>
             </div>
             <Toggle
@@ -366,15 +371,15 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
 
       {/* Auto-Sync */}
       <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
-        <h3 className="text-lg font-medium text-owl-text mb-4">Otomatik Senkronizasyon</h3>
+        <h3 className="text-lg font-medium text-owl-text mb-4">{t('settings.generalSettings.autoSync')}</h3>
 
         <div className="space-y-4">
           {/* Enable Auto-Sync */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-owl-text">Otomatik Senkronizasyonu Etkinleştir</label>
+              <label className="text-sm font-medium text-owl-text">{t('settings.generalSettings.enableAutoSync')}</label>
               <p className="text-xs text-owl-text-secondary mt-0.5">
-                Yeni emailleri periyodik olarak otomatik kontrol et
+                {t('settings.generalSettings.enableAutoSyncDesc')}
               </p>
             </div>
             <Toggle
@@ -387,9 +392,9 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
           {settings.autoSyncEnabled && (
             <div className="flex items-center justify-between pl-4 border-l-2 border-owl-border">
               <div>
-                <label className="text-sm font-medium text-owl-text">Senkronizasyon Aralığı</label>
+                <label className="text-sm font-medium text-owl-text">{t('settings.generalSettings.syncInterval')}</label>
                 <p className="text-xs text-owl-text-secondary mt-0.5">
-                  Email kontrolü yapma sıklığı (dakika)
+                  {t('settings.generalSettings.syncIntervalDesc')}
                 </p>
               </div>
               <select
@@ -397,13 +402,13 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
                 onChange={(e) => updateSetting('autoSyncInterval', parseInt(e.target.value))}
                 className="px-4 py-2 bg-owl-bg border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm text-owl-text appearance-none cursor-pointer"
               >
-                <option value="1" className="bg-owl-bg text-owl-text">Her dakika</option>
-                <option value="2" className="bg-owl-bg text-owl-text">2 dakika</option>
-                <option value="5" className="bg-owl-bg text-owl-text">5 dakika (Önerilen)</option>
-                <option value="10" className="bg-owl-bg text-owl-text">10 dakika</option>
-                <option value="15" className="bg-owl-bg text-owl-text">15 dakika</option>
-                <option value="30" className="bg-owl-bg text-owl-text">30 dakika</option>
-                <option value="60" className="bg-owl-bg text-owl-text">60 dakika</option>
+                <option value="1" className="bg-owl-bg text-owl-text">{t('settings.generalSettings.everyMinute')}</option>
+                <option value="2" className="bg-owl-bg text-owl-text">{t('settings.generalSettings.minutes2')}</option>
+                <option value="5" className="bg-owl-bg text-owl-text">{t('settings.generalSettings.minutes5')}</option>
+                <option value="10" className="bg-owl-bg text-owl-text">{t('settings.generalSettings.minutes10')}</option>
+                <option value="15" className="bg-owl-bg text-owl-text">{t('settings.generalSettings.minutes15')}</option>
+                <option value="30" className="bg-owl-bg text-owl-text">{t('settings.generalSettings.minutes30')}</option>
+                <option value="60" className="bg-owl-bg text-owl-text">{t('settings.generalSettings.minutes60')}</option>
               </select>
             </div>
           )}
@@ -411,8 +416,7 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
           {/* Info */}
           <div className="px-4 py-3 bg-blue-900/10 border border-blue-700/30 rounded-lg">
             <p className="text-xs text-blue-400">
-              💡 <strong>İpucu:</strong> Daha sık senkronizasyon daha fazla pil tüketir.
-              Çoğu kullanıcı için 5 dakika idealdir.
+              {t('settings.generalSettings.syncTip')}
             </p>
           </div>
         </div>
@@ -420,15 +424,15 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
 
       {/* Compose */}
       <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
-        <h3 className="text-lg font-medium text-owl-text mb-4">Yazma</h3>
+        <h3 className="text-lg font-medium text-owl-text mb-4">{t('settings.generalSettings.writing')}</h3>
 
         <div className="space-y-4">
           {/* Signature Position */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-owl-text">İmza Konumu</label>
+              <label className="text-sm font-medium text-owl-text">{t('settings.generalSettings.signaturePosition')}</label>
               <p className="text-xs text-owl-text-secondary mt-0.5">
-                İmzanın yanıtlardaki konumu
+                {t('settings.generalSettings.signaturePositionDesc')}
               </p>
             </div>
             <select
@@ -436,17 +440,17 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
               onChange={(e) => updateSetting('signaturePosition', e.target.value as Settings['signaturePosition'])}
               className="px-4 py-2 bg-owl-bg border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm text-owl-text appearance-none cursor-pointer"
             >
-              <option value="bottom" className="bg-owl-bg text-owl-text">Alt (Alıntının altında)</option>
-              <option value="top" className="bg-owl-bg text-owl-text">Üst (Alıntının üstünde)</option>
+              <option value="bottom" className="bg-owl-bg text-owl-text">{t('settings.generalSettings.signatureBottom')}</option>
+              <option value="top" className="bg-owl-bg text-owl-text">{t('settings.generalSettings.signatureTop')}</option>
             </select>
           </div>
 
           {/* Reply Position */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-owl-text">Yanıt Konumu</label>
+              <label className="text-sm font-medium text-owl-text">{t('settings.generalSettings.replyPosition')}</label>
               <p className="text-xs text-owl-text-secondary mt-0.5">
-                Yanıt metninin başlangıç konumu
+                {t('settings.generalSettings.replyPositionDesc')}
               </p>
             </div>
             <select
@@ -454,8 +458,8 @@ export function GeneralSettings({ settings, onSettingsChange }: GeneralSettingsP
               onChange={(e) => updateSetting('replyPosition', e.target.value as Settings['replyPosition'])}
               className="px-4 py-2 bg-owl-bg border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm text-owl-text appearance-none cursor-pointer"
             >
-              <option value="top" className="bg-owl-bg text-owl-text">Üst (Alıntının üstünde)</option>
-              <option value="bottom" className="bg-owl-bg text-owl-text">Alt (Alıntının altında)</option>
+              <option value="top" className="bg-owl-bg text-owl-text">{t('settings.generalSettings.signatureTop')}</option>
+              <option value="bottom" className="bg-owl-bg text-owl-text">{t('settings.generalSettings.signatureBottom')}</option>
             </select>
           </div>
         </div>

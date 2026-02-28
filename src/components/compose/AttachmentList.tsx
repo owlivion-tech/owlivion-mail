@@ -4,6 +4,7 @@
 
 import React from 'react';
 import type { Attachment } from '../../types';
+import { useTranslation } from '../../i18n';
 
 interface AttachmentListProps {
   attachments: Attachment[];
@@ -104,12 +105,14 @@ function getFileIcon(contentType: string, filename: string): React.ReactNode {
 }
 
 export function AttachmentList({ attachments, onRemove, readonly = false }: AttachmentListProps) {
+  const { t } = useTranslation();
+
   if (attachments.length === 0) return null;
 
   return (
     <div className="space-y-2">
       <div className="text-xs text-owl-text-secondary font-medium">
-        Ekler ({attachments.length})
+        {t('attachmentList.attachments')} ({attachments.length})
       </div>
       <div className="flex flex-wrap gap-2">
         {attachments.map((attachment, index) => (
@@ -133,7 +136,7 @@ export function AttachmentList({ attachments, onRemove, readonly = false }: Atta
                 type="button"
                 onClick={() => onRemove(index)}
                 className="p-1 text-owl-text-secondary hover:text-owl-error rounded transition-colors opacity-0 group-hover:opacity-100"
-                title="Eki kaldır"
+                title={t('attachmentList.removeAttachment')}
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -146,7 +149,7 @@ export function AttachmentList({ attachments, onRemove, readonly = false }: Atta
 
       {/* Total size */}
       <div className="text-xs text-owl-text-secondary">
-        Toplam: {formatFileSize(attachments.reduce((sum, a) => sum + a.size, 0))}
+        {t('attachmentList.total')} {formatFileSize(attachments.reduce((sum, a) => sum + a.size, 0))}
       </div>
     </div>
   );

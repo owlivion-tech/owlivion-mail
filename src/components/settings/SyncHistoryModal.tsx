@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { SyncSnapshot } from '../../types';
+import { useTranslation } from '../../i18n';
 
 interface Props {
   isOpen: boolean;
@@ -9,6 +10,7 @@ interface Props {
 }
 
 export function SyncHistoryModal({ isOpen, onClose, dataType }: Props) {
+  const { t, lang } = useTranslation();
   const [history, setHistory] = useState<SyncSnapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [rollbackVersion, setRollbackVersion] = useState<number | null>(null);
@@ -32,7 +34,7 @@ export function SyncHistoryModal({ isOpen, onClose, dataType }: Props) {
       });
       setHistory(snapshots);
     } catch (err) {
-      console.error('Geçmiş yüklenemedi:', err);
+      console.error('History load failed:', err);
       setError(err as string);
     } finally {
       setLoading(false);
@@ -54,19 +56,19 @@ export function SyncHistoryModal({ isOpen, onClose, dataType }: Props) {
         version: rollbackVersion,
         masterPassword,
       });
-      alert('Geri alma başarılı! Verileriniz seçili versiyona döndürüldü.');
+      alert(t('syncHistory.rollbackSuccess'));
       setShowPasswordPrompt(false);
       setMasterPassword('');
       setRollbackVersion(null);
       onClose();
     } catch (err) {
-      alert('Geri alma başarısız: ' + err);
+      alert(t('syncHistory.rollbackFailed').replace('{error}', String(err)));
     }
   };
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
-    return new Intl.DateTimeFormat('tr-TR', {
+    return new Intl.DateTimeFormat(lang === 'tr' ? 'tr-TR' : 'en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
@@ -111,7 +113,7 @@ export function SyncHistoryModal({ isOpen, onClose, dataType }: Props) {
           <div className="p-6 border-b border-owl-border">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold text-owl-text">
-                {dataType.charAt(0).toUpperCase() + dataType.slice(1)} Geçmişi
+                {t('syncHistory.history').replace('{type}', dataType.charAt(0).toUpperCase() + dataType.slice(1))}
               </h2>
               <button
                 onClick={onClose}
@@ -123,7 +125,7 @@ export function SyncHistoryModal({ isOpen, onClose, dataType }: Props) {
               </button>
             </div>
             <p className="text-sm text-owl-text-secondary mt-1">
-              Son 30 senkronizasyon kaydı
+              {t('syncHistory.last30Records')}
             </p>
           </div>
 
@@ -135,9 +137,9 @@ export function SyncHistoryModal({ isOpen, onClose, dataType }: Props) {
               </div>
             ) : error ? (
               <div className="text-center py-12">
-                <p className="text-red-400">Hata: {error}</p>
+                <p className="text-red-400">{t('syncHistory.error').replace('{message}', error)}</p>
                 <button onClick={loadHistory} className="btn-secondary mt-4">
-                  Tekrar Dene
+                  {t('syncHistory.retry')}
                 </button>
               </div>
             ) : history.length === 0 ? (
@@ -145,7 +147,7 @@ export function SyncHistoryModal({ isOpen, onClose, dataType }: Props) {
                 <svg className="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <p>Henüz senkronizasyon geçmişi yok</p>
+                <p>{t('syncHistory.noHistory')}</p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -158,7 +160,7 @@ export function SyncHistoryModal({ isOpen, onClose, dataType }: Props) {
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-2">
                           <span className="font-medium text-owl-text">
-                            Versiyon {snap.version}
+                            {t('syncHistory.version').replace('{number}', String(snap.version))}
                           </span>
                           <span className={`px-2 py-0.5 rounded text-xs font-medium ${getOperationBadge(snap.operation)}`}>
                             {snap.operation}
@@ -171,13 +173,13 @@ export function SyncHistoryModal({ isOpen, onClose, dataType }: Props) {
                           <div className="flex items-center gap-4">
                             <span>{formatDate(snap.createdAt)}</span>
                             <span>•</span>
-                            <span>{snap.itemsCount} öğe</span>
+                            <span>{t('syncHistory.items').replace('{count}', String(snap.itemsCount))}</span>
                             <span>•</span>
                             <span className="font-mono text-xs">{snap.deviceId.slice(0, 8)}</span>
                           </div>
                           {snap.errorMessage && (
                             <div className="text-red-400 text-xs mt-1">
-                              Hata: {snap.errorMessage}
+                              {t('syncHistory.errorLabel').replace('{message}', snap.errorMessage || '')}
                             </div>
                           )}
                         </div>
@@ -187,7 +189,7 @@ export function SyncHistoryModal({ isOpen, onClose, dataType }: Props) {
                         className="btn-secondary text-sm whitespace-nowrap ml-4"
                         disabled={snap.syncStatus === 'failed'}
                       >
-                        Bu Versiyona Dön
+                        {t('syncHistory.rollbackToVersion')}
                       </button>
                     </div>
                   </div>
@@ -199,7 +201,7 @@ export function SyncHistoryModal({ isOpen, onClose, dataType }: Props) {
           {/* Footer */}
           <div className="p-6 border-t border-owl-border">
             <button onClick={onClose} className="btn-secondary w-full">
-              Kapat
+              {t('syncHistory.close')}
             </button>
           </div>
         </div>
@@ -209,13 +211,13 @@ export function SyncHistoryModal({ isOpen, onClose, dataType }: Props) {
       {showPasswordPrompt && (
         <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-owl-surface border border-owl-border p-6 rounded-xl max-w-sm w-full">
-            <h3 className="text-lg font-semibold mb-2 text-owl-text">Master Şifre Gerekli</h3>
+            <h3 className="text-lg font-semibold mb-2 text-owl-text">{t('syncHistory.masterPasswordRequired')}</h3>
             <p className="text-sm text-owl-text-secondary mb-4">
-              Geri alma işlemi için master şifrenizi girin
+              {t('syncHistory.masterPasswordDesc')}
             </p>
             <input
               type="password"
-              placeholder="Master şifrenizi girin"
+              placeholder={t('syncHistory.masterPasswordPlaceholder')}
               value={masterPassword}
               onChange={(e) => setMasterPassword(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleRollbackConfirm()}
@@ -228,7 +230,7 @@ export function SyncHistoryModal({ isOpen, onClose, dataType }: Props) {
                 className="btn-primary flex-1"
                 disabled={!masterPassword}
               >
-                Onayla
+                {t('syncHistory.confirm')}
               </button>
               <button
                 onClick={() => {
@@ -238,7 +240,7 @@ export function SyncHistoryModal({ isOpen, onClose, dataType }: Props) {
                 }}
                 className="btn-secondary flex-1"
               >
-                İptal
+                {t('syncHistory.cancel')}
               </button>
             </div>
           </div>

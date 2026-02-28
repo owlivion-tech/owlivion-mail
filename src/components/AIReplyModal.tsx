@@ -3,6 +3,7 @@
 // ============================================================================
 
 import { useState } from 'react';
+import { useTranslation } from '../i18n';
 import { generateReply } from '../services/geminiService';
 import type { Settings } from '../types';
 
@@ -17,25 +18,26 @@ interface AIReplyModalProps {
 
 type Tone = Settings['aiReplyTone'];
 
-const toneLabels: Record<Tone, { label: string; description: string }> = {
-  professional: { label: 'Profesyonel', description: 'İş ortamına uygun, net ve kibar' },
-  friendly: { label: 'Samimi', description: 'Dostça ama saygılı' },
-  formal: { label: 'Resmi', description: 'Protokollere uygun, diplomatik' },
-  casual: { label: 'Günlük', description: 'Doğal ve rahat' },
-};
-
 export function AIReplyModal({ isOpen, onClose, emailContent, emailSubject, senderName, apiKey }: AIReplyModalProps) {
+  const { t } = useTranslation();
   const [tone, setTone] = useState<Tone>('professional');
   const [status, setStatus] = useState<'idle' | 'generating' | 'done' | 'error'>('idle');
   const [generatedReply, setGeneratedReply] = useState('');
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
 
+  const toneLabels: Record<Tone, { label: string; description: string }> = {
+    professional: { label: t('aiReply.professional'), description: t('aiReply.professionalDesc') },
+    friendly: { label: t('aiReply.friendly'), description: t('aiReply.friendlyDesc') },
+    formal: { label: t('aiReply.formal'), description: t('aiReply.formalDesc') },
+    casual: { label: t('aiReply.casual'), description: t('aiReply.casualDesc') },
+  };
+
   if (!isOpen) return null;
 
   const handleGenerate = async () => {
     if (!apiKey) {
-      setError('Gemini API anahtarı ayarlanmamış. Lütfen Ayarlar > AI bölümünden ayarlayın.');
+      setError(t('aiReply.apiKeyRequired'));
       setStatus('error');
       return;
     }
@@ -54,7 +56,7 @@ export function AIReplyModal({ isOpen, onClose, emailContent, emailSubject, send
       setGeneratedReply(response.reply);
       setStatus('done');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Bir hata oluştu');
+      setError(err instanceof Error ? err.message : t('aiReply.unknownError'));
       setStatus('error');
     }
   };
@@ -87,8 +89,8 @@ export function AIReplyModal({ isOpen, onClose, emailContent, emailSubject, send
               </svg>
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-owl-text">AI Yanıt Oluştur</h2>
-              <p className="text-sm text-owl-text-secondary">Gemini ile akıllı yanıt</p>
+              <h2 className="text-lg font-semibold text-owl-text">{t('aiReply.title')}</h2>
+              <p className="text-sm text-owl-text-secondary">{t('aiReply.subtitle')}</p>
             </div>
           </div>
           <button
@@ -118,7 +120,7 @@ export function AIReplyModal({ isOpen, onClose, emailContent, emailSubject, send
           {/* Tone Selection */}
           {status === 'idle' && (
             <div className="mb-6">
-              <label className="block text-sm font-medium text-owl-text mb-3">Yanıt Tonu Seçin</label>
+              <label className="block text-sm font-medium text-owl-text mb-3">{t('aiReply.selectTone')}</label>
               <div className="grid grid-cols-2 gap-3">
                 {(Object.keys(toneLabels) as Tone[]).map((t) => (
                   <button
@@ -149,8 +151,8 @@ export function AIReplyModal({ isOpen, onClose, emailContent, emailSubject, send
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
               </div>
-              <p className="text-owl-text font-medium">Yanıt oluşturuluyor...</p>
-              <p className="text-sm text-owl-text-secondary mt-1">Gemini AI çalışıyor</p>
+              <p className="text-owl-text font-medium">{t('aiReply.generatingTitle')}</p>
+              <p className="text-sm text-owl-text-secondary mt-1">{t('aiReply.geminiWorking')}</p>
             </div>
           )}
 
@@ -161,7 +163,7 @@ export function AIReplyModal({ isOpen, onClose, emailContent, emailSubject, send
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span className="font-medium">Hata</span>
+                <span className="font-medium">{t('common.error')}</span>
               </div>
               <p className="text-sm text-owl-error/80 mt-1">{error}</p>
             </div>
@@ -171,7 +173,7 @@ export function AIReplyModal({ isOpen, onClose, emailContent, emailSubject, send
           {status === 'done' && (
             <div className="mb-6">
               <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-medium text-owl-text">Oluşturulan Yanıt</label>
+                <label className="text-sm font-medium text-owl-text">{t('aiReply.generatedReply')}</label>
                 <button
                   onClick={handleCopy}
                   className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors ${
@@ -185,14 +187,14 @@ export function AIReplyModal({ isOpen, onClose, emailContent, emailSubject, send
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
-                      Kopyalandı
+                      {t('aiReply.copied')}
                     </>
                   ) : (
                     <>
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                       </svg>
-                      Kopyala
+                      {t('aiReply.copy')}
                     </>
                   )}
                 </button>
@@ -212,7 +214,7 @@ export function AIReplyModal({ isOpen, onClose, emailContent, emailSubject, send
             onClick={handleClose}
             className="px-4 py-2 text-owl-text-secondary hover:text-owl-text transition-colors"
           >
-            Kapat
+            {t('aiReply.close')}
           </button>
 
           {status === 'idle' && (
@@ -223,7 +225,7 @@ export function AIReplyModal({ isOpen, onClose, emailContent, emailSubject, send
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
               </svg>
-              Yanıt Oluştur
+              {t('aiReply.generate')}
             </button>
           )}
 
@@ -235,7 +237,7 @@ export function AIReplyModal({ isOpen, onClose, emailContent, emailSubject, send
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
-              Yeniden Dene
+              {t('aiReply.retry')}
             </button>
           )}
 
@@ -247,7 +249,7 @@ export function AIReplyModal({ isOpen, onClose, emailContent, emailSubject, send
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
               </svg>
-              Yanıtla
+              {t('aiReply.useReply')}
             </button>
           )}
         </div>

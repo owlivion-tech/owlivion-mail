@@ -11,12 +11,14 @@ import {
   templateToggle,
   templateToggleFavorite,
 } from '../../services';
+import { useTranslation } from '../../i18n';
 
 interface TemplateSettingsProps {
   accounts: Account[];
 }
 
 export default function TemplateSettings({ accounts }: TemplateSettingsProps) {
+  const { t } = useTranslation();
   const [selectedAccountId, setSelectedAccountId] = useState<number | undefined>(
     accounts[0]?.id
   );
@@ -78,7 +80,7 @@ export default function TemplateSettings({ accounts }: TemplateSettingsProps) {
       setTemplates(data);
     } catch (err) {
       console.error('Failed to load templates:', err);
-      setError('Şablonlar yüklenemedi');
+      setError(t('templateSettings.loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -109,7 +111,7 @@ export default function TemplateSettings({ accounts }: TemplateSettingsProps) {
   const handleDeleteTemplate = async (template: EmailTemplate) => {
     if (
       !confirm(
-        `"${template.name}" şablonunu silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`
+        t('templateSettings.confirmDelete').replace('{name}', template.name)
       )
     ) {
       return;
@@ -120,7 +122,7 @@ export default function TemplateSettings({ accounts }: TemplateSettingsProps) {
       await loadTemplates();
     } catch (err) {
       console.error('Failed to delete template:', err);
-      alert('Şablon silinemedi');
+      alert(t('templateSettings.deleteFailed'));
     }
   };
 
@@ -130,7 +132,7 @@ export default function TemplateSettings({ accounts }: TemplateSettingsProps) {
       await loadTemplates();
     } catch (err) {
       console.error('Failed to toggle template:', err);
-      alert('Şablon durumu değiştirilemedi');
+      alert(t('templateSettings.toggleFailed'));
     }
   };
 
@@ -140,7 +142,7 @@ export default function TemplateSettings({ accounts }: TemplateSettingsProps) {
       await loadTemplates();
     } catch (err) {
       console.error('Failed to toggle favorite:', err);
-      alert('Favori durumu değiştirilemedi');
+      alert(t('templateSettings.favoriteFailed'));
     }
   };
 
@@ -149,7 +151,7 @@ export default function TemplateSettings({ accounts }: TemplateSettingsProps) {
     setEditingTemplate({
       ...template,
       id: 0, // Will be assigned by backend
-      name: `${template.name} (Kopya)`,
+      name: `${template.name} ${t('templateSettings.copySuffix')}`,
       usageCount: 0,
       lastUsedAt: undefined,
     } as EmailTemplate);
@@ -176,7 +178,7 @@ export default function TemplateSettings({ accounts }: TemplateSettingsProps) {
       <div className="text-center py-12">
         <AlertCircle className="w-16 h-16 text-gray-400 mx-auto mb-4" />
         <p className="text-gray-600 dark:text-gray-400">
-          Email şablonu kullanmak için önce bir hesap ekleyin.
+          {t('templateSettings.noAccountsHint')}
         </p>
       </div>
     );
@@ -188,10 +190,10 @@ export default function TemplateSettings({ accounts }: TemplateSettingsProps) {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-            Email Şablonları
+            {t('templateSettings.title')}
           </h2>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-            Sık kullandığınız email içeriklerini şablon olarak kaydedin ve hızlıca kullanın.
+            {t('templateSettings.subtitle')}
           </p>
         </div>
 
@@ -200,7 +202,7 @@ export default function TemplateSettings({ accounts }: TemplateSettingsProps) {
           className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
         >
           <Plus className="w-4 h-4" />
-          <span>Yeni Şablon</span>
+          <span>{t('templateSettings.newTemplate')}</span>
         </button>
       </div>
 
@@ -208,7 +210,7 @@ export default function TemplateSettings({ accounts }: TemplateSettingsProps) {
       {accounts.length > 1 && (
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Hesap Seçin
+            {t('templateSettings.selectAccount')}
           </label>
           <select
             value={selectedAccountId || ''}
@@ -234,7 +236,7 @@ export default function TemplateSettings({ accounts }: TemplateSettingsProps) {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Şablon ara..."
+              placeholder={t('templateSettings.searchPlaceholder')}
               className="w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
             />
           </div>
@@ -249,14 +251,14 @@ export default function TemplateSettings({ accounts }: TemplateSettingsProps) {
               onChange={(e) => setCategoryFilter(e.target.value)}
               className="w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 appearance-none"
             >
-              <option value="all">Tüm Kategoriler</option>
-              <option value="business">İş</option>
-              <option value="personal">Kişisel</option>
-              <option value="customer_support">Müşteri Destek</option>
-              <option value="sales">Satış</option>
-              <option value="marketing">Pazarlama</option>
-              <option value="internal">Dahili</option>
-              <option value="custom">Özel</option>
+              <option value="all">{t('templateSettings.allCategories')}</option>
+              <option value="business">{t('templateForm.business')}</option>
+              <option value="personal">{t('templateForm.personal')}</option>
+              <option value="customer_support">{t('templateForm.customerSupport')}</option>
+              <option value="sales">{t('templateForm.sales')}</option>
+              <option value="marketing">{t('templateForm.marketing')}</option>
+              <option value="internal">{t('templateForm.internal')}</option>
+              <option value="custom">{t('templateForm.custom')}</option>
             </select>
           </div>
         </div>
@@ -270,7 +272,7 @@ export default function TemplateSettings({ accounts }: TemplateSettingsProps) {
             className="w-4 h-4"
           />
           <span className="text-sm text-gray-700 dark:text-gray-300">
-            Sadece Favoriler
+            {t('templateSettings.favoritesOnly')}
           </span>
         </label>
       </div>
@@ -278,11 +280,11 @@ export default function TemplateSettings({ accounts }: TemplateSettingsProps) {
       {/* Stats */}
       <div className="flex gap-4 text-sm text-gray-600 dark:text-gray-400">
         <span>
-          Toplam: <strong>{templates.length}</strong> şablon
+          {t('templateSettings.totalCount').replace('{count}', String(templates.length))}
         </span>
         {filteredTemplates.length !== templates.length && (
           <span>
-            Filtrelendi: <strong>{filteredTemplates.length}</strong> şablon
+            {t('templateSettings.filteredCount').replace('{count}', String(filteredTemplates.length))}
           </span>
         )}
       </div>

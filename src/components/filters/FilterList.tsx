@@ -3,6 +3,7 @@
 // ============================================================================
 
 import type { EmailFilter } from '../../types';
+import { useTranslation } from '../../i18n';
 
 // Icons
 const Icons = {
@@ -60,6 +61,8 @@ export function FilterList({
   onTest,
   onApply,
 }: FilterListProps) {
+  const { t, lang } = useTranslation();
+
   // Loading state
   if (loading) {
     return (
@@ -74,7 +77,7 @@ export function FilterList({
     return (
       <div className="flex items-center justify-center py-12">
         <div className="text-center">
-          <div className="text-red-500 font-medium mb-2">Hata</div>
+          <div className="text-red-500 font-medium mb-2">{t('filters.filterList.error')}</div>
           <div className="text-sm text-gray-400">{error}</div>
         </div>
       </div>
@@ -87,11 +90,10 @@ export function FilterList({
       <div className="flex flex-col items-center justify-center py-12 px-4">
         <Icons.Filter />
         <h3 className="mt-4 text-lg font-medium text-gray-300">
-          Henüz filtre oluşturulmamış
+          {t('filters.filterList.noFilters')}
         </h3>
         <p className="mt-2 text-sm text-gray-400 text-center max-w-md">
-          Email'lerinizi otomatik olarak organize etmek için filtreler oluşturun.
-          Gelen kutusundaki karmaşayı azaltın ve önemli mesajları kaçırmayın.
+          {t('filters.filterList.noFiltersDesc')}
         </p>
       </div>
     );
@@ -99,9 +101,9 @@ export function FilterList({
 
   // Format date
   const formatDate = (dateStr?: string) => {
-    if (!dateStr) return 'Hiç';
+    if (!dateStr) return t('filters.filterList.never');
     const date = new Date(dateStr);
-    return new Intl.DateTimeFormat('tr-TR', {
+    return new Intl.DateTimeFormat(lang === 'tr' ? 'tr-TR' : 'en-US', {
       day: 'numeric',
       month: 'short',
       year: 'numeric',
@@ -130,7 +132,7 @@ export function FilterList({
                 </h3>
                 {!filter.isEnabled && (
                   <span className="px-2 py-0.5 text-xs font-medium bg-gray-700 text-gray-400 rounded">
-                    Pasif
+                    {t('filters.filterList.passive')}
                   </span>
                 )}
               </div>
@@ -146,35 +148,35 @@ export function FilterList({
               <button
                 onClick={() => onApply(filter.id)}
                 className="p-2 hover:bg-gray-700 rounded transition-colors text-green-400"
-                title="Mevcut emaillere uygula"
+                title={t('filters.filterList.applyToExisting')}
               >
                 <Icons.Play />
               </button>
               <button
                 onClick={() => onToggle(filter.id)}
                 className="p-2 hover:bg-gray-700 rounded transition-colors"
-                title={filter.isEnabled ? 'Pasif yap' : 'Aktif yap'}
+                title={filter.isEnabled ? t('filters.filterList.makePassive') : t('filters.filterList.makeActive')}
               >
                 <Icons.Toggle />
               </button>
               <button
                 onClick={() => onTest(filter.id)}
                 className="p-2 hover:bg-gray-700 rounded transition-colors"
-                title="Filtreyi test et"
+                title={t('filters.filterList.testFilter')}
               >
                 <Icons.TestTube />
               </button>
               <button
                 onClick={() => onEdit(filter)}
                 className="p-2 hover:bg-gray-700 rounded transition-colors text-blue-400"
-                title="Düzenle"
+                title={t('filters.filterList.edit')}
               >
                 <Icons.Edit />
               </button>
               <button
                 onClick={() => onDelete(filter.id)}
                 className="p-2 hover:bg-gray-700 rounded transition-colors text-red-400"
-                title="Sil"
+                title={t('filters.filterList.delete')}
               >
                 <Icons.Trash />
               </button>
@@ -184,19 +186,19 @@ export function FilterList({
           {/* Stats */}
           <div className="grid grid-cols-3 gap-4 pt-3 border-t border-gray-700">
             <div>
-              <div className="text-xs text-gray-500">Öncelik</div>
+              <div className="text-xs text-gray-500">{t('filters.filterList.priority')}</div>
               <div className="text-sm font-medium text-gray-300">
                 {filter.priority}
               </div>
             </div>
             <div>
-              <div className="text-xs text-gray-500">Eşleşme</div>
+              <div className="text-xs text-gray-500">{t('filters.filterList.matchCount')}</div>
               <div className="text-sm font-medium text-gray-300">
-                {filter.matchedCount} email
+                {filter.matchedCount} {t('filters.filterList.emailUnit')}
               </div>
             </div>
             <div>
-              <div className="text-xs text-gray-500">Son eşleşme</div>
+              <div className="text-xs text-gray-500">{t('filters.filterList.lastMatch')}</div>
               <div className="text-sm font-medium text-gray-300">
                 {formatDate(filter.lastMatchedAt)}
               </div>
@@ -207,18 +209,18 @@ export function FilterList({
           <div className="mt-3 pt-3 border-t border-gray-700 space-y-2">
             <div className="flex items-start gap-2">
               <span className="text-xs text-gray-500 min-w-[80px]">
-                Koşullar:
+                {t('filters.filterList.conditionsLabel')}
               </span>
               <span className="text-xs text-gray-400">
-                {filter.conditions.length} koşul ({filter.matchLogic === 'all' ? 'Tümü' : 'Herhangi biri'})
+                {filter.conditions.length} {t('filters.filterList.conditionsSummary')} ({filter.matchLogic === 'all' ? t('filters.filterList.matchAll') : t('filters.filterList.matchAny')})
               </span>
             </div>
             <div className="flex items-start gap-2">
               <span className="text-xs text-gray-500 min-w-[80px]">
-                Eylemler:
+                {t('filters.filterList.actionsLabel')}
               </span>
               <span className="text-xs text-gray-400">
-                {filter.actions.length} eylem
+                {filter.actions.length} {t('filters.filterList.actionsSummary')}
               </span>
             </div>
           </div>

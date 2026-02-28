@@ -5,6 +5,22 @@
 
 import type { AttachmentThreatAnalysis, ThreatIndicator } from '../types';
 import { makeGeminiRequest, extractGeminiText } from './geminiService';
+import { en } from '../i18n/locales/en';
+import type { TranslationKeys } from '../i18n/locales/en';
+import { tr } from '../i18n/locales/tr';
+
+const locales: Record<string, TranslationKeys> = { en, tr };
+
+function getTranslation(lang: string, key: string): string {
+  const translations = locales[lang] || locales.en;
+  const keys = key.split('.');
+  let current: unknown = translations;
+  for (const k of keys) {
+    if (current === null || current === undefined || typeof current !== 'object') return key;
+    current = (current as Record<string, unknown>)[k];
+  }
+  return typeof current === 'string' ? current : key;
+}
 
 // ============================================================================
 // Constants
@@ -82,7 +98,8 @@ const MAGIC_BYTES: Record<string, { name: string; dangerous: boolean }> = {
 
 export function analyzeAttachmentThreats(
   attachments: Array<{ index: number; filename: string; contentType: string; size: number; isInline: boolean }>,
-  emailContext?: { from?: { name?: string; email: string }; subject?: string; isPhishing?: boolean }
+  emailContext?: { from?: { name?: string; email: string }; subject?: string; isPhishing?: boolean },
+  language: 'tr' | 'en' = 'en'
 ): Record<number, AttachmentThreatAnalysis> {
   const results: Record<number, AttachmentThreatAnalysis> = {};
 
@@ -104,9 +121,9 @@ export function analyzeAttachmentThreats(
       threats.push({
         type: 'dangerous_extension',
         severity,
-        detail: `.${ext} uzantısı genellikle zararlı yazılım içerebilir`,
+        detail: getTranslation(language, 'threats.dangerousExtension').replace('{ext}', ext),
       });
-      reasons.push(`Tehlikeli dosya uzantısı: .${ext}`);
+      reasons.push(getTranslation(language, 'threats.dangerousExtDetail').replace('{ext}', ext));
     }
 
     // Check 2: Double extension (e.g., document.pdf.exe)
@@ -118,9 +135,9 @@ export function analyzeAttachmentThreats(
         threats.push({
           type: 'double_extension',
           severity: 'critical',
-          detail: `Çift uzantı tespit edildi: .${prevExt}.${lastExt} - dosya gerçek türünü gizlemeye çalışıyor`,
+          detail: getTranslation(language, 'threats.doubleExtension').replace('{prev}', prevExt).replace('{last}', lastExt),
         });
-        reasons.push(`Çift uzantı: .${prevExt}.${lastExt} (dosya türü gizleme girişimi)`);
+        reasons.push(getTranslation(language, 'threats.doubleExtDetail').replace('{prev}', prevExt).replace('{last}', lastExt));
       }
     }
 
@@ -135,9 +152,9 @@ export function analyzeAttachmentThreats(
         threats.push({
           type: 'mime_mismatch',
           severity: isMasquerade ? 'critical' : 'medium',
-          detail: `MIME tipi (${att.contentType}) ile uzantı (.${ext}) uyuşmuyor`,
+          detail: getTranslation(language, 'threats.mimeMismatch').replace('{mime}', att.contentType).replace('{ext}', ext),
         });
-        reasons.push(`MIME tipi uyuşmazlığı: ${att.contentType} ≠ .${ext}`);
+        reasons.push(getTranslation(language, 'threats.mimeMismatchDetail').replace('{mime}', att.contentType).replace('{ext}', ext));
       }
     }
 
@@ -147,9 +164,9 @@ export function analyzeAttachmentThreats(
       threats.push({
         type: 'macro_enabled',
         severity: 'high',
-        detail: `Makro içerebilen belge formatı: .${ext}`,
+        detail: getTranslation(language, 'threats.macroDocument').replace('{ext}', ext),
       });
-      reasons.push(`Makro etkin belge formatı: .${ext} (kötü amaçlı makrolar içerebilir)`);
+      reasons.push(getTranslation(language, 'threats.macroDocumentDetail').replace('{ext}', ext));
     }
 
     // Check 5: Suspicious size (very small document - might be a dropper)
@@ -158,27 +175,27 @@ export function analyzeAttachmentThreats(
       threats.push({
         type: 'suspicious_size',
         severity: 'low',
-        detail: `Belge boyutu çok küçük (${att.size} byte) - dropper olabilir`,
+        detail: getTranslation(language, 'threats.suspiciousSmallSize').replace('{size}', String(att.size)),
       });
-      reasons.push(`Şüpheli küçük boyut: ${att.size} byte`);
+      reasons.push(getTranslation(language, 'threats.suspiciousSmallDetail').replace('{size}', String(att.size)));
     }
 
     // Check 6: Suspicious extensions
     if (ext && SUSPICIOUS_EXTENSIONS.has(ext) && !DANGEROUS_EXTENSIONS.has(ext)) {
       score += 15;
-      reasons.push(`Şüpheli dosya türü: .${ext}`);
+      reasons.push(getTranslation(language, 'threats.suspiciousFileType').replace('{ext}', ext));
     }
 
     // Check 7: PDF in phishing context (not aggressive - only when phishing detected)
     if (ext === 'pdf' && emailContext?.isPhishing) {
       score += 15;
-      reasons.push('Phishing e-postasında PDF eki (reverse shell/exploit riski)');
+      reasons.push(getTranslation(language, 'threats.phishingPdfRisk'));
     }
 
     // Bonus: Attachment in a phishing email
     if (emailContext?.isPhishing && threats.length > 0) {
       score += 20;
-      reasons.push('Phishing olarak tespit edilen e-postada ek dosya');
+      reasons.push(getTranslation(language, 'threats.phishingAttachment'));
     }
 
     // Determine risk level
@@ -190,7 +207,7 @@ export function analyzeAttachmentThreats(
       riskLevel,
       score,
       reasons,
-      recommendations: generateRecommendations(threats, riskLevel, ext),
+      recommendations: generateRecommendations(threats, riskLevel, ext, language),
       detectedThreats: threats,
     };
   }
@@ -205,7 +222,8 @@ export function analyzeAttachmentThreats(
 export function analyzeMagicBytes(
   base64Data: string,
   filename: string,
-  contentType: string
+  contentType: string,
+  language: 'tr' | 'en' = 'en'
 ): ThreatIndicator | null {
   try {
     const hexBytes = extractHexFromBase64(base64Data);
@@ -223,14 +241,14 @@ export function analyzeMagicBytes(
             return {
               type: 'magic_bytes_mismatch',
               severity: 'critical',
-              detail: `Dosya .${ext} uzantılı ama gerçek formatı: ${info.name}`,
+              detail: getTranslation(language, 'threats.realFormat').replace('{ext}', ext).replace('{format}', info.name),
             };
           }
           // Even if extension is executable, flag it
           return {
             type: 'magic_bytes_mismatch',
             severity: 'high',
-            detail: `Çalıştırılabilir dosya tespit edildi: ${info.name}`,
+            detail: getTranslation(language, 'threats.executableDetected').replace('{name}', info.name),
           };
         }
 
@@ -243,7 +261,7 @@ export function analyzeMagicBytes(
             return {
               type: 'magic_bytes_mismatch',
               severity: 'high',
-              detail: `MIME tipi resim (${contentType}) ama dosya gerçekte: ${info.name}`,
+              detail: getTranslation(language, 'threats.imageMismatch').replace('{type}', contentType).replace('{name}', info.name),
             };
           }
         }
@@ -270,16 +288,26 @@ export async function analyzeAttachmentWithAI(
   apiKey: string,
   language: 'tr' | 'en' = 'tr'
 ): Promise<AttachmentThreatAnalysis> {
+  const fileInfo = [
+    `- ${getTranslation(language, 'threats.filename').replace('{name}', attachment.filename)}`,
+    `- ${getTranslation(language, 'threats.mimeType').replace('{type}', attachment.contentType)}`,
+    `- ${getTranslation(language, 'threats.fileSize').replace('{size}', String(attachment.size))}`,
+  ];
+  if (magicBytesHex) {
+    fileInfo.push(`- ${getTranslation(language, 'threats.magicBytes').replace('{hex}', magicBytesHex)}`);
+  }
+  if (emailContext?.from) {
+    fileInfo.push(`- ${getTranslation(language, 'threats.sender').replace('{name}', emailContext.from.name || '').replace('{email}', emailContext.from.email)}`);
+  }
+  if (emailContext?.subject) {
+    fileInfo.push(`- ${getTranslation(language, 'threats.emailSubject').replace('{subject}', emailContext.subject)}`);
+  }
+
   const prompt = language === 'tr'
     ? `Bir e-posta eki güvenlik analizi yap. Sonucu JSON olarak ver.
 
 Dosya Bilgileri:
-- Dosya adı: ${attachment.filename}
-- MIME tipi: ${attachment.contentType}
-- Boyut: ${attachment.size} byte
-${magicBytesHex ? `- Magic bytes (hex): ${magicBytesHex}` : ''}
-${emailContext?.from ? `- Gönderen: ${emailContext.from.name || ''} <${emailContext.from.email}>` : ''}
-${emailContext?.subject ? `- E-posta konusu: ${emailContext.subject}` : ''}
+${fileInfo.join('\n')}
 
 Statik analiz sonuçları:
 - Risk skoru: ${staticAnalysis.score}/100
@@ -296,12 +324,7 @@ Lütfen aşağıdaki JSON formatında yanıt ver (sadece JSON, başka metin yok)
     : `Perform a security analysis of an email attachment. Return result as JSON.
 
 File Info:
-- Filename: ${attachment.filename}
-- MIME type: ${attachment.contentType}
-- Size: ${attachment.size} bytes
-${magicBytesHex ? `- Magic bytes (hex): ${magicBytesHex}` : ''}
-${emailContext?.from ? `- Sender: ${emailContext.from.name || ''} <${emailContext.from.email}>` : ''}
-${emailContext?.subject ? `- Email subject: ${emailContext.subject}` : ''}
+${fileInfo.join('\n')}
 
 Static analysis results:
 - Risk score: ${staticAnalysis.score}/100
@@ -405,46 +428,47 @@ export function extractHexFromBase64(base64Data: string): string | null {
 function generateRecommendations(
   threats: ThreatIndicator[],
   riskLevel: AttachmentThreatAnalysis['riskLevel'],
-  ext: string | null
+  ext: string | null,
+  language: 'tr' | 'en' = 'en'
 ): string[] {
   const recs: string[] = [];
 
   if (riskLevel === 'critical' || riskLevel === 'high') {
-    recs.push('Bu dosyayı açmayın - zararlı yazılım içerebilir');
-    recs.push('Göndereni tanımıyorsanız dosyayı silin');
+    recs.push(getTranslation(language, 'threats.dontOpenDangerous'));
+    recs.push(getTranslation(language, 'threats.deleteIfUnknown'));
   }
 
   const hasDangerousExt = threats.some(t => t.type === 'dangerous_extension');
   if (hasDangerousExt) {
-    recs.push(`Çalıştırılabilir dosyalar (.${ext}) e-posta ile gönderilmemelidir`);
+    recs.push(getTranslation(language, 'threats.exeShouldNotBeEmailed').replace('{ext}', ext || 'exe'));
   }
 
   const hasDoubleExt = threats.some(t => t.type === 'double_extension');
   if (hasDoubleExt) {
-    recs.push('Çift uzantılı dosyalar genellikle sosyal mühendislik saldırısı göstergesidir');
+    recs.push(getTranslation(language, 'threats.doubleExtSocialEng'));
   }
 
   const hasMacro = threats.some(t => t.type === 'macro_enabled');
   if (hasMacro) {
-    recs.push('Makroları etkinleştirmeyin - güvenilir kaynaklardan bile gelse dikkatli olun');
+    recs.push(getTranslation(language, 'threats.dontEnableMacros'));
   }
 
   const hasMimeMismatch = threats.some(t => t.type === 'mime_mismatch');
   if (hasMimeMismatch) {
-    recs.push('Dosya türü ile uzantı uyuşmuyor - manipülasyon olabilir');
+    recs.push(getTranslation(language, 'threats.mimeTypeMismatch'));
   }
 
   const hasMagicMismatch = threats.some(t => t.type === 'magic_bytes_mismatch');
   if (hasMagicMismatch) {
-    recs.push('Dosyanın gerçek formatı bildirilen formatla uyuşmuyor');
+    recs.push(getTranslation(language, 'threats.realFormatMismatch'));
   }
 
   if (riskLevel === 'medium') {
-    recs.push('Dosyayı açmadan önce göndereni doğrulayın');
+    recs.push(getTranslation(language, 'threats.verifySender'));
   }
 
   if (riskLevel === 'safe' && recs.length === 0) {
-    recs.push('Bilinen güvenli dosya türü');
+    recs.push(getTranslation(language, 'threats.knownSafeFile'));
   }
 
   return recs;
@@ -471,20 +495,13 @@ export function getThreatBorderColor(riskLevel: AttachmentThreatAnalysis['riskLe
 }
 
 export function getThreatLabel(riskLevel: AttachmentThreatAnalysis['riskLevel'], language: 'tr' | 'en' = 'tr'): string {
-  if (language === 'tr') {
-    switch (riskLevel) {
-      case 'critical': return 'Kritik Risk';
-      case 'high': return 'Yüksek Risk';
-      case 'medium': return 'Orta Risk';
-      case 'low': return 'Düşük Risk';
-      default: return 'Güvenli';
-    }
-  }
-  switch (riskLevel) {
-    case 'critical': return 'Critical Risk';
-    case 'high': return 'High Risk';
-    case 'medium': return 'Medium Risk';
-    case 'low': return 'Low Risk';
-    default: return 'Safe';
-  }
+  const keyMap: Record<string, string> = {
+    critical: 'threats.criticalRisk',
+    high: 'threats.highRisk',
+    medium: 'threats.mediumRisk',
+    low: 'threats.lowRisk',
+    safe: 'threats.safeLabel',
+  };
+  const key = riskLevel ? keyMap[riskLevel] : undefined;
+  return getTranslation(language, key || 'threats.safeLabel');
 }

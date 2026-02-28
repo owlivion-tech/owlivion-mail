@@ -5,6 +5,7 @@
 import { useState } from 'react';
 import { useShortcut } from '../../hooks/useKeyboardShortcuts';
 import { useSyncTrigger } from '../../hooks/useSync';
+import { useTranslation } from '../../i18n';
 import { ConflictResolutionModal } from './ConflictResolutionModal';
 import type { ConflictInfo } from '../../types';
 
@@ -19,6 +20,7 @@ export function ManualSyncModal({
   onClose,
   onSuccess,
 }: ManualSyncModalProps) {
+  const { t } = useTranslation();
   const [masterPassword, setMasterPassword] = useState('');
   const { syncing, result, error, trigger, reset } = useSyncTrigger();
   const [conflicts, setConflicts] = useState<ConflictInfo[]>([]);
@@ -98,7 +100,7 @@ export function ManualSyncModal({
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-owl-border">
           <h2 className="text-xl font-semibold text-owl-text">
-            Manuel Senkronizasyon
+            {t('manualSyncModal.title')}
           </h2>
           {!syncing && (
             <button
@@ -118,7 +120,7 @@ export function ManualSyncModal({
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label htmlFor="masterPassword" className="block text-sm font-medium text-owl-text mb-2">
-                  Ana Şifre
+                  {t('manualSyncModal.masterPassword')}
                 </label>
                 <input
                   id="masterPassword"
@@ -132,7 +134,7 @@ export function ManualSyncModal({
                   placeholder="••••••••"
                 />
                 <p className="text-xs text-owl-text-secondary mt-2">
-                  Verilerinizi şifrelemek için kullandığınız ana şifreyi girin
+                  {t('manualSyncModal.masterPasswordHint')}
                 </p>
               </div>
 
@@ -146,7 +148,7 @@ export function ManualSyncModal({
                 <div className="p-4 bg-owl-accent/10 border border-owl-accent rounded-lg">
                   <div className="flex items-center gap-3">
                     <div className="w-5 h-5 border-2 border-owl-accent border-t-transparent rounded-full animate-spin" />
-                    <span className="text-sm text-owl-accent">Senkronize ediliyor...</span>
+                    <span className="text-sm text-owl-accent">{t('manualSyncModal.syncing')}</span>
                   </div>
                 </div>
               )}
@@ -158,14 +160,14 @@ export function ManualSyncModal({
                   disabled={syncing}
                   className="flex-1 px-4 py-2 border border-owl-border text-owl-text rounded-lg hover:bg-owl-surface-2 transition-colors disabled:opacity-50"
                 >
-                  İptal
+                  {t('manualSyncModal.cancel')}
                 </button>
                 <button
                   type="submit"
                   disabled={syncing || !masterPassword}
                   className="flex-1 px-4 py-2 bg-owl-accent text-white rounded-lg hover:bg-owl-accent-hover transition-colors disabled:opacity-50"
                 >
-                  {syncing ? 'Senkronize ediliyor...' : 'Senkronize Et'}
+                  {syncing ? t('manualSyncModal.syncing') : t('manualSyncModal.syncBtn')}
                 </button>
               </div>
             </form>
@@ -180,7 +182,7 @@ export function ManualSyncModal({
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
                     </div>
-                    <span className="font-medium text-owl-success">Senkronizasyon Tamamlandı</span>
+                    <span className="font-medium text-owl-success">{t('manualSyncModal.syncComplete')}</span>
                   </div>
 
                   <div className="space-y-2 text-sm text-owl-text-secondary">
@@ -189,7 +191,7 @@ export function ManualSyncModal({
                         <svg className="w-4 h-4 text-owl-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
-                        <span>Hesaplar senkronize edildi</span>
+                        <span>{t('manualSyncModal.accountsSynced')}</span>
                       </div>
                     )}
                     {result.contactsSynced && (
@@ -197,7 +199,7 @@ export function ManualSyncModal({
                         <svg className="w-4 h-4 text-owl-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
-                        <span>Kişiler senkronize edildi</span>
+                        <span>{t('manualSyncModal.contactsSynced')}</span>
                       </div>
                     )}
                     {result.preferencesSynced && (
@@ -205,7 +207,7 @@ export function ManualSyncModal({
                         <svg className="w-4 h-4 text-owl-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
-                        <span>Tercihler senkronize edildi</span>
+                        <span>{t('manualSyncModal.preferencesSynced')}</span>
                       </div>
                     )}
                     {result.signaturesSynced && (
@@ -213,7 +215,7 @@ export function ManualSyncModal({
                         <svg className="w-4 h-4 text-owl-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
-                        <span>İmzalar senkronize edildi</span>
+                        <span>{t('manualSyncModal.signaturesSynced')}</span>
                       </div>
                     )}
                   </div>
@@ -226,7 +228,7 @@ export function ManualSyncModal({
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                       </svg>
                     </div>
-                    <span className="font-medium text-owl-error">Senkronizasyon Hataları</span>
+                    <span className="font-medium text-owl-error">{t('manualSyncModal.syncErrors')}</span>
                   </div>
 
                   <div className="space-y-2 text-sm text-owl-error">
@@ -241,7 +243,7 @@ export function ManualSyncModal({
                 onClick={handleClose}
                 className="w-full px-4 py-2 bg-owl-accent text-white rounded-lg hover:bg-owl-accent-hover transition-colors"
               >
-                Kapat
+                {t('manualSyncModal.close')}
               </button>
             </div>
           )}

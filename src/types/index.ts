@@ -273,7 +273,7 @@ export interface Settings {
 // Default settings
 export const DEFAULT_SETTINGS: Settings = {
   theme: 'dark',
-  language: 'tr',
+  language: 'en',
   compactListView: false,
   showAvatars: true,
   conversationView: true,

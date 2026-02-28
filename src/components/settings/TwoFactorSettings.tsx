@@ -5,6 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { useTranslation } from '../../i18n';
 
 interface TwoFactorStatus {
   enabled: boolean;
@@ -19,6 +20,7 @@ interface TwoFactorSetup {
 }
 
 export const TwoFactorSettings = () => {
+  const { t, lang } = useTranslation();
   const [status, setStatus] = useState<TwoFactorStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -134,7 +136,7 @@ export const TwoFactorSettings = () => {
         setDisablePassword('');
         setDisableToken('');
         await loadStatus();
-        alert('2FA disabled successfully. All sessions have been revoked.');
+        alert(t('twoFactorSettings.disabledSuccess'));
       } else {
         setError('Invalid password or 2FA code');
       }
@@ -150,7 +152,7 @@ export const TwoFactorSettings = () => {
   const copyBackupCodes = () => {
     const text = backupCodes.join('\n');
     navigator.clipboard.writeText(text);
-    alert('Backup codes copied to clipboard!');
+    alert(t('twoFactorSettings.backupCodesCopied'));
   };
 
   // Download backup codes as text file
@@ -189,10 +191,10 @@ ${backupCodes.map((code, i) => `${i + 1}. ${code}`).join('\n')}
       {/* Header */}
       <div>
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-          İki Faktörlü Kimlik Doğrulama (2FA)
+          {t('twoFactorSettings.title')}
         </h3>
         <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-          Hesabınızı ekstra bir güvenlik katmanıyla koruyun
+          {t('twoFactorSettings.subtitle')}
         </p>
       </div>
 
@@ -215,16 +217,16 @@ ${backupCodes.map((code, i) => `${i + 1}. ${code}`).join('\n')}
 
             <div>
               <h4 className="font-medium text-gray-900 dark:text-white">
-                {status?.enabled ? '2FA Aktif' : '2FA Devre Dışı'}
+                {status?.enabled ? t('twoFactorSettings.active') : t('twoFactorSettings.inactive')}
               </h4>
               {status?.enabled && status.enabled_at && (
                 <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Etkinleştirilme: {new Date(status.enabled_at).toLocaleDateString('tr-TR')}
+                  {t('twoFactorSettings.enabledAt').replace('{date}', new Date(status.enabled_at).toLocaleDateString(lang === 'tr' ? 'tr-TR' : 'en-US'))}
                 </p>
               )}
               {status?.enabled && (
                 <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Kalan yedek kod: {status.backup_codes_remaining}/10
+                  {t('twoFactorSettings.remainingBackupCodes').replace('{count}', String(status.backup_codes_remaining))}
                 </p>
               )}
             </div>
@@ -236,7 +238,7 @@ ${backupCodes.map((code, i) => `${i + 1}. ${code}`).join('\n')}
               disabled={loading}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
             >
-              Etkinleştir
+              {t('twoFactorSettings.enable')}
             </button>
           ) : (
             <button
@@ -244,7 +246,7 @@ ${backupCodes.map((code, i) => `${i + 1}. ${code}`).join('\n')}
               disabled={loading}
               className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors disabled:opacity-50"
             >
-              Devre Dışı Bırak
+              {t('twoFactorSettings.disable')}
             </button>
           )}
         </div>
@@ -257,8 +259,8 @@ ${backupCodes.map((code, i) => `${i + 1}. ${code}`).join('\n')}
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <div className="text-sm text-blue-700 dark:text-blue-300">
-            <p className="font-medium mb-1">2FA Nedir?</p>
-            <p>İki faktörlü kimlik doğrulama, şifrenize ek olarak telefonunuzdaki bir uygulamadan alacağınız 6 haneli bir kod gerektirir. Bu sayede şifreniz çalınsa bile hesabınız güvende kalır.</p>
+            <p className="font-medium mb-1">{t('twoFactorSettings.whatIs2FA')}</p>
+            <p>{t('twoFactorSettings.whatIs2FADesc')}</p>
           </div>
         </div>
       </div>
@@ -269,27 +271,27 @@ ${backupCodes.map((code, i) => `${i + 1}. ${code}`).join('\n')}
           <div className="bg-white dark:bg-gray-800 rounded-lg max-w-md w-full p-6 space-y-6">
             <div>
               <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
-                2FA Kurulumu
+                {t('twoFactorSettings.setupTitle')}
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                Aşağıdaki adımları takip edin
+                {t('twoFactorSettings.setupSubtitle')}
               </p>
             </div>
 
             {/* Step 1: QR Code */}
             <div className="space-y-3">
               <h4 className="font-medium text-gray-900 dark:text-white">
-                Adım 1: QR Kodu Tarayın
+                {t('twoFactorSettings.step1Title')}
               </h4>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Google Authenticator, Authy veya benzer bir uygulama ile bu QR kodu tarayın:
+                {t('twoFactorSettings.step1Desc')}
               </p>
               <div className="bg-white p-4 rounded-lg border border-gray-200 dark:border-gray-700 flex justify-center">
                 <img src={setupData.qr_code_url} alt="2FA QR Code" className="w-48 h-48" />
               </div>
               <details className="text-xs text-gray-500 dark:text-gray-400">
                 <summary className="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300">
-                  QR kod çalışmıyor mu? Manuel kod kullanın
+                  {t('twoFactorSettings.qrNotWorking')}
                 </summary>
                 <div className="mt-2 p-3 bg-gray-100 dark:bg-gray-700 rounded font-mono break-all">
                   {setupData.manual_entry_key}
@@ -300,10 +302,10 @@ ${backupCodes.map((code, i) => `${i + 1}. ${code}`).join('\n')}
             {/* Step 2: Verify */}
             <div className="space-y-3">
               <h4 className="font-medium text-gray-900 dark:text-white">
-                Adım 2: Kodu Doğrulayın
+                {t('twoFactorSettings.step2Title')}
               </h4>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Uygulamanızda görünen 6 haneli kodu girin:
+                {t('twoFactorSettings.step2Desc')}
               </p>
               <input
                 type="text"
@@ -325,14 +327,14 @@ ${backupCodes.map((code, i) => `${i + 1}. ${code}`).join('\n')}
                 }}
                 className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
               >
-                İptal
+                {t('twoFactorSettings.setupCancel')}
               </button>
               <button
                 onClick={enableTwoFactor}
                 disabled={loading || verificationCode.length !== 6}
                 className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
               >
-                {loading ? 'Doğrulanıyor...' : 'Doğrula ve Etkinleştir'}
+                {loading ? t('twoFactorSettings.verifying') : t('twoFactorSettings.verifyAndEnable')}
               </button>
             </div>
           </div>
@@ -345,10 +347,10 @@ ${backupCodes.map((code, i) => `${i + 1}. ${code}`).join('\n')}
           <div className="bg-white dark:bg-gray-800 rounded-lg max-w-md w-full p-6 space-y-6">
             <div>
               <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
-                ⚠️ Yedek Kodlarınız
+                {t('twoFactorSettings.backupCodesTitle')}
               </h3>
               <p className="text-sm text-red-600 dark:text-red-400 mt-1">
-                Bu kodlar sadece BİR KEZ gösterilecek! Güvenli bir yere kaydedin.
+                {t('twoFactorSettings.backupCodesWarning')}
               </p>
             </div>
 
@@ -366,13 +368,13 @@ ${backupCodes.map((code, i) => `${i + 1}. ${code}`).join('\n')}
                 onClick={copyBackupCodes}
                 className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
               >
-                Kopyala
+                {t('twoFactorSettings.copy')}
               </button>
               <button
                 onClick={downloadBackupCodes}
                 className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
               >
-                İndir
+                {t('twoFactorSettings.downloadCodes')}
               </button>
             </div>
 
@@ -383,11 +385,11 @@ ${backupCodes.map((code, i) => `${i + 1}. ${code}`).join('\n')}
               }}
               className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
             >
-              Anladım, Kodları Kaydettim
+              {t('twoFactorSettings.savedCodes')}
             </button>
 
             <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
-              Her kod sadece bir kez kullanılabilir. Telefonunuza erişiminiz olmadığında bu kodlardan birini kullanabilirsiniz.
+              {t('twoFactorSettings.backupCodesHint')}
             </p>
           </div>
         </div>
@@ -399,17 +401,17 @@ ${backupCodes.map((code, i) => `${i + 1}. ${code}`).join('\n')}
           <div className="bg-white dark:bg-gray-800 rounded-lg max-w-md w-full p-6 space-y-6">
             <div>
               <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
-                2FA'yı Devre Dışı Bırak
+                {t('twoFactorSettings.disableTitle')}
               </h3>
               <p className="text-sm text-red-600 dark:text-red-400 mt-1">
-                ⚠️ Tüm oturumlarınız sonlandırılacak!
+                {t('twoFactorSettings.disableWarning')}
               </p>
             </div>
 
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Şifreniz
+                  {t('twoFactorSettings.passwordLabel')}
                 </label>
                 <input
                   type="password"
@@ -421,13 +423,13 @@ ${backupCodes.map((code, i) => `${i + 1}. ${code}`).join('\n')}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  2FA Kodu veya Yedek Kod
+                  {t('twoFactorSettings.codeOrBackupLabel')}
                 </label>
                 <input
                   type="text"
                   value={disableToken}
                   onChange={(e) => setDisableToken(e.target.value)}
-                  placeholder="000000 veya XXXX-XXXX"
+                  placeholder={t('twoFactorSettings.codeOrBackupPlaceholder')}
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 />
               </div>
@@ -442,14 +444,14 @@ ${backupCodes.map((code, i) => `${i + 1}. ${code}`).join('\n')}
                 }}
                 className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
               >
-                İptal
+                {t('twoFactorSettings.disableCancel')}
               </button>
               <button
                 onClick={disableTwoFactor}
                 disabled={loading || !disablePassword || !disableToken}
                 className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors disabled:opacity-50"
               >
-                {loading ? 'İşleniyor...' : 'Devre Dışı Bırak'}
+                {loading ? t('twoFactorSettings.disableProcessing') : t('twoFactorSettings.disableBtn')}
               </button>
             </div>
           </div>

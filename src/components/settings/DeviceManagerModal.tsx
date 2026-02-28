@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react';
 import { useShortcut } from '../../hooks/useKeyboardShortcuts';
 import { useDevices } from '../../hooks/useSync';
 import { revokeDevice, getPlatformIcon, formatLastSync } from '../../services/syncService';
+import { useTranslation } from '../../i18n';
 
 interface DeviceManagerModalProps {
   isOpen: boolean;
@@ -18,6 +19,7 @@ export function DeviceManagerModal({
   onClose,
   currentDeviceId,
 }: DeviceManagerModalProps) {
+  const { t, lang } = useTranslation();
   const { devices, loading, error, reload } = useDevices();
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [revokeError, setRevokeError] = useState('');
@@ -34,11 +36,11 @@ export function DeviceManagerModal({
 
   const handleRevoke = async (deviceId: string) => {
     if (deviceId === currentDeviceId) {
-      setRevokeError('Aktif cihazı kaldıramazsınız');
+      setRevokeError(t('deviceManager.cannotRevokeActive'));
       return;
     }
 
-    if (!confirm('Bu cihazın erişimini iptal etmek istediğinizden emin misiniz?')) {
+    if (!confirm(t('deviceManager.confirmRevoke'))) {
       return;
     }
 
@@ -49,7 +51,7 @@ export function DeviceManagerModal({
       await revokeDevice(deviceId);
       await reload();
     } catch (err) {
-      setRevokeError(err instanceof Error ? err.message : 'Cihaz kaldırılamadı');
+      setRevokeError(err instanceof Error ? err.message : t('deviceManager.revokeFailed'));
     } finally {
       setRevokingId(null);
     }
@@ -61,9 +63,9 @@ export function DeviceManagerModal({
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-owl-border">
           <div>
-            <h2 className="text-xl font-semibold text-owl-text">Cihaz Yönetimi</h2>
+            <h2 className="text-xl font-semibold text-owl-text">{t('deviceManager.title')}</h2>
             <p className="text-sm text-owl-text-secondary mt-1">
-              Senkronize edilen cihazlarınızı görün ve yönetin
+              {t('deviceManager.subtitle')}
             </p>
           </div>
           <button
@@ -80,7 +82,7 @@ export function DeviceManagerModal({
         <div className="flex-1 overflow-y-auto p-6">
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <div className="text-owl-text-secondary">Yükleniyor...</div>
+              <div className="text-owl-text-secondary">{t('deviceManager.loading')}</div>
             </div>
           ) : error ? (
             <div className="p-4 bg-owl-error/10 border border-owl-error rounded-lg text-owl-error">
@@ -88,7 +90,7 @@ export function DeviceManagerModal({
             </div>
           ) : devices.length === 0 ? (
             <div className="text-center py-12 text-owl-text-secondary">
-              Henüz cihaz bulunamadı
+              {t('deviceManager.noDevices')}
             </div>
           ) : (
             <div className="space-y-3">
@@ -117,7 +119,7 @@ export function DeviceManagerModal({
                             </h3>
                             {isCurrentDevice && (
                               <span className="px-2 py-0.5 text-xs font-medium bg-owl-accent/20 text-owl-accent rounded-full">
-                                Bu Cihaz
+                                {t('deviceManager.thisDevice')}
                               </span>
                             )}
                           </div>
@@ -131,7 +133,7 @@ export function DeviceManagerModal({
                               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                               </svg>
-                              <span>Son görülme: {formatLastSync(device.lastSeenAt)}</span>
+                              <span>{t('deviceManager.lastSeen').replace('{date}', formatLastSync(device.lastSeenAt, lang))}</span>
                             </div>
                           </div>
 
@@ -148,7 +150,7 @@ export function DeviceManagerModal({
                           disabled={revokingId === device.deviceId}
                           className="px-3 py-1.5 text-sm text-owl-error hover:bg-owl-error/10 rounded-lg transition-colors disabled:opacity-50"
                         >
-                          {revokingId === device.deviceId ? 'Kaldırılıyor...' : 'Erişimi İptal Et'}
+                          {revokingId === device.deviceId ? t('deviceManager.revoking') : t('deviceManager.revokeAccess')}
                         </button>
                       )}
                     </div>
@@ -169,13 +171,13 @@ export function DeviceManagerModal({
         <div className="p-6 border-t border-owl-border">
           <div className="flex items-center justify-between">
             <p className="text-sm text-owl-text-secondary">
-              Toplam {devices.length} cihaz
+              {t('deviceManager.totalDevices').replace('{count}', String(devices.length))}
             </p>
             <button
               onClick={onClose}
               className="px-4 py-2 bg-owl-accent text-white rounded-lg hover:bg-owl-accent-hover transition-colors"
             >
-              Kapat
+              {t('deviceManager.close')}
             </button>
           </div>
         </div>

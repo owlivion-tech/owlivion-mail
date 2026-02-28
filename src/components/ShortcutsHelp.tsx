@@ -2,9 +2,10 @@
 // Owlivion Mail - Keyboard Shortcuts Help Modal
 // ============================================================================
 
+import { useTranslation } from '../i18n';
 import { useShortcut } from '../hooks/useKeyboardShortcuts';
 import {
-  SHORTCUT_CATEGORIES,
+  getShortcutCategories,
   getShortcutsByCategory,
   formatShortcutKey,
 } from '../constants/shortcuts';
@@ -15,12 +16,15 @@ interface ShortcutsHelpProps {
 }
 
 export function ShortcutsHelp({ isOpen, onClose }: ShortcutsHelpProps) {
+  const { t } = useTranslation();
+
   // Close on Escape
   useShortcut('Escape', onClose, { enabled: isOpen });
 
   if (!isOpen) return null;
 
-  const groupedShortcuts = getShortcutsByCategory();
+  const groupedShortcuts = getShortcutsByCategory(t);
+  const shortcutCategories = getShortcutCategories(t);
 
   return (
     <div
@@ -34,7 +38,7 @@ export function ShortcutsHelp({ isOpen, onClose }: ShortcutsHelpProps) {
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-owl-border">
           <h2 className="text-lg font-semibold text-owl-text">
-            Klavye Kısayolları
+            {t('shortcuts.title')}
           </h2>
           <button
             onClick={onClose}
@@ -59,7 +63,7 @@ export function ShortcutsHelp({ isOpen, onClose }: ShortcutsHelpProps) {
         {/* Content */}
         <div className="p-6 overflow-y-auto max-h-[calc(80vh-80px)]">
           <div className="grid grid-cols-2 gap-8">
-            {Object.entries(SHORTCUT_CATEGORIES).map(([categoryKey, category]) => {
+            {Object.entries(shortcutCategories).map(([categoryKey, category]) => {
               const shortcuts = groupedShortcuts[categoryKey];
               if (!shortcuts || shortcuts.length === 0) return null;
 
@@ -93,7 +97,7 @@ export function ShortcutsHelp({ isOpen, onClose }: ShortcutsHelpProps) {
         {/* Footer */}
         <div className="px-6 py-3 border-t border-owl-border bg-owl-surface-2/50">
           <p className="text-xs text-owl-text-secondary text-center">
-            Kısayolları açmak için <kbd className="px-1.5 py-0.5 text-xs font-mono bg-owl-surface border border-owl-border rounded">?</kbd> tuşuna basın
+            {t('shortcuts.pressToOpen').split('{key}')[0]}<kbd className="px-1.5 py-0.5 text-xs font-mono bg-owl-surface border border-owl-border rounded">?</kbd>{t('shortcuts.pressToOpen').split('{key}')[1]}
           </p>
         </div>
       </div>

@@ -4,6 +4,22 @@
 // SECURITY HARDENED: API key in headers, input sanitization, rate limiting
 
 import type { AIReplyRequest, AIReplyResponse, Settings } from '../types';
+import { en } from '../i18n/locales/en';
+import type { TranslationKeys } from '../i18n/locales/en';
+import { tr } from '../i18n/locales/tr';
+
+const locales: Record<string, TranslationKeys> = { en, tr };
+
+function getTranslation(lang: string, key: string): string {
+  const translations = locales[lang] || locales.en;
+  const keys = key.split('.');
+  let current: unknown = translations;
+  for (const k of keys) {
+    if (current === null || current === undefined || typeof current !== 'object') return key;
+    current = (current as Record<string, unknown>)[k];
+  }
+  return typeof current === 'string' ? current : key;
+}
 
 const GEMINI_API_URL =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
@@ -112,13 +128,12 @@ export async function generateReply(
   request: AIReplyRequest,
   apiKey: string
 ): Promise<AIReplyResponse> {
-  if (!apiKey) {
-    throw new Error('Gemini API key is required. Please set it in Settings > AI.');
-  }
-
-  // Auto-detect language from email content
   const detectedLanguage = detectLanguage(request.emailContent);
   const language = request.language || detectedLanguage;
+
+  if (!apiKey) {
+    throw new Error(getTranslation(language, 'aiReply.apiKeyRequired'));
+  }
 
   const systemPrompt = getSystemPrompt(request.tone, language);
   // SECURITY: Sanitize email content before sending to AI
@@ -185,30 +200,22 @@ export async function summarizeEmail(
   language?: 'tr' | 'en',
   apiKey?: string
 ): Promise<string> {
-  if (!apiKey) {
-    throw new Error('Gemini API key is required. Please set it in Settings > AI.');
-  }
-
   // Auto-detect language if not provided
   const detectedLanguage = language || detectLanguage(emailContent);
+
+  if (!apiKey) {
+    throw new Error(getTranslation(detectedLanguage, 'aiReply.apiKeyRequired'));
+  }
 
   // SECURITY: Sanitize email content
   const sanitizedContent = sanitizeEmailContent(emailContent);
 
-  const prompt =
-    detectedLanguage === 'tr'
-      ? `Bu e-postayı kısa ve öz bir şekilde özetle (3-5 cümle). Ana konuyu, önemli noktaları ve varsa eylem öğelerini belirt:
+  const prompt = `${getTranslation(detectedLanguage, 'gemini.summarizePrompt')}
 
-E-posta:
+${getTranslation(detectedLanguage, 'gemini.emailLabel')}
 ${sanitizedContent}
 
-Özet:`
-      : `Summarize this email concisely (3-5 sentences). Include the main topic, key points, and any action items:
-
-Email:
-${sanitizedContent}
-
-Summary:`;
+${getTranslation(detectedLanguage, 'gemini.summaryLabel')}`;
 
   const response = await makeGeminiRequest(apiKey, {
     contents: [
@@ -239,30 +246,22 @@ export async function extractActionItems(
   language?: 'tr' | 'en',
   apiKey?: string
 ): Promise<string[]> {
-  if (!apiKey) {
-    throw new Error('Gemini API key is required. Please set it in Settings > AI.');
-  }
-
   // Auto-detect language if not provided
   const detectedLanguage = language || detectLanguage(emailContent);
+
+  if (!apiKey) {
+    throw new Error(getTranslation(detectedLanguage, 'aiReply.apiKeyRequired'));
+  }
 
   // SECURITY: Sanitize email content
   const sanitizedContent = sanitizeEmailContent(emailContent);
 
-  const prompt =
-    detectedLanguage === 'tr'
-      ? `Bu e-postadan yapılması gereken işleri (action items) çıkar. Her bir maddeyi ayrı bir satırda, madde işareti olmadan yaz. Eğer eylem öğesi yoksa "YOK" yaz.
+  const prompt = `${getTranslation(detectedLanguage, 'gemini.actionItemsPrompt')}
 
-E-posta:
+${getTranslation(detectedLanguage, 'gemini.emailLabel')}
 ${sanitizedContent}
 
-Eylem öğeleri:`
-      : `Extract action items from this email. List each item on a separate line without bullet points. If there are no action items, write "NONE".
-
-Email:
-${sanitizedContent}
-
-Action items:`;
+${getTranslation(detectedLanguage, 'gemini.actionItemsLabel')}`;
 
   const response = await makeGeminiRequest(apiKey, {
     contents: [
@@ -284,7 +283,8 @@ Action items:`;
   const data = await response.json();
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
 
-  if (text === 'YOK' || text === 'NONE') {
+  const noneToken = getTranslation(detectedLanguage, 'gemini.none');
+  if (text === noneToken || text === 'YOK' || text === 'NONE') {
     return [];
   }
 
@@ -299,21 +299,24 @@ Action items:`;
  */
 export async function analyzeSentiment(
   emailContent: string,
-  apiKey?: string
+  apiKey?: string,
+  language?: 'tr' | 'en'
 ): Promise<'positive' | 'negative' | 'neutral'> {
+  const lang = language || 'en';
+
   if (!apiKey) {
-    throw new Error('Gemini API key is required. Please set it in Settings > AI.');
+    throw new Error(getTranslation(lang, 'aiReply.apiKeyRequired'));
   }
 
   // SECURITY: Sanitize email content
   const sanitizedContent = sanitizeEmailContent(emailContent, 5000);
 
-  const prompt = `Analyze the sentiment of this email and respond with exactly one word: "positive", "negative", or "neutral".
+  const prompt = `${getTranslation(lang, 'gemini.sentimentPrompt')}
 
-Email:
+${getTranslation(lang, 'gemini.emailLabel')}
 ${sanitizedContent}
 
-Sentiment:`;
+${getTranslation(lang, 'gemini.sentimentLabel')}`;
 
   const response = await makeGeminiRequest(apiKey, {
     contents: [
@@ -379,31 +382,17 @@ function getSystemPrompt(
   tone: Settings['aiReplyTone'],
   language: 'tr' | 'en'
 ): string {
-  const toneDescriptions = {
-    tr: {
-      professional:
-        'Profesyonel ve resmi bir ton kullan. İş ortamına uygun, net ve kibar ol.',
-      friendly: 'Samimi ve sıcak bir ton kullan. Dostça ama saygılı ol.',
-      formal: 'Çok resmi bir ton kullan. Protokollere uygun, diplomatik ol.',
-      casual: 'Günlük ve rahat bir ton kullan. Doğal ve samimi ol.',
-    },
-    en: {
-      professional:
-        'Use a professional and business-appropriate tone. Be clear, concise, and polite.',
-      friendly:
-        'Use a friendly and warm tone. Be approachable while maintaining respect.',
-      formal:
-        'Use a very formal tone. Be diplomatic and follow proper protocol.',
-      casual: 'Use a casual and relaxed tone. Be natural and conversational.',
-    },
+  const toneMap: Record<string, string> = {
+    professional: 'professionalTone',
+    friendly: 'friendlyTone',
+    formal: 'formalTone',
+    casual: 'casualTone',
   };
 
-  const languageInstruction =
-    language === 'tr'
-      ? 'Yanıtı Türkçe olarak yaz.'
-      : 'Write the response in English.';
+  const toneDescription = getTranslation(language, `gemini.${toneMap[tone]}`);
+  const languageInstruction = getTranslation(language, language === 'tr' ? 'gemini.writeTurkish' : 'gemini.writeEnglish');
 
-  return `Sen bir e-posta yazma asistanısın. ${toneDescriptions[language][tone]} ${languageInstruction}
+  return `Sen bir e-posta yazma asistanısın. ${toneDescription} ${languageInstruction}
 
 Kurallar:
 - Sadece yanıt metnini yaz, ekstra açıklama ekleme
@@ -413,21 +402,18 @@ Kurallar:
 }
 
 function getUserPrompt(request: AIReplyRequest): string {
+  const lang = request.language || 'tr';
   const contextPart = request.context
     ? `\n\nÖnceki konuşma:\n${sanitizeEmailContent(request.context, 3000)}`
     : '';
 
-  return `${
-    request.language === 'tr'
-      ? 'Aşağıdaki e-postaya uygun bir yanıt yaz'
-      : 'Write an appropriate reply to the following email'
-  }:
+  return `${getTranslation(lang, 'gemini.replyToEmail')}:
 
 ---
 ${request.emailContent}
 ---${contextPart}
 
-${request.language === 'tr' ? 'Yanıt' : 'Reply'}:`;
+${getTranslation(lang, 'gemini.replyLabel')}:`;
 }
 
 // ============================================================================
@@ -467,54 +453,22 @@ export async function analyzePhishing(
     // Extract links from HTML for analysis
     const links = extractLinks(email.bodyHtml || email.body);
 
-    const prompt = language === 'tr'
-      ? `Sen bir siber güvenlik uzmanısın. Bu e-postayı phishing (oltalama) saldırısı açısından analiz et.
+    const linksSection = links.length > 0
+      ? `${getTranslation(language, 'gemini.linksFound')}\n${links.slice(0, 10).map(l => `- ${l}`).join('\n')}`
+      : '';
 
-Gönderen: ${email.from.name} <${email.from.email}>
-Konu: ${email.subject}
-İçerik:
+    const prompt = `${getTranslation(language, 'gemini.phishingExpert')}
+
+${getTranslation(language, 'gemini.senderLabel')} ${email.from.name} <${email.from.email}>
+${getTranslation(language, 'gemini.subjectLabel')} ${email.subject}
+${getTranslation(language, 'gemini.contentLabel')}
 ${sanitizedBody}
 
-${links.length > 0 ? `Bulunan Linkler:\n${links.slice(0, 10).map(l => `- ${l}`).join('\n')}` : ''}
+${linksSection}
 
-Analiz kriterleri:
-1. Gönderen adı ile e-posta adresi uyumsuzluğu
-2. Şüpheli veya gizlenmiş linkler
-3. Aciliyet yaratan dil ("hesabınız kapatılacak", "hemen tıklayın")
-4. Kişisel bilgi talepleri (şifre, kredi kartı, TC kimlik)
-5. Dilbilgisi ve yazım hataları
-6. Resmi kurum taklidi
-7. Tehdit içeren ifadeler
-8. Beklenmedik ekler
+${getTranslation(language, 'gemini.analysisCriteria')}
 
-JSON formatında yanıt ver (sadece JSON, açıklama yok):
-{
-  "isPhishing": boolean,
-  "riskLevel": "low" | "medium" | "high" | "critical",
-  "score": 0-100,
-  "reasons": ["sebep1", "sebep2"],
-  "recommendations": ["öneri1", "öneri2"]
-}`
-      : `You are a cybersecurity expert. Analyze this email for phishing indicators.
-
-From: ${email.from.name} <${email.from.email}>
-Subject: ${email.subject}
-Content:
-${sanitizedBody}
-
-${links.length > 0 ? `Links found:\n${links.slice(0, 10).map(l => `- ${l}`).join('\n')}` : ''}
-
-Analysis criteria:
-1. Sender name vs email address mismatch
-2. Suspicious or obfuscated links
-3. Urgency language ("account will be closed", "click immediately")
-4. Requests for personal info (passwords, credit cards, SSN)
-5. Grammar and spelling errors
-6. Impersonation of official organizations
-7. Threatening statements
-8. Unexpected attachments
-
-Respond in JSON format only (no explanation):
+JSON formatında yanıt ver (sadece JSON, açıklama yok) / Respond in JSON format only (no explanation):
 {
   "isPhishing": boolean,
   "riskLevel": "low" | "medium" | "high" | "critical",
@@ -600,9 +554,7 @@ function ruleBasedPhishingDetection(
 
     if (hasBrandAsWord && !fromEmail.includes(brand)) {
       score += 30;
-      reasons.push(language === 'tr'
-        ? `Gönderen adı "${brand}" içeriyor ama e-posta adresi içermiyor (phishing taklidi olabilir)`
-        : `Sender name contains "${brand}" but email address doesn't (possible impersonation)`);
+      reasons.push(getTranslation(language, 'gemini.brandMismatch').replace('{brand}', brand));
     }
   }
 
@@ -611,9 +563,7 @@ function ruleBasedPhishingDetection(
   for (const tld of suspiciousTlds) {
     if (fromEmail.endsWith(tld)) {
       score += 20;
-      reasons.push(language === 'tr'
-        ? `Şüpheli alan adı uzantısı: ${tld}`
-        : `Suspicious domain extension: ${tld}`);
+      reasons.push(getTranslation(language, 'gemini.suspiciousTld').replace('{tld}', tld));
     }
   }
 
@@ -625,9 +575,7 @@ function ruleBasedPhishingDetection(
   for (const keyword of urgencyKeywords) {
     if (content.includes(keyword)) {
       score += 10;
-      reasons.push(language === 'tr'
-        ? `Aciliyet yaratan ifade: "${keyword}"`
-        : `Urgency phrase detected: "${keyword}"`);
+      reasons.push(getTranslation(language, 'gemini.urgencyKeyword').replace('{keyword}', keyword));
       break; // Only count once
     }
   }
@@ -640,9 +588,7 @@ function ruleBasedPhishingDetection(
   for (const keyword of sensitiveKeywords) {
     if (content.includes(keyword)) {
       score += 15;
-      reasons.push(language === 'tr'
-        ? `Hassas bilgi talebi: "${keyword}"`
-        : `Sensitive info request: "${keyword}"`);
+      reasons.push(getTranslation(language, 'gemini.sensitiveRequest').replace('{keyword}', keyword));
       break;
     }
   }
@@ -653,9 +599,7 @@ function ruleBasedPhishingDetection(
     // Check for IP address URLs
     if (/https?:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/.test(link)) {
       score += 25;
-      reasons.push(language === 'tr'
-        ? 'IP adresi içeren şüpheli link tespit edildi'
-        : 'Suspicious link with IP address detected');
+      reasons.push(getTranslation(language, 'gemini.suspiciousIpLink'));
       break;
     }
     // Check for URL shorteners
@@ -663,9 +607,7 @@ function ruleBasedPhishingDetection(
     for (const shortener of shorteners) {
       if (link.includes(shortener)) {
         score += 15;
-        reasons.push(language === 'tr'
-          ? `Kısaltılmış link tespit edildi: ${shortener}`
-          : `Shortened link detected: ${shortener}`);
+        reasons.push(getTranslation(language, 'gemini.shortenedLink').replace('{shortener}', shortener));
         break;
       }
     }
@@ -679,9 +621,7 @@ function ruleBasedPhishingDetection(
   for (const keyword of scamKeywords) {
     if (content.includes(keyword)) {
       score += 20;
-      reasons.push(language === 'tr'
-        ? `Dolandırıcılık göstergesi: "${keyword}"`
-        : `Scam indicator: "${keyword}"`);
+      reasons.push(getTranslation(language, 'gemini.fraudIndicator').replace('{keyword}', keyword));
       break;
     }
   }
@@ -696,20 +636,11 @@ function ruleBasedPhishingDetection(
   // Generate recommendations
   const recommendations: string[] = [];
   if (score >= 30) {
-    if (language === 'tr') {
-      recommendations.push('Bu e-postadaki linklere tıklamayın');
-      recommendations.push('Şüpheli göndericiyi doğrulamadan bilgi paylaşmayın');
-      if (score >= 60) {
-        recommendations.push('Bu e-postayı spam olarak işaretleyin');
-        recommendations.push('Eğer bir hesap sorunuysa, doğrudan resmi web sitesine gidin');
-      }
-    } else {
-      recommendations.push('Do not click links in this email');
-      recommendations.push('Do not share information without verifying the sender');
-      if (score >= 60) {
-        recommendations.push('Mark this email as spam');
-        recommendations.push('If it\'s about an account issue, go directly to the official website');
-      }
+    recommendations.push(getTranslation(language, 'gemini.dontClickLinks'));
+    recommendations.push(getTranslation(language, 'gemini.dontShareInfo'));
+    if (score >= 60) {
+      recommendations.push(getTranslation(language, 'gemini.markAsSpam'));
+      recommendations.push(getTranslation(language, 'gemini.goToOfficialSite'));
     }
   }
 
@@ -833,7 +764,7 @@ const TRACKING_DOMAINS: Record<string, string> = {
 /**
  * Detect email tracking and marketing indicators
  */
-export function detectEmailTracking(bodyHtml: string): TrackingAnalysis {
+export function detectEmailTracking(bodyHtml: string, language: 'tr' | 'en' = 'tr'): TrackingAnalysis {
   const trackingPixels: TrackingPixel[] = [];
   const trackingLinks: string[] = [];
   const trackingServicesSet = new Set<string>();
@@ -964,19 +895,18 @@ export function detectEmailTracking(bodyHtml: string): TrackingAnalysis {
 
   // Generate recommendations
   if (hasTracking) {
-    recommendations.push('Bu e-posta okundu bildirimi gönderen takip pikselleri içeriyor');
-    recommendations.push('Resimleri yüklememeniz takip edilmenizi önler');
+    recommendations.push(getTranslation(language, 'gemini.hasTrackingPixels'));
   }
 
   if (isMarketingEmail) {
-    recommendations.push('Bu bir pazarlama/bülten e-postası olarak görünüyor');
+    recommendations.push(getTranslation(language, 'gemini.isMarketingEmail'));
     if (htmlLower.includes('unsubscribe') || htmlLower.includes('abonelik')) {
-      recommendations.push('İstemiyorsanız abonelikten çıkabilirsiniz');
+      recommendations.push(getTranslation(language, 'gemini.canUnsubscribe'));
     }
   }
 
   if (trackingServicesSet.size > 0) {
-    recommendations.push(`Tespit edilen servisler: ${Array.from(trackingServicesSet).join(', ')}`);
+    recommendations.push(`${getTranslation(language, 'gemini.detectedServices')} ${Array.from(trackingServicesSet).join(', ')}`);
   }
 
   return {

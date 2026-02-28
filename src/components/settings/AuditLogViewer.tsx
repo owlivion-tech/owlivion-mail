@@ -6,8 +6,10 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { AuditLog, AuditLogFilters } from '../../types';
+import { useTranslation } from '../../i18n';
 
 export const AuditLogViewer = () => {
+  const { t, lang } = useTranslation();
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -58,9 +60,9 @@ export const AuditLogViewer = () => {
       );
 
       if (response.success) {
-        alert(`Audit logları başarıyla dışa aktarıldı:\n${response.csv_path}`);
+        alert(t('auditLog.exportSuccess').replace('{path}', response.csv_path));
       } else {
-        alert('Dışa aktarma başarısız oldu');
+        alert(t('auditLog.exportFailed'));
       }
     } catch (err) {
       console.error('Export audit logs error:', err);
@@ -70,7 +72,7 @@ export const AuditLogViewer = () => {
 
   // Format date
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString('tr-TR');
+    return new Date(dateString).toLocaleString(lang === 'tr' ? 'tr-TR' : 'en-US');
   };
 
   // Get status badge
@@ -78,14 +80,14 @@ export const AuditLogViewer = () => {
     if (success) {
       return (
         <span className="px-2 py-1 text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded">
-          Başarılı
+          {t('auditLog.success')}
         </span>
       );
     }
 
     return (
       <span className="px-2 py-1 text-xs font-medium bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded">
-        Başarısız
+        {t('auditLog.failed')}
       </span>
     );
   };
@@ -101,10 +103,10 @@ export const AuditLogViewer = () => {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Aktivite Günlüğü
+            {t('auditLog.title')}
           </h3>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-            Senkronizasyon geçmişinizi görüntüleyin ({totalCount} kayıt)
+            {t('auditLog.subtitle').replace('{count}', String(totalCount))}
           </p>
         </div>
 
@@ -116,7 +118,7 @@ export const AuditLogViewer = () => {
             <svg className="w-4 h-4 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
             </svg>
-            Filtrele
+            {t('auditLog.filter')}
           </button>
 
           <button
@@ -126,7 +128,7 @@ export const AuditLogViewer = () => {
             <svg className="w-4 h-4 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
-            CSV İndir
+            {t('auditLog.downloadCsv')}
           </button>
         </div>
       </div>
@@ -137,40 +139,40 @@ export const AuditLogViewer = () => {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Veri Tipi
+                {t('auditLog.dataType')}
               </label>
               <select
                 value={filters.data_type || ''}
                 onChange={(e) => setFilters({ ...filters, data_type: e.target.value || undefined, page: 1 })}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
               >
-                <option value="">Tümü</option>
-                <option value="contacts">Kişiler</option>
-                <option value="signatures">İmzalar</option>
-                <option value="settings">Ayarlar</option>
-                <option value="filters">Filtreler</option>
+                <option value="">{t('auditLog.all')}</option>
+                <option value="contacts">{t('auditLog.contacts')}</option>
+                <option value="signatures">{t('auditLog.signatures')}</option>
+                <option value="settings">{t('auditLog.settings')}</option>
+                <option value="filters">{t('auditLog.filters')}</option>
               </select>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                İşlem
+                {t('auditLog.action')}
               </label>
               <select
                 value={filters.action || ''}
                 onChange={(e) => setFilters({ ...filters, action: e.target.value || undefined, page: 1 })}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
               >
-                <option value="">Tümü</option>
-                <option value="upload">Yükleme</option>
-                <option value="download">İndirme</option>
-                <option value="delete">Silme</option>
+                <option value="">{t('auditLog.all')}</option>
+                <option value="upload">{t('auditLog.upload')}</option>
+                <option value="download">{t('auditLog.download')}</option>
+                <option value="delete">{t('auditLog.deleteAction')}</option>
               </select>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Başlangıç Tarihi
+                {t('auditLog.startDate')}
               </label>
               <input
                 type="date"
@@ -182,7 +184,7 @@ export const AuditLogViewer = () => {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Bitiş Tarihi
+                {t('auditLog.endDate')}
               </label>
               <input
                 type="date"
@@ -194,16 +196,16 @@ export const AuditLogViewer = () => {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Durum
+                {t('auditLog.status')}
               </label>
               <select
                 value={filters.success === undefined ? '' : filters.success.toString()}
                 onChange={(e) => setFilters({ ...filters, success: e.target.value === '' ? undefined : e.target.value === 'true', page: 1 })}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
               >
-                <option value="">Tümü</option>
-                <option value="true">Başarılı</option>
-                <option value="false">Başarısız</option>
+                <option value="">{t('auditLog.all')}</option>
+                <option value="true">{t('auditLog.success')}</option>
+                <option value="false">{t('auditLog.failed')}</option>
               </select>
             </div>
           </div>
@@ -216,7 +218,7 @@ export const AuditLogViewer = () => {
               }}
               className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
             >
-              Filtreleri Temizle
+              {t('auditLog.clearFilters')}
             </button>
           </div>
         </div>
@@ -243,22 +245,22 @@ export const AuditLogViewer = () => {
                 <thead className="bg-gray-50 dark:bg-gray-700">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      Zaman
+                      {t('auditLog.colTime')}
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      Veri Tipi
+                      {t('auditLog.colDataType')}
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      İşlem
+                      {t('auditLog.colAction')}
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      Cihaz
+                      {t('auditLog.colDevice')}
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      IP Adresi
+                      {t('auditLog.colIpAddress')}
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      Durum
+                      {t('auditLog.colStatus')}
                     </th>
                   </tr>
                 </thead>
@@ -266,7 +268,7 @@ export const AuditLogViewer = () => {
                   {logs.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-4 py-12 text-center text-gray-500 dark:text-gray-400">
-                        Kayıt bulunamadı
+                        {t('auditLog.noRecords')}
                       </td>
                     </tr>
                   ) : (
@@ -306,7 +308,7 @@ export const AuditLogViewer = () => {
           {totalPages > 1 && (
             <div className="flex items-center justify-between">
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Sayfa {filters.page} / {totalPages}
+                {t('auditLog.page').replace('{current}', String(filters.page)).replace('{total}', String(totalPages))}
               </p>
 
               <div className="flex items-center gap-2">
@@ -315,7 +317,7 @@ export const AuditLogViewer = () => {
                   disabled={filters.page === 1}
                   className="px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  Önceki
+                  {t('auditLog.previous')}
                 </button>
 
                 <button
@@ -323,7 +325,7 @@ export const AuditLogViewer = () => {
                   disabled={filters.page === totalPages}
                   className="px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  Sonraki
+                  {t('auditLog.next')}
                 </button>
               </div>
             </div>

@@ -6,8 +6,10 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { ActiveSession } from '../../types';
+import { useTranslation } from '../../i18n';
 
 export const ActiveSessions = () => {
+  const { t, lang } = useTranslation();
   const [sessions, setSessions] = useState<ActiveSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +40,7 @@ export const ActiveSessions = () => {
 
   // Revoke session
   const revokeSession = async (deviceId: string) => {
-    if (!confirm('Bu oturumu sonlandırmak istediğinizden emin misiniz?')) {
+    if (!confirm(t('activeSessions.confirmRevoke'))) {
       return;
     }
 
@@ -67,7 +69,7 @@ export const ActiveSessions = () => {
 
   // Revoke all except current
   const revokeAll = async () => {
-    if (!confirm('Mevcut cihaz hariç tüm oturumları sonlandırmak istediğinizden emin misiniz?')) {
+    if (!confirm(t('activeSessions.confirmRevokeAll'))) {
       return;
     }
 
@@ -81,7 +83,7 @@ export const ActiveSessions = () => {
       if (response.success) {
         // Reload sessions
         await loadSessions();
-        alert(`${response.revoked_count} oturum sonlandırıldı.`);
+        alert(t('activeSessions.revokedCount').replace('{count}', String(response.revoked_count)));
       } else {
         setError('Failed to revoke sessions');
       }
@@ -101,12 +103,12 @@ export const ActiveSessions = () => {
     const hours = Math.floor(minutes / 60);
     const days = Math.floor(hours / 24);
 
-    if (seconds < 60) return 'Az önce';
-    if (minutes < 60) return `${minutes} dakika önce`;
-    if (hours < 24) return `${hours} saat önce`;
-    if (days < 7) return `${days} gün önce`;
+    if (seconds < 60) return t('activeSessions.justNow');
+    if (minutes < 60) return t('activeSessions.minutesAgo').replace('{count}', String(minutes));
+    if (hours < 24) return t('activeSessions.hoursAgo').replace('{count}', String(hours));
+    if (days < 7) return t('activeSessions.daysAgo').replace('{count}', String(days));
 
-    return date.toLocaleDateString('tr-TR');
+    return date.toLocaleDateString(lang === 'tr' ? 'tr-TR' : 'en-US');
   };
 
   // Load on mount
@@ -132,10 +134,10 @@ export const ActiveSessions = () => {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Aktif Oturumlar
+            {t('activeSessions.title')}
           </h3>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-            Hesabınıza giriş yapmış cihazları görüntüleyin ve yönetin
+            {t('activeSessions.subtitle')}
           </p>
         </div>
 
@@ -144,7 +146,7 @@ export const ActiveSessions = () => {
             onClick={revokeAll}
             className="px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 border border-red-300 dark:border-red-600 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
           >
-            Diğer Oturumları Sonlandır
+            {t('activeSessions.revokeOthers')}
           </button>
         )}
       </div>
@@ -163,7 +165,7 @@ export const ActiveSessions = () => {
             <svg className="w-16 h-16 mx-auto text-gray-400 dark:text-gray-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
-            <p className="text-gray-600 dark:text-gray-400">Aktif oturum bulunamadı</p>
+            <p className="text-gray-600 dark:text-gray-400">{t('activeSessions.noSessions')}</p>
           </div>
         ) : (
           sessions.map((session) => (
@@ -185,7 +187,7 @@ export const ActiveSessions = () => {
                         {session.device_name}
                         {session.is_current && (
                           <span className="ml-2 px-2 py-0.5 text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded">
-                            Bu Cihaz
+                            {t('activeSessions.thisDevice')}
                           </span>
                         )}
                       </h4>
@@ -209,7 +211,7 @@ export const ActiveSessions = () => {
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
-                      <span>Son aktivite: {formatDate(session.last_activity)}</span>
+                      <span>{t('activeSessions.lastActivity').replace('{date}', formatDate(session.last_activity))}</span>
                     </div>
 
                     <div className="flex items-center gap-2 text-xs">
@@ -231,7 +233,7 @@ export const ActiveSessions = () => {
                     {revokingId === session.device_id ? (
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-600 dark:border-red-400" />
                     ) : (
-                      'Sonlandır'
+                      t('activeSessions.revoke')
                     )}
                   </button>
                 )}
@@ -248,8 +250,8 @@ export const ActiveSessions = () => {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <div className="text-sm text-blue-700 dark:text-blue-300">
-            <p className="font-medium mb-1">Güvenlik İpucu</p>
-            <p>Tanımadığınız bir cihaz görüyorsanız, hemen o oturumu sonlandırın ve şifrenizi değiştirin.</p>
+            <p className="font-medium mb-1">{t('activeSessions.securityTipTitle')}</p>
+            <p>{t('activeSessions.securityTipDesc')}</p>
           </div>
         </div>
       </div>

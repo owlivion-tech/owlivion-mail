@@ -3,6 +3,7 @@
 // ============================================================================
 
 import type { Settings } from '../../types';
+import { useTranslation } from '../../i18n';
 
 interface AISettingsProps {
   settings: Settings;
@@ -10,6 +11,7 @@ interface AISettingsProps {
 }
 
 export function AISettings({ settings, onSettingsChange }: AISettingsProps) {
+  const { t } = useTranslation();
   const updateSetting = <K extends keyof Settings>(key: K, value: Settings[K]) => {
     onSettingsChange({ ...settings, [key]: value });
   };
@@ -18,28 +20,28 @@ export function AISettings({ settings, onSettingsChange }: AISettingsProps) {
     <div className="space-y-8">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-semibold text-owl-text">Yapay Zeka Ayarları</h2>
+        <h2 className="text-2xl font-semibold text-owl-text">{t('settings.aiSettings.title')}</h2>
         <p className="text-owl-text-secondary mt-1">
-          AI destekli e-posta yanıtlama ve özetleme özelliklerini yapılandırın
+          {t('settings.aiSettings.subtitle')}
         </p>
       </div>
 
       {/* API Key */}
       <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
-        <h3 className="text-lg font-medium text-owl-text mb-4">Gemini API Anahtarı</h3>
+        <h3 className="text-lg font-medium text-owl-text mb-4">{t('settings.aiSettings.apiKey')}</h3>
 
         <div className="space-y-4">
           <div>
-            <label className="text-sm font-medium text-owl-text">API Anahtarı</label>
+            <label className="text-sm font-medium text-owl-text">{t('settings.aiSettings.apiKeyLabel')}</label>
             <p className="text-xs text-owl-text-secondary mt-0.5 mb-2">
-              Google AI Studio'dan ücretsiz API anahtarı alabilirsiniz
+              {t('settings.aiSettings.apiKeyHelp')}
             </p>
             <div className="flex gap-2">
               <input
                 type="password"
                 value={settings.geminiApiKey || ''}
                 onChange={(e) => updateSetting('geminiApiKey', e.target.value)}
-                placeholder="AIzaSy..."
+                placeholder={t('settings.aiSettings.apiKeyPlaceholder')}
                 className="flex-1 px-4 py-2 bg-owl-bg border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm text-owl-text"
               />
               <a
@@ -48,7 +50,7 @@ export function AISettings({ settings, onSettingsChange }: AISettingsProps) {
                 rel="noopener noreferrer"
                 className="px-4 py-2 bg-owl-accent hover:bg-owl-accent-hover text-white text-sm rounded-lg transition-colors whitespace-nowrap"
               >
-                API Key Al
+                {t('settings.aiSettings.getApiKey')}
               </a>
             </div>
           </div>
@@ -58,12 +60,12 @@ export function AISettings({ settings, onSettingsChange }: AISettingsProps) {
             {settings.geminiApiKey ? (
               <>
                 <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                <span className="text-sm text-green-500">API anahtarı tanımlı</span>
+                <span className="text-sm text-green-500">{t('settings.aiSettings.apiKeySet')}</span>
               </>
             ) : (
               <>
                 <div className="w-2 h-2 rounded-full bg-yellow-500"></div>
-                <span className="text-sm text-yellow-500">API anahtarı tanımlı değil</span>
+                <span className="text-sm text-yellow-500">{t('settings.aiSettings.apiKeyNotSet')}</span>
               </>
             )}
           </div>
@@ -72,15 +74,15 @@ export function AISettings({ settings, onSettingsChange }: AISettingsProps) {
 
       {/* AI Features */}
       <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
-        <h3 className="text-lg font-medium text-owl-text mb-4">AI Özellikleri</h3>
+        <h3 className="text-lg font-medium text-owl-text mb-4">{t('settings.aiSettings.features')}</h3>
 
         <div className="space-y-4">
           {/* Reply Tone */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-owl-text">Yanıt Tonu</label>
+              <label className="text-sm font-medium text-owl-text">{t('settings.aiSettings.replyTone')}</label>
               <p className="text-xs text-owl-text-secondary mt-0.5">
-                AI yanıtlarında kullanılacak varsayılan ton
+                {t('settings.aiSettings.replyToneDesc')}
               </p>
             </div>
             <select
@@ -88,19 +90,19 @@ export function AISettings({ settings, onSettingsChange }: AISettingsProps) {
               onChange={(e) => updateSetting('aiReplyTone', e.target.value as Settings['aiReplyTone'])}
               className="px-4 py-2 bg-owl-bg border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm text-owl-text appearance-none cursor-pointer"
             >
-              <option value="professional" className="bg-owl-bg text-owl-text">Profesyonel</option>
-              <option value="friendly" className="bg-owl-bg text-owl-text">Samimi</option>
-              <option value="formal" className="bg-owl-bg text-owl-text">Resmi</option>
-              <option value="casual" className="bg-owl-bg text-owl-text">Günlük</option>
+              <option value="professional" className="bg-owl-bg text-owl-text">{t('settings.aiSettings.professional')}</option>
+              <option value="friendly" className="bg-owl-bg text-owl-text">{t('settings.aiSettings.friendly')}</option>
+              <option value="formal" className="bg-owl-bg text-owl-text">{t('settings.aiSettings.formal')}</option>
+              <option value="casual" className="bg-owl-bg text-owl-text">{t('settings.aiSettings.casual')}</option>
             </select>
           </div>
 
           {/* Auto Summarize */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-owl-text">Otomatik Özetleme</label>
+              <label className="text-sm font-medium text-owl-text">{t('settings.aiSettings.autoSummarize')}</label>
               <p className="text-xs text-owl-text-secondary mt-0.5">
-                Uzun e-postaları otomatik özetle
+                {t('settings.aiSettings.autoSummarizeDesc')}
               </p>
             </div>
             <Toggle
@@ -112,9 +114,9 @@ export function AISettings({ settings, onSettingsChange }: AISettingsProps) {
           {/* Auto Phishing Detection */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-owl-text">Otomatik Phishing Tespiti</label>
+              <label className="text-sm font-medium text-owl-text">{t('settings.aiSettings.autoPhishing')}</label>
               <p className="text-xs text-owl-text-secondary mt-0.5">
-                E-postaları açarken otomatik olarak güvenlik analizi yap
+                {t('settings.aiSettings.autoPhishingDesc')}
               </p>
             </div>
             <Toggle
@@ -127,7 +129,7 @@ export function AISettings({ settings, onSettingsChange }: AISettingsProps) {
 
       {/* How it works */}
       <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
-        <h3 className="text-lg font-medium text-owl-text mb-4">Nasıl Çalışır?</h3>
+        <h3 className="text-lg font-medium text-owl-text mb-4">{t('settings.aiSettings.howItWorks')}</h3>
 
         <div className="space-y-4 text-sm text-owl-text-secondary">
           <div className="flex gap-3">
@@ -135,11 +137,9 @@ export function AISettings({ settings, onSettingsChange }: AISettingsProps) {
               <span className="text-owl-accent font-semibold">1</span>
             </div>
             <div>
-              <p className="font-medium text-owl-text">AI Yanıt</p>
+              <p className="font-medium text-owl-text">{t('settings.aiSettings.step1Title')}</p>
               <p>
-                E-posta görüntülerken "AI Yanıt" butonuna tıklayın veya{' '}
-                <kbd className="px-1.5 py-0.5 bg-owl-surface-2 border border-owl-border rounded text-xs">G</kbd>{' '}
-                tuşuna basın.
+                {t('settings.aiSettings.step1Desc')}
               </p>
             </div>
           </div>
@@ -149,9 +149,9 @@ export function AISettings({ settings, onSettingsChange }: AISettingsProps) {
               <span className="text-owl-accent font-semibold">2</span>
             </div>
             <div>
-              <p className="font-medium text-owl-text">Ton Seçimi</p>
+              <p className="font-medium text-owl-text">{t('settings.aiSettings.step2Title')}</p>
               <p>
-                Yanıt için istediğiniz tonu seçin: profesyonel, samimi, resmi veya günlük.
+                {t('settings.aiSettings.step2Desc')}
               </p>
             </div>
           </div>
@@ -161,9 +161,9 @@ export function AISettings({ settings, onSettingsChange }: AISettingsProps) {
               <span className="text-owl-accent font-semibold">3</span>
             </div>
             <div>
-              <p className="font-medium text-owl-text">Düzenleme</p>
+              <p className="font-medium text-owl-text">{t('settings.aiSettings.step3Title')}</p>
               <p>
-                Oluşturulan yanıtı gözden geçirin, düzenleyin ve gönderin.
+                {t('settings.aiSettings.step3Desc')}
               </p>
             </div>
           </div>
@@ -176,9 +176,9 @@ export function AISettings({ settings, onSettingsChange }: AISettingsProps) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <div>
-              <p className="text-sm font-medium text-owl-accent">Bilgi</p>
+              <p className="text-sm font-medium text-owl-accent">{t('settings.aiSettings.privacyNote')}</p>
               <p className="text-xs text-owl-accent/80 mt-0.5">
-                AI özelliklerini kullandığınızda e-posta içeriği Google'ın Gemini API'sine gönderilir.
+                {t('settings.aiSettings.privacyNoteDesc')}
               </p>
             </div>
           </div>

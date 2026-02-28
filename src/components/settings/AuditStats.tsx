@@ -5,9 +5,11 @@
 
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { useTranslation } from '../../i18n';
 import type { AuditStats } from '../../types';
 
 export const AuditStatsComponent = () => {
+  const { t, lang } = useTranslation();
   const [stats, setStats] = useState<AuditStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +39,7 @@ export const AuditStatsComponent = () => {
 
   // Format date
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('tr-TR');
+    return new Date(dateString).toLocaleDateString(lang === 'tr' ? 'tr-TR' : 'en-US');
   };
 
   // Calculate success rate
@@ -78,7 +80,7 @@ export const AuditStatsComponent = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                Toplam İşlem
+                {t('auditStats.totalOperations')}
               </p>
               <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
                 {stats.overall.total_operations}
@@ -96,10 +98,10 @@ export const AuditStatsComponent = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                Başarı Oranı
+                {t('auditStats.successRate')}
               </p>
               <p className="text-2xl font-bold text-green-600 dark:text-green-400 mt-1">
-                %{successRate}
+                {successRate}%
               </p>
             </div>
             <div className="p-3 bg-green-100 dark:bg-green-900/30 rounded-lg">
@@ -114,7 +116,7 @@ export const AuditStatsComponent = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                Cihaz Sayısı
+                {t('auditStats.deviceCount')}
               </p>
               <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
                 {stats.overall.unique_devices}
@@ -132,7 +134,7 @@ export const AuditStatsComponent = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                Başarısız İşlem
+                {t('auditStats.failedOperations')}
               </p>
               <p className="text-2xl font-bold text-red-600 dark:text-red-400 mt-1">
                 {stats.overall.failed}
@@ -150,12 +152,12 @@ export const AuditStatsComponent = () => {
       {/* Activity Timeline */}
       <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
         <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-          Son 30 Gün Aktivite
+          {t('auditStats.last30DaysActivity')}
         </h4>
 
         {stats.recent_activity.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">
-            Son 30 günde aktivite yok
+            {t('auditStats.noActivityLast30Days')}
           </p>
         ) : (
           <div className="space-y-2">
@@ -169,15 +171,15 @@ export const AuditStatsComponent = () => {
                 </span>
                 <div className="flex items-center gap-4">
                   <span className="text-sm text-green-600 dark:text-green-400">
-                    {activity.successful} başarılı
+                    {t('auditStats.successful').replace('{count}', String(activity.successful))}
                   </span>
                   {activity.failed > 0 && (
                     <span className="text-sm text-red-600 dark:text-red-400">
-                      {activity.failed} başarısız
+                      {t('auditStats.failedCount').replace('{count}', String(activity.failed))}
                     </span>
                   )}
                   <span className="text-sm font-medium text-gray-900 dark:text-white">
-                    Toplam: {activity.count}
+                    {t('auditStats.total').replace('{count}', String(activity.count))}
                   </span>
                 </div>
               </div>
@@ -190,12 +192,12 @@ export const AuditStatsComponent = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
           <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            Veri Tiplerine Göre
+            {t('auditStats.byDataType')}
           </h4>
 
           {stats.by_data_type.length === 0 ? (
             <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">
-              Veri yok
+              {t('auditStats.noData')}
             </p>
           ) : (
             <div className="space-y-3">
@@ -215,12 +217,12 @@ export const AuditStatsComponent = () => {
 
         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
           <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            İşlemlere Göre
+            {t('auditStats.byAction')}
           </h4>
 
           {stats.by_action.length === 0 ? (
             <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">
-              Veri yok
+              {t('auditStats.noData')}
             </p>
           ) : (
             <div className="space-y-3">
@@ -243,7 +245,7 @@ export const AuditStatsComponent = () => {
       {stats.recent_failures.length > 0 && (
         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
           <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            Son Başarısız İşlemler
+            {t('auditStats.recentFailures')}
           </h4>
 
           <div className="space-y-2">

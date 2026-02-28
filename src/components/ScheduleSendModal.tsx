@@ -4,17 +4,12 @@
 // ============================================================================
 
 import { useState } from 'react';
+import { useTranslation } from '../i18n';
 
 interface ScheduleSendModalProps {
   onSchedule: (sendAt: string) => void;
   onClose: () => void;
 }
-
-const PRESETS = [
-  { label: 'Yarin sabah (09:00)', preset: 'tomorrow_morning' as const },
-  { label: 'Yarin ogle (13:00)', preset: 'tomorrow_noon' as const },
-  { label: 'Pazartesi sabah (09:00)', preset: 'monday_morning' as const },
-];
 
 function getPresetDate(preset: string): Date {
   const now = new Date();
@@ -50,9 +45,16 @@ function toISO(d: Date): string {
 }
 
 export function ScheduleSendModal({ onSchedule, onClose }: ScheduleSendModalProps) {
+  const { t } = useTranslation();
   const [customDate, setCustomDate] = useState('');
   const [customTime, setCustomTime] = useState('09:00');
   const [showCustom, setShowCustom] = useState(false);
+
+  const PRESETS = [
+    { label: t('scheduleSend.tomorrowMorning'), preset: 'tomorrow_morning' as const },
+    { label: t('scheduleSend.tomorrowAfternoon'), preset: 'tomorrow_noon' as const },
+    { label: t('scheduleSend.mondayMorning'), preset: 'monday_morning' as const },
+  ];
 
   const handlePreset = (preset: string) => {
     const d = getPresetDate(preset);
@@ -76,8 +78,8 @@ export function ScheduleSendModal({ onSchedule, onClose }: ScheduleSendModalProp
         onClick={(e) => e.stopPropagation()}
       >
         <div className="p-4 border-b border-owl-border">
-          <h3 className="text-sm font-semibold text-owl-text-primary">Gonderimi Zamanla</h3>
-          <p className="text-xs text-owl-text-muted mt-1">E-posta belirtilen zamanda gonderilecek</p>
+          <h3 className="text-sm font-semibold text-owl-text-primary">{t('scheduleSend.title')}</h3>
+          <p className="text-xs text-owl-text-muted mt-1">{t('scheduleSend.subtitle')}</p>
         </div>
 
         <div className="p-2">
@@ -111,7 +113,7 @@ export function ScheduleSendModal({ onSchedule, onClose }: ScheduleSendModalProp
                 onClick={() => setShowCustom(true)}
                 className="w-full px-3 py-2.5 rounded-lg text-sm text-owl-text-secondary hover:bg-owl-bg-tertiary transition-colors text-left"
               >
-                Ozel tarih sec...
+                {t('scheduleSend.customDate')}
               </button>
             ) : (
               <div className="p-3 space-y-2">
@@ -133,7 +135,7 @@ export function ScheduleSendModal({ onSchedule, onClose }: ScheduleSendModalProp
                   disabled={!customDate}
                   className="w-full py-1.5 bg-owl-accent-primary text-white text-sm rounded-lg hover:bg-owl-accent-primary/90 disabled:opacity-50 transition-colors"
                 >
-                  Zamanla
+                  {t('scheduleSend.scheduleAction')}
                 </button>
               </div>
             )}

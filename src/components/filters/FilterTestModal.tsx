@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react';
 import { filterTest } from '../../services/filterService';
 import { emailList } from '../../services/mailService';
 import type { EmailSummary } from '../../types';
+import { useTranslation } from '../../i18n';
 
 interface FilterTestModalProps {
   isOpen: boolean;
@@ -33,6 +34,7 @@ const Icons = {
 };
 
 export function FilterTestModal({ isOpen, onClose, filterId, accountId }: FilterTestModalProps) {
+  const { t, lang } = useTranslation();
   const [emails, setEmails] = useState<EmailSummary[]>([]);
   const [testResults, setTestResults] = useState<Map<number, boolean>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -58,7 +60,7 @@ export function FilterTestModal({ isOpen, onClose, filterId, accountId }: Filter
       await testAllEmails(result.emails);
     } catch (err) {
       console.error('Failed to load emails:', err);
-      setError('Emailler yüklenemedi');
+      setError(t('filters.filterTest.loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -78,7 +80,7 @@ export function FilterTestModal({ isOpen, onClose, filterId, accountId }: Filter
       setTestResults(results);
     } catch (err) {
       console.error('Failed to test emails:', err);
-      setError('Test sırasında hata oluştu');
+      setError(t('filters.filterTest.testError'));
     } finally {
       setTesting(false);
     }
@@ -105,11 +107,11 @@ export function FilterTestModal({ isOpen, onClose, filterId, accountId }: Filter
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700">
           <div>
             <h2 className="text-xl font-semibold text-gray-100">
-              Filtre Test Sonuçları
+              {t('filters.filterTest.title')}
             </h2>
             {!loading && (
               <p className="text-sm text-gray-400 mt-1">
-                {matchedCount} / {totalCount} email eşleşti
+                {t('filters.filterTest.matchResult').replace('{matched}', String(matchedCount)).replace('{total}', String(totalCount))}
               </p>
             )}
           </div>
@@ -125,7 +127,7 @@ export function FilterTestModal({ isOpen, onClose, filterId, accountId }: Filter
         <div className="flex-1 overflow-y-auto px-6 py-4">
           {loading && (
             <div className="flex items-center justify-center h-64">
-              <div className="text-gray-400">Emailler yükleniyor...</div>
+              <div className="text-gray-400">{t('filters.filterTest.loadingEmails')}</div>
             </div>
           )}
 
@@ -138,8 +140,8 @@ export function FilterTestModal({ isOpen, onClose, filterId, accountId }: Filter
           {!loading && !error && emails.length === 0 && (
             <div className="flex items-center justify-center h-64">
               <div className="text-center">
-                <p className="text-gray-400 mb-2">Gelen kutusunda email bulunamadı</p>
-                <p className="text-sm text-gray-500">Test için en az bir email gereklidir</p>
+                <p className="text-gray-400 mb-2">{t('filters.filterTest.noEmails')}</p>
+                <p className="text-sm text-gray-500">{t('filters.filterTest.noEmailsDesc')}</p>
               </div>
             </div>
           )}
@@ -148,7 +150,7 @@ export function FilterTestModal({ isOpen, onClose, filterId, accountId }: Filter
             <div className="space-y-2">
               {testing && (
                 <div className="px-4 py-3 bg-blue-900/20 border border-blue-800 rounded-lg text-sm text-blue-400 mb-4">
-                  Emailler test ediliyor...
+                  {t('filters.filterTest.testingEmails')}
                 </div>
               )}
 
@@ -190,7 +192,7 @@ export function FilterTestModal({ isOpen, onClose, filterId, accountId }: Filter
                           {email.fromName || email.fromAddress}
                         </div>
                         <div className="text-xs text-gray-500 whitespace-nowrap">
-                          {new Date(email.date).toLocaleDateString('tr-TR')}
+                          {new Date(email.date).toLocaleDateString(lang === 'tr' ? 'tr-TR' : 'en-US')}
                         </div>
                       </div>
 
@@ -208,12 +210,12 @@ export function FilterTestModal({ isOpen, onClose, filterId, accountId }: Filter
                           {matches ? (
                             <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-900/30 text-green-400 text-xs rounded">
                               <Icons.Check />
-                              Filtre ile eşleşti
+                              {t('filters.filterTest.matched')}
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 px-2 py-1 bg-gray-700 text-gray-400 text-xs rounded">
                               <Icons.X2 />
-                              Eşleşmedi
+                              {t('filters.filterTest.notMatched')}
                             </span>
                           )}
                         </div>
@@ -226,7 +228,7 @@ export function FilterTestModal({ isOpen, onClose, filterId, accountId }: Filter
                         onClick={() => testSingleEmail(email.id)}
                         className="px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
                       >
-                        Tekrar Test Et
+                        {t('filters.filterTest.retest')}
                       </button>
                     )}
                   </div>
@@ -241,17 +243,17 @@ export function FilterTestModal({ isOpen, onClose, filterId, accountId }: Filter
           <div className="text-sm text-gray-400">
             {matchedCount > 0 ? (
               <>
-                Bu filtre <span className="text-green-400 font-medium">{matchedCount} email</span>e uygulanacak
+                {t('filters.filterTest.footerMatched').replace('{count}', String(matchedCount))}
               </>
             ) : (
-              'Hiçbir email eşleşmedi'
+              t('filters.filterTest.footerNoMatch')
             )}
           </div>
           <button
             onClick={onClose}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
           >
-            Kapat
+            {t('filters.filterTest.close')}
           </button>
         </div>
       </div>

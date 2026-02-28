@@ -7,6 +7,7 @@ import type { Attachment, AttachmentThreatAnalysis } from '../types';
 import { getFileIcon, formatFileSize, canPreview, isImageType, isPdfType, base64ToBlob } from '../utils/attachmentUtils';
 import { analyzeMagicBytes, analyzeAttachmentWithAI, getThreatLabel } from '../services/attachmentThreatService';
 import { useToastStore } from '../stores/toastStore';
+import { useTranslation } from '../i18n';
 
 interface AttachmentPreviewProps {
   isOpen: boolean;
@@ -41,6 +42,7 @@ export function AttachmentPreview({
   emailContext,
 }: AttachmentPreviewProps) {
   const toast = useToastStore();
+  const { t, lang } = useTranslation();
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -116,7 +118,7 @@ export function AttachmentPreview({
               reasons: [...(staticThreat?.reasons || []), magicResult.detail],
               recommendations: [
                 ...(staticThreat?.recommendations || []),
-                'Dosyanın gerçek formatı bildirilen formatla uyuşmuyor - açmayın',
+                t('attachmentPreview.formatMismatchWarning'),
               ],
               detectedThreats: [...(staticThreat?.detectedThreats || []), magicResult],
             },
@@ -124,7 +126,7 @@ export function AttachmentPreview({
         }
       } catch (err) {
         if (!cancelled) {
-          setError(`Ek yüklenirken hata oluştu: ${err}`);
+          setError(t('attachmentPreview.loadError').replace('{error}', String(err)));
         }
       } finally {
         if (!cancelled) {
@@ -213,9 +215,9 @@ export function AttachmentPreview({
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
     } catch (err) {
-      toast.error('Ek indirme hatasi', 'Dosya indirilirken bir hata olustu.');
+      toast.error(t('attachmentPreview.downloadError'), t('attachmentPreview.downloadErrorDesc'));
     }
-  }, [currentAttachment, accountId, folder, emailUid]);
+  }, [currentAttachment, accountId, folder, emailUid, t]);
 
   const handleAIAnalysis = useCallback(async () => {
     if (!currentAttachment || !geminiApiKey || analyzingAI) return;
@@ -245,7 +247,7 @@ export function AttachmentPreview({
         hexBytes,
         staticThreat,
         geminiApiKey,
-        'tr'
+        lang === 'tr' ? 'tr' : 'en'
       );
 
       setAiAnalysis(prev => ({ ...prev, [currentAttachment.index]: result }));
@@ -254,7 +256,7 @@ export function AttachmentPreview({
     } finally {
       setAnalyzingAI(false);
     }
-  }, [currentAttachment, geminiApiKey, analyzingAI, aiAnalysis, cache, emailContext, getEffectiveThreat]);
+  }, [currentAttachment, geminiApiKey, analyzingAI, aiAnalysis, cache, emailContext, getEffectiveThreat, lang]);
 
   const handleBackdropClick = (e: React.MouseEvent) => {
     if (e.target === backdropRef.current) {
@@ -302,7 +304,7 @@ export function AttachmentPreview({
               <button
                 onClick={() => setZoom(z => Math.max(z - 0.25, 0.25))}
                 className="p-1.5 text-owl-text-secondary hover:text-owl-text hover:bg-owl-surface-2 rounded-lg transition-colors"
-                title="Küçült (-)"
+                title={t('attachmentPreview.zoomOut')}
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
@@ -314,7 +316,7 @@ export function AttachmentPreview({
               <button
                 onClick={() => setZoom(z => Math.min(z + 0.25, 3))}
                 className="p-1.5 text-owl-text-secondary hover:text-owl-text hover:bg-owl-surface-2 rounded-lg transition-colors"
-                title="Büyüt (+)"
+                title={t('attachmentPreview.zoomIn')}
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -323,7 +325,7 @@ export function AttachmentPreview({
               <button
                 onClick={() => setZoom(1)}
                 className="p-1.5 text-xs text-owl-text-secondary hover:text-owl-text hover:bg-owl-surface-2 rounded-lg transition-colors ml-1"
-                title="Sıfırla (0)"
+                title={t('attachmentPreview.resetZoom')}
               >
                 1:1
               </button>
@@ -334,7 +336,7 @@ export function AttachmentPreview({
           <button
             onClick={handleDownload}
             className="p-2 text-owl-text-secondary hover:text-owl-accent hover:bg-owl-accent/10 rounded-lg transition-colors"
-            title="İndir (Enter)"
+            title={t('attachmentPreview.download')}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -345,7 +347,7 @@ export function AttachmentPreview({
           <button
             onClick={onClose}
             className="p-2 text-owl-text-secondary hover:text-owl-text hover:bg-owl-surface-2 rounded-lg transition-colors"
-            title="Kapat (Esc)"
+            title={t('attachmentPreview.close')}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -367,13 +369,13 @@ export function AttachmentPreview({
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <span className={`text-sm font-semibold ${bannerColors.text}`}>
-                    {getThreatLabel(currentThreat!.riskLevel)} — Skor: {currentThreat!.score}/100
+                    {getThreatLabel(currentThreat!.riskLevel, lang === 'tr' ? 'tr' : 'en')} — {t('attachmentPreview.score')}: {currentThreat!.score}/100
                   </span>
                   <button
                     onClick={() => setWarningCollapsed(!warningCollapsed)}
                     className={`text-xs ${bannerColors.text} hover:underline`}
                   >
-                    {warningCollapsed ? 'Detayları Göster' : 'Gizle'}
+                    {warningCollapsed ? t('attachmentPreview.showDetails') : t('attachmentPreview.hide')}
                   </button>
                 </div>
 
@@ -387,7 +389,7 @@ export function AttachmentPreview({
                         </li>
                       ))}
                       {(currentThreat!.reasons || []).length > 3 && (
-                        <li className="opacity-70">+{(currentThreat!.reasons || []).length - 3} daha...</li>
+                        <li className="opacity-70">+{(currentThreat!.reasons || []).length - 3} {t('attachmentPreview.more')}</li>
                       )}
                     </ul>
 
@@ -405,14 +407,14 @@ export function AttachmentPreview({
                         {analyzingAI ? (
                           <>
                             <div className="w-3 h-3 border-2 border-current/30 border-t-current rounded-full animate-spin" />
-                            AI Analiz Ediliyor...
+                            {t('attachmentPreview.aiAnalyzing')}
                           </>
                         ) : (
                           <>
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                             </svg>
-                            AI ile Derinlemesine Analiz
+                            {t('attachmentPreview.aiDeepAnalysis')}
                           </>
                         )}
                       </button>
@@ -424,7 +426,7 @@ export function AttachmentPreview({
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
-                        AI Analiz Tamamlandı
+                        {t('attachmentPreview.aiAnalysisComplete')}
                       </span>
                     )}
                   </>
@@ -442,7 +444,7 @@ export function AttachmentPreview({
               <button
                 onClick={navigatePrev}
                 className="absolute left-3 z-10 p-2 bg-owl-surface/90 hover:bg-owl-surface-2 text-owl-text rounded-full shadow-lg transition-colors"
-                title="Önceki (←)"
+                title={t('attachmentPreview.previous')}
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -451,7 +453,7 @@ export function AttachmentPreview({
               <button
                 onClick={navigateNext}
                 className="absolute right-3 z-10 p-2 bg-owl-surface/90 hover:bg-owl-surface-2 text-owl-text rounded-full shadow-lg transition-colors"
-                title="Sonraki (→)"
+                title={t('attachmentPreview.next')}
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -464,7 +466,7 @@ export function AttachmentPreview({
           {loading && (
             <div className="flex flex-col items-center gap-3 text-owl-text-secondary">
               <div className="w-10 h-10 border-3 border-owl-accent/30 border-t-owl-accent rounded-full animate-spin" />
-              <p className="text-sm">Ek yükleniyor...</p>
+              <p className="text-sm">{t('attachmentPreview.loading')}</p>
             </div>
           )}
 
@@ -479,7 +481,7 @@ export function AttachmentPreview({
                 onClick={handleDownload}
                 className="px-4 py-2 bg-owl-accent hover:bg-owl-accent-hover text-white rounded-lg transition-colors text-sm"
               >
-                Dosyayı İndir
+                {t('attachmentPreview.downloadFile')}
               </button>
             </div>
           )}
@@ -518,7 +520,7 @@ export function AttachmentPreview({
                 <p className="text-lg font-medium text-owl-text mb-1">{currentAttachment.filename}</p>
                 <p className="text-sm">{formatFileSize(currentAttachment.size)}</p>
               </div>
-              <p className="text-sm">Bu dosya türü için önizleme mevcut değil.</p>
+              <p className="text-sm">{t('attachmentPreview.noPreview')}</p>
               <button
                 onClick={handleDownload}
                 className="flex items-center gap-2 px-5 py-2.5 bg-owl-accent hover:bg-owl-accent-hover text-white rounded-lg transition-colors"
@@ -526,7 +528,7 @@ export function AttachmentPreview({
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                Dosyayı İndir
+                {t('attachmentPreview.downloadFile')}
               </button>
             </div>
           )}

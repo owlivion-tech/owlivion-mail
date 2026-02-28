@@ -2,6 +2,7 @@
 // Owlivion Mail - Welcome/Onboarding Screen
 // ============================================================================
 
+import { useTranslation } from '../i18n';
 import owlivionLogo from '../assets/owlivion-logo.svg';
 
 interface WelcomeProps {
@@ -10,6 +11,8 @@ interface WelcomeProps {
 }
 
 export function Welcome({ onAddAccount, onOpenSettings }: WelcomeProps) {
+  const { t } = useTranslation();
+
   return (
     <div className="h-screen bg-owl-bg flex flex-col">
       {/* Header */}
@@ -26,7 +29,7 @@ export function Welcome({ onAddAccount, onOpenSettings }: WelcomeProps) {
         <button
           onClick={onOpenSettings}
           className="p-2 text-owl-text-secondary hover:text-owl-text hover:bg-owl-surface rounded-lg transition-colors"
-          title="Ayarlar"
+          title={t('sidebar.settings')}
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -47,14 +50,12 @@ export function Welcome({ onAddAccount, onOpenSettings }: WelcomeProps) {
 
           {/* Title */}
           <h2 className="text-2xl sm:text-3xl font-bold text-owl-text mb-4">
-            Owlivion Mail'e Hoş Geldiniz
+            {t('welcome.title')}
           </h2>
 
           {/* Description */}
           <p className="text-owl-text-secondary mb-8 leading-relaxed">
-            Modern, hızlı ve yapay zeka destekli e-posta deneyimi için
-            hesabınızı ekleyerek başlayın. Gmail, Outlook, Yahoo ve diğer
-            IMAP destekli tüm e-posta sağlayıcılarıyla çalışır.
+            {t('welcome.subtitle')}
           </p>
 
           {/* Features */}
@@ -65,8 +66,8 @@ export function Welcome({ onAddAccount, onOpenSettings }: WelcomeProps) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
                 </svg>
               </div>
-              <h3 className="text-base font-medium text-owl-text mb-1">AI Destekli</h3>
-              <p className="text-sm text-owl-text-secondary">Akıllı yanıtlar ve özetleme</p>
+              <h3 className="text-base font-medium text-owl-text mb-1">{t('welcome.aiPowered')}</h3>
+              <p className="text-sm text-owl-text-secondary">{t('welcome.aiDesc')}</p>
             </div>
 
             <div className="p-4 bg-owl-surface rounded-xl border border-owl-border">
@@ -75,8 +76,8 @@ export function Welcome({ onAddAccount, onOpenSettings }: WelcomeProps) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
               </div>
-              <h3 className="text-base font-medium text-owl-text mb-1">Hızlı</h3>
-              <p className="text-sm text-owl-text-secondary">Klavye kısayolları</p>
+              <h3 className="text-base font-medium text-owl-text mb-1">{t('welcome.fast')}</h3>
+              <p className="text-sm text-owl-text-secondary">{t('welcome.fastDesc')}</p>
             </div>
 
             <div className="p-4 bg-owl-surface rounded-xl border border-owl-border">
@@ -85,8 +86,8 @@ export function Welcome({ onAddAccount, onOpenSettings }: WelcomeProps) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                 </svg>
               </div>
-              <h3 className="text-base font-medium text-owl-text mb-1">Güvenli</h3>
-              <p className="text-sm text-owl-text-secondary">Yerel veri saklama</p>
+              <h3 className="text-base font-medium text-owl-text mb-1">{t('welcome.secure')}</h3>
+              <p className="text-sm text-owl-text-secondary">{t('welcome.secureDesc')}</p>
             </div>
           </div>
 
@@ -98,12 +99,12 @@ export function Welcome({ onAddAccount, onOpenSettings }: WelcomeProps) {
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
-            E-posta Hesabı Ekle
+            {t('welcome.addAccount')}
           </button>
 
           {/* Supported Providers */}
           <div className="mt-8 pt-8 border-t border-owl-border">
-            <p className="text-xs text-owl-text-secondary mb-4">Desteklenen sağlayıcılar</p>
+            <p className="text-xs text-owl-text-secondary mb-4">{t('welcome.supportedProviders')}</p>
             <div className="flex items-center justify-center gap-3 flex-wrap text-owl-text-secondary">
               <span className="text-sm">Gmail</span>
               <span className="text-owl-border">•</span>
@@ -122,8 +123,7 @@ export function Welcome({ onAddAccount, onOpenSettings }: WelcomeProps) {
       {/* Footer */}
       <div className="p-4 border-t border-owl-border text-center">
         <p className="text-xs text-owl-text-secondary">
-          Owlivion Mail v1.0.0 • Made with{' '}
-          <span className="text-owl-accent">♥</span> by Owlivion
+          {t('welcome.footer')}
         </p>
       </div>
     </div>

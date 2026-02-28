@@ -5,6 +5,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import type { EmailAddress } from '../../types';
+import { useTranslation } from '../../i18n';
 
 interface RecipientInputProps {
   recipients: EmailAddress[];
@@ -69,9 +70,11 @@ const contacts: EmailAddress[] = [];
 export function RecipientInput({
   recipients,
   onChange,
-  placeholder = 'Alıcı ekle...',
+  placeholder,
   maxRecipients = 50, // SECURITY: Default limit
 }: RecipientInputProps) {
+  const { t } = useTranslation();
+  const resolvedPlaceholder = placeholder || t('compose.addRecipientPlaceholder');
   const [inputValue, setInputValue] = useState('');
   const [suggestions, setSuggestions] = useState<EmailAddress[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -142,7 +145,7 @@ export function RecipientInput({
           if (isValidEmail(email)) {
             addRecipient({ email });
           } else {
-            setError('Geçersiz e-posta adresi');
+            setError(t('recipientInput.invalidEmail'));
           }
         }
       } else if (e.key === 'Backspace' && inputValue === '' && recipients.length > 0) {
@@ -156,14 +159,14 @@ export function RecipientInput({
   function addRecipient(recipient: EmailAddress) {
     // SECURITY: Check max recipients limit
     if (recipients.length >= maxRecipients) {
-      setError(`En fazla ${maxRecipients} alıcı ekleyebilirsiniz`);
+      setError(t('recipientInput.maxRecipients').replace('{max}', String(maxRecipients)));
       return;
     }
 
     // SECURITY: Validate email format
     const email = recipient.email.toLowerCase().trim();
     if (!isValidEmail(email)) {
-      setError('Geçersiz e-posta adresi');
+      setError(t('recipientInput.invalidEmail'));
       return;
     }
 
@@ -213,7 +216,7 @@ export function RecipientInput({
       }
 
       if (emails.length > uniqueEmails.length) {
-        setError(`${emails.length - uniqueEmails.length} adres zaten ekli veya limit aşıldı`);
+        setError(t('recipientInput.alreadyAddedOrLimitReached').replace('{count}', String(emails.length - uniqueEmails.length)));
       }
     }
   }
@@ -224,7 +227,7 @@ export function RecipientInput({
     if (email && isValidEmail(email)) {
       addRecipient({ email });
     } else if (email) {
-      setError('Geçersiz e-posta adresi');
+      setError(t('recipientInput.invalidEmail'));
     }
     // Delay hiding suggestions for click handling
     setTimeout(() => setShowSuggestions(false), 200);
@@ -264,7 +267,7 @@ export function RecipientInput({
           onPaste={handlePaste}
           onBlur={handleBlur}
           onFocus={() => inputValue.length >= 2 && suggestions.length > 0 && setShowSuggestions(true)}
-          placeholder={recipients.length === 0 ? placeholder : ''}
+          placeholder={recipients.length === 0 ? resolvedPlaceholder : ''}
           maxLength={254}
           className="flex-1 min-w-[120px] px-1 py-1 bg-transparent text-owl-text placeholder-owl-text-secondary focus:outline-none text-sm"
         />

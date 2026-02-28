@@ -8,6 +8,7 @@ import {
   validateTemplateSyntax,
   getVariablesByCategory,
 } from '../../utils/templateVariables';
+import { useTranslation } from '../../i18n';
 
 interface TemplateFormProps {
   template?: EmailTemplate | null;
@@ -16,22 +17,24 @@ interface TemplateFormProps {
   onClose: () => void;
 }
 
-const CATEGORIES: Array<{ value: TemplateCategory; label: string }> = [
-  { value: 'business', label: 'İş' },
-  { value: 'personal', label: 'Kişisel' },
-  { value: 'customer_support', label: 'Müşteri Destek' },
-  { value: 'sales', label: 'Satış' },
-  { value: 'marketing', label: 'Pazarlama' },
-  { value: 'internal', label: 'Dahili' },
-  { value: 'custom', label: 'Özel' },
-];
-
 export default function TemplateForm({
   template,
   accountId,
   onSave,
   onClose,
 }: TemplateFormProps) {
+  const { t, lang } = useTranslation();
+
+  const CATEGORIES: Array<{ value: TemplateCategory; label: string }> = [
+    { value: 'business', label: t('templateForm.business') },
+    { value: 'personal', label: t('templateForm.personal') },
+    { value: 'customer_support', label: t('templateForm.customerSupport') },
+    { value: 'sales', label: t('templateForm.sales') },
+    { value: 'marketing', label: t('templateForm.marketing') },
+    { value: 'internal', label: t('templateForm.internal') },
+    { value: 'custom', label: t('templateForm.custom') },
+  ];
+
   const [name, setName] = useState(template?.name || '');
   const [description, setDescription] = useState(template?.description || '');
   const [category, setCategory] = useState<TemplateCategory>(template?.category || 'custom');
@@ -50,8 +53,8 @@ export default function TemplateForm({
 
   // Validate on change
   useEffect(() => {
-    const subjectValidation = validateTemplateSyntax(subjectTemplate);
-    const bodyValidation = validateTemplateSyntax(bodyHtmlTemplate);
+    const subjectValidation = validateTemplateSyntax(subjectTemplate, lang);
+    const bodyValidation = validateTemplateSyntax(bodyHtmlTemplate, lang);
 
     const allErrors = [
       ...subjectValidation.errors,
@@ -60,12 +63,12 @@ export default function TemplateForm({
 
     if (subjectValidation.unknownVariables.length > 0) {
       allErrors.push(
-        `Konu'da bilinmeyen değişkenler: ${subjectValidation.unknownVariables.join(', ')}`
+        t('templateForm.unknownVariablesInSubject').replace('{vars}', subjectValidation.unknownVariables.join(', '))
       );
     }
     if (bodyValidation.unknownVariables.length > 0) {
       allErrors.push(
-        `Gövde'de bilinmeyen değişkenler: ${bodyValidation.unknownVariables.join(', ')}`
+        t('templateForm.unknownVariablesInBody').replace('{vars}', bodyValidation.unknownVariables.join(', '))
       );
     }
 
@@ -115,24 +118,24 @@ export default function TemplateForm({
   const handleSave = async () => {
     // Validation
     if (!name.trim()) {
-      alert('Şablon adı zorunludur');
+      alert(t('templateForm.templateNameRequired'));
       return;
     }
     if (name.length > 200) {
-      alert('Şablon adı 200 karakteri aşamaz');
+      alert(t('templateForm.templateNameTooLong'));
       return;
     }
     if (subjectTemplate.length > 1000) {
-      alert('Konu şablonu 1000 karakteri aşamaz');
+      alert(t('templateForm.subjectTemplateTooLong'));
       return;
     }
     if (bodyHtmlTemplate.length > 50000) {
-      alert('Gövde şablonu 50KB boyutunu aşamaz');
+      alert(t('templateForm.bodyTemplateTooLong'));
       return;
     }
 
     if (errors.length > 0) {
-      alert('Lütfen şablon sözdizimi hatalarını düzeltin');
+      alert(t('templateForm.fixTemplateSyntaxErrors'));
       return;
     }
 
@@ -155,15 +158,15 @@ export default function TemplateForm({
       onClose();
     } catch (error) {
       console.error('Failed to save template:', error);
-      alert(`Şablon kaydedilemedi: ${error}`);
+      alert(`${t('templateForm.templateSaveFailed')} ${error}`);
     } finally {
       setSaving(false);
     }
   };
 
   // Preview content
-  const previewSubject = showPreview ? previewTemplate(subjectTemplate) : subjectTemplate;
-  const previewBody = showPreview ? previewTemplate(bodyHtmlTemplate) : bodyHtmlTemplate;
+  const previewSubject = showPreview ? previewTemplate(subjectTemplate, lang) : subjectTemplate;
+  const previewBody = showPreview ? previewTemplate(bodyHtmlTemplate, lang) : bodyHtmlTemplate;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -171,7 +174,7 @@ export default function TemplateForm({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
-            {template ? 'Şablonu Düzenle' : 'Yeni Email Şablonu'}
+            {template ? t('templateForm.editTemplate') : t('templateForm.newEmailTemplate')}
           </h2>
           <button
             onClick={onClose}
@@ -186,14 +189,14 @@ export default function TemplateForm({
           {/* Name */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Şablon Adı *
+              {t('templateForm.templateName')}
             </label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-              placeholder="Örn: Karşılama Emaili"
+              placeholder={t('templateForm.templateNamePlaceholder')}
               maxLength={200}
             />
             <p className="text-xs text-gray-500 mt-1">{name.length}/200</p>
@@ -202,13 +205,13 @@ export default function TemplateForm({
           {/* Description */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Açıklama
+              {t('templateForm.description')}
             </label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-              placeholder="Bu şablon ne için kullanılıyor?"
+              placeholder={t('templateForm.descriptionPlaceholder')}
               rows={2}
             />
           </div>
@@ -216,7 +219,7 @@ export default function TemplateForm({
           {/* Category */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Kategori
+              {t('templateForm.category')}
             </label>
             <select
               value={category}
@@ -234,7 +237,7 @@ export default function TemplateForm({
           {/* Subject Template */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Konu Şablonu *
+              {t('templateForm.subject')}
             </label>
             <input
               ref={subjectInputRef}
@@ -243,7 +246,7 @@ export default function TemplateForm({
               onChange={(e) => setSubjectTemplate(e.target.value)}
               disabled={showPreview}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-              placeholder="Örn: Merhaba {{ recipient_name }}, Hoş Geldiniz!"
+              placeholder={t('templateForm.subjectPlaceholder')}
               maxLength={1000}
             />
             <p className="text-xs text-gray-500 mt-1">{subjectTemplate.length}/1000</p>
@@ -269,7 +272,7 @@ export default function TemplateForm({
           {/* Body Template */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Gövde Şablonu *
+              {t('templateForm.body')}
             </label>
             {showPreview ? (
               <div
@@ -281,21 +284,21 @@ export default function TemplateForm({
                 content={bodyHtmlTemplate}
                 onChange={setBodyHtmlTemplate}
                 onPaste={() => {}} // No-op for template editor
-                placeholder="Email içeriğinizi buraya yazın. Değişken eklemek için aşağıdaki butonları kullanın."
+                placeholder={t('templateForm.bodyPlaceholder')}
               />
             )}
             <p className="text-xs text-gray-500 mt-1">
-              {bodyHtmlTemplate.length} karakter (~{Math.round(bodyHtmlTemplate.length / 1024)}KB / 50KB)
+              {bodyHtmlTemplate.length} {t('templateForm.characters')} (~{Math.round(bodyHtmlTemplate.length / 1024)}KB / 50KB)
             </p>
 
             {/* Variable Insertion Buttons for Body */}
             {!showPreview && (
               <div className="mt-2 space-y-2">
                 <p className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                  Değişken Ekle:
+                  {t('templateForm.insertVariable')}
                 </p>
                 <div className="flex flex-wrap gap-1">
-                  {getVariablesByCategory('sender').map((variable) => (
+                  {getVariablesByCategory('sender', lang).map((variable) => (
                     <button
                       key={variable.key}
                       type="button"
@@ -308,7 +311,7 @@ export default function TemplateForm({
                   ))}
                 </div>
                 <div className="flex flex-wrap gap-1">
-                  {getVariablesByCategory('recipient').map((variable) => (
+                  {getVariablesByCategory('recipient', lang).map((variable) => (
                     <button
                       key={variable.key}
                       type="button"
@@ -321,7 +324,7 @@ export default function TemplateForm({
                   ))}
                 </div>
                 <div className="flex flex-wrap gap-1">
-                  {getVariablesByCategory('datetime').map((variable) => (
+                  {getVariablesByCategory('datetime', lang).map((variable) => (
                     <button
                       key={variable.key}
                       type="button"
@@ -340,7 +343,7 @@ export default function TemplateForm({
           {/* Tags */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Etiketler
+              {t('templateForm.tags')}
             </label>
             <div className="flex gap-2 mb-2">
               <input
@@ -349,7 +352,7 @@ export default function TemplateForm({
                 onChange={(e) => setNewTag(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddTag())}
                 className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                placeholder="Etiket ekle"
+                placeholder={t('templateForm.tagsPlaceholder')}
               />
               <button
                 type="button"
@@ -387,7 +390,7 @@ export default function TemplateForm({
                 onChange={(e) => setIsEnabled(e.target.checked)}
                 className="w-4 h-4"
               />
-              <span className="text-sm text-gray-700 dark:text-gray-300">Etkin</span>
+              <span className="text-sm text-gray-700 dark:text-gray-300">{t('templateForm.enabled')}</span>
             </label>
 
             <label className="flex items-center gap-2">
@@ -397,7 +400,7 @@ export default function TemplateForm({
                 onChange={(e) => setIsFavorite(e.target.checked)}
                 className="w-4 h-4"
               />
-              <span className="text-sm text-gray-700 dark:text-gray-300">Favori</span>
+              <span className="text-sm text-gray-700 dark:text-gray-300">{t('templateForm.favorite')}</span>
             </label>
           </div>
 
@@ -408,7 +411,7 @@ export default function TemplateForm({
                 <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
                 <div className="flex-1">
                   <p className="text-sm font-medium text-red-800 dark:text-red-200">
-                    Şablon Hataları:
+                    {t('templateForm.templateErrors')}
                   </p>
                   <ul className="mt-1 text-sm text-red-700 dark:text-red-300 list-disc list-inside">
                     {errors.map((error, idx) => (
@@ -431,12 +434,12 @@ export default function TemplateForm({
             {showPreview ? (
               <>
                 <EyeOff className="w-4 h-4" />
-                <span>Önizlemeyi Kapat</span>
+                <span>{t('templateForm.hidePreview')}</span>
               </>
             ) : (
               <>
                 <Eye className="w-4 h-4" />
-                <span>Önizleme</span>
+                <span>{t('templateForm.preview')}</span>
               </>
             )}
           </button>
@@ -447,7 +450,7 @@ export default function TemplateForm({
               onClick={onClose}
               className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-md transition-colors"
             >
-              İptal
+              {t('templateForm.cancel')}
             </button>
             <button
               type="button"
@@ -455,7 +458,7 @@ export default function TemplateForm({
               disabled={saving || errors.length > 0}
               className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {saving ? 'Kaydediliyor...' : template ? 'Güncelle' : 'Oluştur'}
+              {saving ? t('templateForm.saving') : template ? t('templateForm.update') : t('templateForm.create')}
             </button>
           </div>
         </div>

@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { useTranslation } from '../../i18n';
 
 interface TwoFactorModalProps {
   email: string;
@@ -8,6 +9,7 @@ interface TwoFactorModalProps {
 }
 
 const TwoFactorModal: React.FC<TwoFactorModalProps> = ({ email, onSuccess, onCancel }) => {
+  const { t } = useTranslation();
   const [code, setCode] = useState<string[]>(['', '', '', '', '', '']);
   const [useBackupCode, setUseBackupCode] = useState(false);
   const [backupCode, setBackupCode] = useState('');
@@ -86,7 +88,7 @@ const TwoFactorModal: React.FC<TwoFactorModalProps> = ({ email, onSuccess, onCan
     const finalToken = useBackupCode ? backupCode : (tokenToVerify || code.join(''));
 
     if (!finalToken || (useBackupCode && finalToken.length !== 8) || (!useBackupCode && finalToken.length !== 6)) {
-      setError(useBackupCode ? 'Lütfen 8 haneli yedek kodu girin' : 'Lütfen 6 haneli kodu girin');
+      setError(useBackupCode ? t('twoFactorModal.enterBackupCode8') : t('twoFactorModal.enterCode6'));
       return;
     }
 
@@ -117,7 +119,7 @@ const TwoFactorModal: React.FC<TwoFactorModalProps> = ({ email, onSuccess, onCan
           onSuccess();
         }
       } else {
-        setError(result.message || 'Doğrulama başarısız');
+        setError(result.message || t('twoFactorModal.verificationFailed'));
         // Reset code inputs
         if (!useBackupCode) {
           setCode(['', '', '', '', '', '']);
@@ -126,7 +128,7 @@ const TwoFactorModal: React.FC<TwoFactorModalProps> = ({ email, onSuccess, onCan
       }
     } catch (err: any) {
       console.error('2FA verification error:', err);
-      setError(err.message || 'Doğrulama sırasında bir hata oluştu');
+      setError(err.message || t('twoFactorModal.verificationError'));
       // Reset code inputs
       if (!useBackupCode) {
         setCode(['', '', '', '', '', '']);
@@ -167,12 +169,12 @@ const TwoFactorModal: React.FC<TwoFactorModalProps> = ({ email, onSuccess, onCan
             </div>
           </div>
           <h2 className="text-2xl font-bold text-center text-gray-900 dark:text-white mb-2">
-            İki Faktörlü Doğrulama
+            {t('twoFactorModal.title')}
           </h2>
           <p className="text-center text-gray-600 dark:text-gray-400">
             {useBackupCode
-              ? 'Yedek kodunuzu girin'
-              : 'Kimlik doğrulama uygulamanızdan 6 haneli kodu girin'}
+              ? t('twoFactorModal.enterBackupCode')
+              : t('twoFactorModal.enter6DigitCode')}
           </p>
         </div>
 
@@ -193,14 +195,14 @@ const TwoFactorModal: React.FC<TwoFactorModalProps> = ({ email, onSuccess, onCan
               </svg>
               <div className="flex-1">
                 <p className="text-sm font-medium text-green-800 dark:text-green-300">
-                  Yedek kod başarıyla kullanıldı
+                  {t('twoFactorModal.backupCodeUsed')}
                 </p>
                 <p className="text-sm text-green-700 dark:text-green-400 mt-1">
-                  Kalan yedek kod sayısı: {remainingBackupCodes}
+                  {t('twoFactorModal.remainingBackupCodes').replace('{count}', String(remainingBackupCodes))}
                 </p>
                 {remainingBackupCodes <= 2 && (
                   <p className="text-sm text-orange-600 dark:text-orange-400 mt-1">
-                    ⚠️ Yedek kodlarınız azalıyor! Ayarlardan yenilerini oluşturun.
+                    {t('twoFactorModal.backupCodesRunningLow')}
                   </p>
                 )}
               </div>
@@ -236,7 +238,7 @@ const TwoFactorModal: React.FC<TwoFactorModalProps> = ({ email, onSuccess, onCan
               ))}
             </div>
             <p className="text-xs text-center text-gray-500 dark:text-gray-400">
-              Kodu yapıştırabilir veya manuel olarak girebilirsiniz
+              {t('twoFactorModal.pasteOrEnterCode')}
             </p>
           </div>
         ) : (
@@ -251,7 +253,7 @@ const TwoFactorModal: React.FC<TwoFactorModalProps> = ({ email, onSuccess, onCan
               className="w-full px-4 py-3 text-center text-xl font-mono font-bold border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200 dark:focus:ring-blue-800 bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             />
             <p className="text-xs text-center text-gray-500 dark:text-gray-400 mt-2">
-              8 haneli yedek kodunuzu girin
+              {t('twoFactorModal.enterBackupCode8Hint')}
             </p>
           </div>
         )}
@@ -267,11 +269,11 @@ const TwoFactorModal: React.FC<TwoFactorModalProps> = ({ email, onSuccess, onCan
               className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
             />
             <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">
-              Bu cihazı hatırla (30 gün)
+              {t('twoFactorModal.rememberDevice')}
             </span>
           </label>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 ml-6">
-            Güvenli bir cihazda değilseniz işaretlemeyin
+            {t('twoFactorModal.rememberDeviceWarning')}
           </p>
         </div>
 
@@ -304,10 +306,10 @@ const TwoFactorModal: React.FC<TwoFactorModalProps> = ({ email, onSuccess, onCan
                     d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                   ></path>
                 </svg>
-                Doğrulanıyor...
+                {t('twoFactorModal.verifying')}
               </>
             ) : (
-              'Doğrula ve Giriş Yap'
+              t('twoFactorModal.verifyAndLogin')
             )}
           </button>
 
@@ -316,7 +318,7 @@ const TwoFactorModal: React.FC<TwoFactorModalProps> = ({ email, onSuccess, onCan
             disabled={isVerifying || remainingBackupCodes !== null}
             className="w-full px-4 py-2 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {useBackupCode ? '← 2FA Koduna Dön' : 'Yedek Kod Kullan'}
+            {useBackupCode ? t('twoFactorModal.backTo2FA') : t('twoFactorModal.useBackupCode')}
           </button>
 
           <button
@@ -324,7 +326,7 @@ const TwoFactorModal: React.FC<TwoFactorModalProps> = ({ email, onSuccess, onCan
             disabled={isVerifying || remainingBackupCodes !== null}
             className="w-full px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            İptal
+            {t('twoFactorModal.cancel')}
           </button>
         </div>
 
@@ -333,17 +335,17 @@ const TwoFactorModal: React.FC<TwoFactorModalProps> = ({ email, onSuccess, onCan
           <p className="text-xs text-center text-gray-500 dark:text-gray-400">
             {useBackupCode ? (
               <>
-                Yedek kodlarınızı bulamıyor musunuz? Hesap sahibiyle iletişime geçin.
+                {t('twoFactorModal.cantFindBackupCodes')}
               </>
             ) : (
               <>
-                Kimlik doğrulama uygulamanıza erişiminiz yok mu?{' '}
+                {t('twoFactorModal.noAccessToAuthenticator')}{' '}
                 <button
                   onClick={toggleBackupCode}
                   className="text-blue-600 dark:text-blue-400 hover:underline"
                   disabled={isVerifying}
                 >
-                  Yedek kod kullanın
+                  {t('twoFactorModal.useBackupCodeLink')}
                 </button>
               </>
             )}

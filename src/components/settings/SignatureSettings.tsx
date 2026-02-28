@@ -4,6 +4,7 @@
 
 import { useState, useEffect } from 'react';
 import { updateAccountSignature, fetchUrlContent } from '../../services/mailService';
+import { useTranslation } from '../../i18n';
 import type { Account } from '../../types';
 
 interface SignatureSettingsProps {
@@ -11,34 +12,37 @@ interface SignatureSettingsProps {
   onAccountsChange: (accounts: Account[]) => void;
 }
 
-// Pre-built signature templates
-const SIGNATURE_TEMPLATES = [
-  {
-    id: 'none',
-    name: 'İmza Yok',
-    description: 'İmza kullanma',
-    html: '',
-  },
-  {
-    id: 'current',
-    name: 'Mevcut İmza',
-    description: 'Kayıtlı imzanız',
-    html: '',
-  },
-  {
-    id: 'simple',
-    name: 'Basit İmza',
-    description: 'Sadece isim ve e-posta',
-    html: `<div style="font-family: Arial, sans-serif; font-size: 14px; color: #333;">
+export function SignatureSettings({ accounts, onAccountsChange }: SignatureSettingsProps) {
+  const { t } = useTranslation();
+
+  // Pre-built signature templates
+  const SIGNATURE_TEMPLATES = [
+    {
+      id: 'none',
+      name: t('settings.signatureSettings.noSignature'),
+      description: t('settings.signatureSettings.noSignatureDesc'),
+      html: '',
+    },
+    {
+      id: 'current',
+      name: t('settings.signatureSettings.currentSignature'),
+      description: t('settings.signatureSettings.currentSignatureDesc'),
+      html: '',
+    },
+    {
+      id: 'simple',
+      name: t('settings.signatureSettings.simpleSignature'),
+      description: t('settings.signatureSettings.simpleSignatureDesc'),
+      html: `<div style="font-family: Arial, sans-serif; font-size: 14px; color: #333;">
 <p style="margin: 0;"><strong>{{name}}</strong></p>
 <p style="margin: 0; color: #666;">{{email}}</p>
 </div>`,
-  },
-  {
-    id: 'professional',
-    name: 'Profesyonel',
-    description: 'İsim, ünvan ve iletişim bilgileri',
-    html: `<table cellpadding="0" cellspacing="0" border="0" style="font-family: Arial, sans-serif;">
+    },
+    {
+      id: 'professional',
+      name: t('settings.signatureSettings.professional'),
+      description: t('settings.signatureSettings.professionalDesc'),
+      html: `<table cellpadding="0" cellspacing="0" border="0" style="font-family: Arial, sans-serif;">
 <tr>
 <td style="padding-right: 15px; border-right: 2px solid #7c3aed;">
 <p style="margin: 0; font-size: 16px; font-weight: bold; color: #1f2937;">{{name}}</p>
@@ -51,22 +55,21 @@ const SIGNATURE_TEMPLATES = [
 </td>
 </tr>
 </table>`,
-  },
-  {
-    id: 'custom',
-    name: 'Özel İmza Oluştur',
-    description: 'Kendi imzanızı yazın',
-    html: '',
-  },
-  {
-    id: 'url',
-    name: 'URL\'den Yükle',
-    description: 'Harici URL\'den imza yükle',
-    html: '',
-  },
-];
+    },
+    {
+      id: 'custom',
+      name: t('settings.signatureSettings.customSignature'),
+      description: t('settings.signatureSettings.customSignatureDesc'),
+      html: '',
+    },
+    {
+      id: 'url',
+      name: t('settings.signatureSettings.loadFromUrl'),
+      description: t('settings.signatureSettings.loadFromUrlDesc'),
+      html: '',
+    },
+  ];
 
-export function SignatureSettings({ accounts, onAccountsChange }: SignatureSettingsProps) {
   const [selectedAccount, setSelectedAccount] = useState<string>(accounts[0]?.id?.toString() || '');
   const [selectedTemplate, setSelectedTemplate] = useState<string>('none');
   const [customHtml, setCustomHtml] = useState<string>('');
@@ -99,8 +102,8 @@ export function SignatureSettings({ accounts, onAccountsChange }: SignatureSetti
       setCustomHtml(html);
       setSelectedTemplate('url');
     } catch (err: any) {
-      console.error('İmza yüklenemedi:', err);
-      alert(`İmza URL'den yüklenemedi: ${err?.message || 'Bağlantı hatası'}`);
+      console.error('Signature load failed:', err);
+      alert(`${t('settings.signatureSettings.signatureLoadFailed')} ${err?.message || t('settings.signatureSettings.connectionError')}`);
     } finally {
       setIsLoadingUrl(false);
     }
@@ -109,7 +112,7 @@ export function SignatureSettings({ accounts, onAccountsChange }: SignatureSetti
   // Remove signature
   const handleRemoveSignature = async () => {
     if (!currentAccount) return;
-    if (!confirm('İmzayı silmek istediğinizden emin misiniz?')) return;
+    if (!confirm(t('settings.signatureSettings.confirmDeleteSignature'))) return;
 
     setIsSaving(true);
     try {
@@ -127,8 +130,8 @@ export function SignatureSettings({ accounts, onAccountsChange }: SignatureSetti
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err: any) {
-      console.error('İmza silinemedi:', err);
-      alert(`İmza silinemedi: ${err?.message || 'Bilinmeyen hata'}`);
+      console.error('Signature delete failed:', err);
+      alert(`${t('settings.signatureSettings.signatureDeleteFailed')} ${err?.message || t('settings.signatureSettings.unknownError')}`);
     } finally {
       setIsSaving(false);
     }
@@ -191,9 +194,9 @@ export function SignatureSettings({ accounts, onAccountsChange }: SignatureSetti
       }
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err: any) {
-      console.error('İmza kaydedilemedi:', err);
-      const errorMsg = err?.message || err?.toString() || 'Bilinmeyen hata';
-      alert(`İmza kaydedilemedi: ${errorMsg}`);
+      console.error('Signature save failed:', err);
+      const errorMsg = err?.message || err?.toString() || t('settings.signatureSettings.unknownError');
+      alert(`${t('settings.signatureSettings.signatureSaveFailed')} ${errorMsg}`);
     } finally {
       setIsSaving(false);
     }
@@ -205,16 +208,16 @@ export function SignatureSettings({ accounts, onAccountsChange }: SignatureSetti
     <div className="space-y-8">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-bold text-owl-text">E-posta İmzaları</h2>
+        <h2 className="text-2xl font-bold text-owl-text">{t('settings.signatureSettings.title')}</h2>
         <p className="mt-1 text-owl-text-secondary">
-          Hesaplarınız için e-posta imzası seçin veya özelleştirin
+          {t('settings.signatureSettings.subtitle')}
         </p>
       </div>
 
       {/* Account Selector */}
       {accounts.length > 1 && (
         <div className="bg-owl-surface border border-owl-border rounded-xl p-6">
-          <h3 className="text-lg font-semibold text-owl-text mb-4">Hesap Seçin</h3>
+          <h3 className="text-lg font-semibold text-owl-text mb-4">{t('settings.signatureSettings.selectAccount')}</h3>
           <select
             value={selectedAccount}
             onChange={(e) => setSelectedAccount(e.target.value)}
@@ -236,13 +239,13 @@ export function SignatureSettings({ accounts, onAccountsChange }: SignatureSetti
           <svg className="w-5 h-5 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
           </svg>
-          <span className="text-green-400 text-sm">Bu hesap için kayıtlı bir imzanız var</span>
+          <span className="text-green-400 text-sm">{t('settings.signatureSettings.hasSignature')}</span>
         </div>
       )}
 
       {/* Template Selection */}
       <div className="bg-owl-surface border border-owl-border rounded-xl p-6">
-        <h3 className="text-lg font-semibold text-owl-text mb-4">İmza Şablonu</h3>
+        <h3 className="text-lg font-semibold text-owl-text mb-4">{t('settings.signatureSettings.template')}</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {SIGNATURE_TEMPLATES.filter(t => t.id !== 'current' || hasCurrentSignature).map(template => (
             <button
@@ -259,7 +262,7 @@ export function SignatureSettings({ accounts, onAccountsChange }: SignatureSetti
                   <h4 className="font-medium text-owl-text flex items-center gap-2">
                     {template.name}
                     {template.id === 'current' && (
-                      <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded">Aktif</span>
+                      <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded">{t('settings.signatureSettings.active')}</span>
                     )}
                   </h4>
                   <p className="text-sm text-owl-text-secondary mt-1">{template.description}</p>
@@ -278,7 +281,7 @@ export function SignatureSettings({ accounts, onAccountsChange }: SignatureSetti
       {/* URL Input */}
       {selectedTemplate === 'url' && (
         <div className="bg-owl-surface border border-owl-border rounded-xl p-6">
-          <h3 className="text-lg font-semibold text-owl-text mb-4">İmza URL'si</h3>
+          <h3 className="text-lg font-semibold text-owl-text mb-4">{t('settings.signatureSettings.signatureUrl')}</h3>
           <div className="flex gap-3">
             <input
               type="url"
@@ -292,11 +295,11 @@ export function SignatureSettings({ accounts, onAccountsChange }: SignatureSetti
               disabled={isLoadingUrl || !signatureUrl}
               className="px-6 py-3 bg-owl-accent hover:bg-owl-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
             >
-              {isLoadingUrl ? 'Yükleniyor...' : 'Yükle'}
+              {isLoadingUrl ? t('settings.signatureSettings.loadingUrl') : t('settings.signatureSettings.loadUrl')}
             </button>
           </div>
           <p className="mt-2 text-xs text-owl-text-secondary">
-            Örnek: https://owlivion.com/mail/berkan-cetinel-adaptive.html
+            {t('settings.signatureSettings.urlExample')}
           </p>
         </div>
       )}
@@ -306,13 +309,13 @@ export function SignatureSettings({ accounts, onAccountsChange }: SignatureSetti
         <div className="bg-owl-surface border border-owl-border rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-owl-text">
-              {selectedTemplate === 'custom' ? 'İmza Oluştur' : 'İmza Düzenleyici'}
+              {selectedTemplate === 'custom' ? t('settings.signatureSettings.createSignature') : t('settings.signatureSettings.signatureEditor')}
             </h3>
             <button
               onClick={() => setShowPreview(!showPreview)}
               className="px-3 py-1.5 text-sm bg-owl-surface-2 hover:bg-owl-border text-owl-text rounded-lg transition-colors"
             >
-              {showPreview ? 'HTML Düzenle' : 'Önizleme'}
+              {showPreview ? t('settings.signatureSettings.editHtml') : t('settings.signatureSettings.preview')}
             </button>
           </div>
 
@@ -321,7 +324,7 @@ export function SignatureSettings({ accounts, onAccountsChange }: SignatureSetti
               {customHtml ? (
                 <div dangerouslySetInnerHTML={{ __html: customHtml }} />
               ) : (
-                <p className="text-gray-400 italic">İmza içeriği boş</p>
+                <p className="text-gray-400 italic">{t('settings.signatureSettings.emptySignatureContent')}</p>
               )}
             </div>
           ) : (
@@ -329,12 +332,12 @@ export function SignatureSettings({ accounts, onAccountsChange }: SignatureSetti
               value={customHtml}
               onChange={(e) => setCustomHtml(e.target.value)}
               className="w-full h-64 px-4 py-3 bg-owl-bg border border-owl-border rounded-lg text-owl-text font-mono text-sm focus:outline-none focus:ring-2 focus:ring-owl-accent resize-none"
-              placeholder="HTML imza kodunuzu buraya yazın veya yapıştırın..."
+              placeholder={t('settings.signatureSettings.htmlPlaceholder')}
             />
           )}
 
           <p className="mt-2 text-xs text-owl-text-secondary">
-            Değişkenler: {'{{name}}'}, {'{{email}}'}, {'{{title}}'}, {'{{phone}}'}, {'{{website}}'}
+            {t('settings.signatureSettings.variables')}
           </p>
         </div>
       )}
@@ -347,7 +350,7 @@ export function SignatureSettings({ accounts, onAccountsChange }: SignatureSetti
               <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
               </svg>
-              İmza kaydedildi!
+              {t('settings.signatureSettings.signatureSaved')}
             </span>
           )}
           {hasCurrentSignature && (
@@ -359,7 +362,7 @@ export function SignatureSettings({ accounts, onAccountsChange }: SignatureSetti
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
-              İmzayı Sil
+              {t('settings.signatureSettings.deleteSignature')}
             </button>
           )}
         </div>
@@ -374,14 +377,14 @@ export function SignatureSettings({ accounts, onAccountsChange }: SignatureSetti
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
-              Kaydediliyor...
+              {t('settings.signatureSettings.saving')}
             </>
           ) : (
             <>
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
-              İmzayı Kaydet
+              {t('settings.signatureSettings.saveSignature')}
             </>
           )}
         </button>

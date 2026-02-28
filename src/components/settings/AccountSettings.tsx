@@ -7,6 +7,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { AddAccountModal } from './AddAccountModal';
 import { getAccountPriorityFetch, setAccountPriorityFetch } from '../../services/mailService';
 import { isMobile } from '../../hooks/usePlatform';
+import { useTranslation } from '../../i18n';
 import type { Account } from '../../types';
 
 interface AccountSettingsProps {
@@ -15,6 +16,7 @@ interface AccountSettingsProps {
 }
 
 export function AccountSettings({ accounts, onAccountsChange }: AccountSettingsProps) {
+  const { t } = useTranslation();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [accountPrioritySettings, setAccountPrioritySettings] = useState<Record<number, boolean>>({});
@@ -46,12 +48,12 @@ export function AccountSettings({ accounts, onAccountsChange }: AccountSettingsP
       setAccountPrioritySettings(prev => ({ ...prev, [accountId]: enabled }));
     } catch (error) {
       console.error('Failed to update priority setting:', error);
-      alert('Öncelik ayarı güncellenirken bir hata oluştu: ' + error);
+      alert(t('settings.accountSettings.priorityUpdateError') + ' ' + error);
     }
   };
 
   const handleDeleteAccount = async (accountId: number) => {
-    if (confirm('Bu hesabı silmek istediğinizden emin misiniz?')) {
+    if (confirm(t('settings.accountSettings.confirmDeleteAccount'))) {
       try {
         // Call backend to delete from database
         await invoke('account_delete', { accountId: accountId.toString() });
@@ -59,7 +61,7 @@ export function AccountSettings({ accounts, onAccountsChange }: AccountSettingsP
         onAccountsChange(accounts.filter((a) => a.id !== accountId));
       } catch (error) {
         console.error('Failed to delete account:', error);
-        alert('Hesap silinirken bir hata oluştu: ' + error);
+        alert(t('settings.accountSettings.deleteError') + ' ' + error);
       }
     }
   };
@@ -88,9 +90,9 @@ export function AccountSettings({ accounts, onAccountsChange }: AccountSettingsP
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-2xl font-semibold text-owl-text">E-posta Hesapları</h2>
+          <h2 className="text-2xl font-semibold text-owl-text">{t('settings.accountSettings.title')}</h2>
           <p className="text-owl-text-secondary mt-1">
-            E-posta hesaplarınızı yönetin
+            {t('settings.accountSettings.subtitle')}
           </p>
         </div>
         <button
@@ -100,7 +102,7 @@ export function AccountSettings({ accounts, onAccountsChange }: AccountSettingsP
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
-          {mobile ? '' : 'Hesap Ekle'}
+          {mobile ? '' : t('settings.accountSettings.addAccount')}
         </button>
       </div>
 
@@ -113,16 +115,16 @@ export function AccountSettings({ accounts, onAccountsChange }: AccountSettingsP
             </svg>
           </div>
           <h3 className="text-lg font-medium text-owl-text mb-2">
-            Henüz hesap eklenmedi
+            {t('settings.accountSettings.noAccounts')}
           </h3>
           <p className="text-owl-text-secondary mb-6">
-            E-posta almaya ve göndermeye başlamak için bir hesap ekleyin
+            {t('settings.accountSettings.noAccountsDesc')}
           </p>
           <button
             onClick={() => setShowAddModal(true)}
             className="px-6 py-2 bg-owl-accent hover:bg-owl-accent-hover text-white font-medium rounded-lg transition-colors"
           >
-            İlk Hesabı Ekle
+            {t('settings.accountSettings.addFirstAccount')}
           </button>
         </div>
       ) : (
@@ -152,12 +154,12 @@ export function AccountSettings({ accounts, onAccountsChange }: AccountSettingsP
                       </h3>
                       {account.isDefault && (
                         <span className="px-2 py-0.5 text-xs font-medium bg-owl-accent/20 text-owl-accent rounded-full">
-                          Varsayılan
+                          {t('settings.accountSettings.default')}
                         </span>
                       )}
                       {!account.isActive && (
                         <span className="px-2 py-0.5 text-xs font-medium bg-owl-warning/20 text-owl-warning rounded-full">
-                          Devre Dışı
+                          {t('common.disabled')}
                         </span>
                       )}
                     </div>
@@ -188,19 +190,19 @@ export function AccountSettings({ accounts, onAccountsChange }: AccountSettingsP
                     <button
                       onClick={() => handleSetDefault(account.id)}
                       className={`${mobile ? 'p-2.5' : 'px-3 py-1.5 text-sm'} text-owl-text-secondary hover:text-owl-text hover:bg-owl-surface-2 rounded-lg transition-colors`}
-                      title="Varsayılan yap"
+                      title={t('settings.accountSettings.makeDefault')}
                     >
                       {mobile ? (
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
-                      ) : 'Varsayılan Yap'}
+                      ) : t('settings.accountSettings.makeDefault')}
                     </button>
                   )}
                   <button
                     onClick={() => handleToggleActive(account.id)}
                     className={`${mobile ? 'p-2.5' : 'px-3 py-1.5 text-sm'} text-owl-text-secondary hover:text-owl-text hover:bg-owl-surface-2 rounded-lg transition-colors`}
-                    title={account.isActive ? 'Devre dışı bırak' : 'Etkinleştir'}
+                    title={account.isActive ? t('settings.accountSettings.disable') : t('settings.accountSettings.enable')}
                   >
                     {mobile ? (
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -210,12 +212,12 @@ export function AccountSettings({ accounts, onAccountsChange }: AccountSettingsP
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                         )}
                       </svg>
-                    ) : (account.isActive ? 'Devre Dışı Bırak' : 'Etkinleştir')}
+                    ) : (account.isActive ? t('settings.accountSettings.disable') : t('settings.accountSettings.enable'))}
                   </button>
                   <button
                     onClick={() => setEditingAccount(account)}
                     className="p-2.5 text-owl-text-secondary hover:text-owl-text hover:bg-owl-surface-2 rounded-lg transition-colors"
-                    title="Düzenle"
+                    title={t('common.edit')}
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -224,7 +226,7 @@ export function AccountSettings({ accounts, onAccountsChange }: AccountSettingsP
                   <button
                     onClick={() => handleDeleteAccount(account.id)}
                     className="p-2.5 text-owl-text-secondary hover:text-owl-error hover:bg-owl-error/10 rounded-lg transition-colors"
-                    title="Sil"
+                    title={t('common.delete')}
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -241,9 +243,9 @@ export function AccountSettings({ accounts, onAccountsChange }: AccountSettingsP
       {accounts.length > 1 && (
         <div className="mt-8">
           <div className="mb-4">
-            <h3 className="text-lg font-semibold text-owl-text">Öncelikli E-posta Çekme</h3>
+            <h3 className="text-lg font-semibold text-owl-text">{t('settings.accountSettings.priorityFetch')}</h3>
             <p className="text-sm text-owl-text-secondary mt-1">
-              Etkinleştirildiğinde, okunmamış e-postalar her hesap için önce getirilir
+              {t('settings.accountSettings.priorityFetchDesc')}
             </p>
           </div>
 
@@ -277,7 +279,7 @@ export function AccountSettings({ accounts, onAccountsChange }: AccountSettingsP
                   />
                   <div className="w-11 h-6 bg-owl-surface-2 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-owl-accent/20 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-owl-accent"></div>
                   <span className="ms-3 text-sm font-medium text-owl-text-secondary">
-                    {accountPrioritySettings[account.id] ?? true ? 'Etkin' : 'Devre Dışı'}
+                    {accountPrioritySettings[account.id] ?? true ? t('settings.accountSettings.active') : t('common.disabled')}
                   </span>
                 </label>
               </div>
@@ -290,7 +292,7 @@ export function AccountSettings({ accounts, onAccountsChange }: AccountSettingsP
                 <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
               </svg>
               <p className="text-sm text-owl-text-secondary">
-                <strong className="text-owl-text">İpucu:</strong> Öncelikli çekme, okunmamış e-postaları her hesap için önce getirir ve birleşik gelen kutusunda en üstte gösterir. Bu özellik devre dışı bırakılırsa, e-postalar standart sıralama ile (en yeni önce) gösterilir.
+                <strong className="text-owl-text">{t('common.tip')}:</strong> {t('settings.accountSettings.priorityTip')}
               </p>
             </div>
           </div>

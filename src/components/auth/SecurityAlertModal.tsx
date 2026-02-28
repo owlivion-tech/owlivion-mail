@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { SecurityAlert } from '../../types';
+import { useTranslation } from '../../i18n';
 
 interface SecurityAlertModalProps {
   alerts: SecurityAlert[];
@@ -13,6 +14,7 @@ const SecurityAlertModal: React.FC<SecurityAlertModalProps> = ({
   onSecureAccount,
 }) => {
   const [isProcessing, setIsProcessing] = useState(false);
+  const { t, lang } = useTranslation();
 
   if (alerts.length === 0) {
     return null;
@@ -71,45 +73,43 @@ const SecurityAlertModal: React.FC<SecurityAlertModalProps> = ({
   const getAlertTitle = (type: string) => {
     switch (type) {
       case 'new_location':
-        return 'Yeni Konumdan Giriş';
+        return t('securityAlert.newLocation');
       case 'unusual_time':
-        return 'Olağandışı Saat';
+        return t('securityAlert.unusualTime');
       case 'failed_attempts':
-        return 'Başarısız Giriş Denemeleri';
+        return t('securityAlert.failedAttempts');
       default:
-        return 'Güvenlik Uyarısı';
+        return t('securityAlert.securityWarning');
     }
   };
 
   const getAlertDescription = (alert: SecurityAlert) => {
     switch (alert.type) {
       case 'new_location':
-        return `Hesabınıza daha önce kullanılmamış bir konumdan giriş yapıldı: ${
-          alert.details?.location || 'Bilinmeyen konum'
-        } (IP: ${alert.details?.ip || 'Bilinmiyor'})`;
+        return t('securityAlert.newLocationDesc')
+          .replace('{location}', alert.details?.location || t('securityAlert.unknownLocation'))
+          .replace('{ip}', alert.details?.ip || t('securityAlert.unknownIp'));
       case 'unusual_time':
-        return `Hesabınıza alışılmadık bir saatte giriş yapıldı (Saat ${
-          alert.details?.hour || 'bilinmiyor'
-        }:00). Bu, normal giriş saatlerinizden farklı.`;
+        return t('securityAlert.unusualTimeDesc')
+          .replace('{hour}', alert.details?.hour || t('securityAlert.unknownHour'));
       case 'failed_attempts':
-        return `Son 1 saat içinde ${
-          alert.details?.count || 'birçok'
-        } başarısız giriş denemesi tespit edildi. Hesabınıza yetkisiz erişim girişimi olabilir.`;
+        return t('securityAlert.failedAttemptsDesc')
+          .replace('{count}', alert.details?.count || t('securityAlert.manyAttempts'));
       default:
-        return 'Hesabınızda olağandışı bir aktivite tespit edildi.';
+        return t('securityAlert.defaultAlertDesc');
     }
   };
 
   const getSeverityLabel = (severity: string) => {
     switch (severity) {
       case 'high':
-        return 'Yüksek Risk';
+        return t('securityAlert.highRisk');
       case 'medium':
-        return 'Orta Risk';
+        return t('securityAlert.mediumRisk');
       case 'low':
-        return 'Düşük Risk';
+        return t('securityAlert.lowRisk');
       default:
-        return 'Bilgi';
+        return t('securityAlert.infoRisk');
     }
   };
 
@@ -167,10 +167,10 @@ const SecurityAlertModal: React.FC<SecurityAlertModalProps> = ({
             </div>
             <div className="ml-4 flex-1">
               <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-                Olağandışı Aktivite Tespit Edildi
+                {t('securityAlert.unusualActivityDetected')}
               </h2>
               <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                Hesabınızda güvenlik ekibimiz tarafından aşağıdaki uyarılar tespit edildi
+                {t('securityAlert.alertsDetected')}
               </p>
             </div>
           </div>
@@ -194,7 +194,7 @@ const SecurityAlertModal: React.FC<SecurityAlertModalProps> = ({
                   </div>
                   <p className="text-sm mb-2">{getAlertDescription(alert)}</p>
                   <p className="text-xs opacity-75">
-                    Zaman: {new Date(alert.created_at).toLocaleString('tr-TR')}
+                    {t('securityAlert.time')}: {new Date(alert.created_at).toLocaleString(lang === 'tr' ? 'tr-TR' : 'en-US')}
                   </p>
                 </div>
               </div>
@@ -213,13 +213,13 @@ const SecurityAlertModal: React.FC<SecurityAlertModalProps> = ({
                   clipRule="evenodd"
                 />
               </svg>
-              Önerilen Güvenlik Önlemleri
+              {t('securityAlert.recommendationsTitle')}
             </h4>
             <ul className="text-sm text-blue-800 dark:text-blue-300 space-y-1 ml-7">
-              <li>• Aktif oturumlarınızı kontrol edin ve tanımadığınız cihazları kapatın</li>
-              <li>• İki faktörlü kimlik doğrulamayı (2FA) etkinleştirin</li>
-              <li>• Şifrenizi değiştirin (güçlü ve benzersiz bir şifre kullanın)</li>
-              <li>• Hesap aktivitelerinizi düzenli olarak gözden geçirin</li>
+              <li>• {t('securityAlert.recommendation1')}</li>
+              <li>• {t('securityAlert.recommendation2')}</li>
+              <li>• {t('securityAlert.recommendation3')}</li>
+              <li>• {t('securityAlert.recommendation4')}</li>
             </ul>
           </div>
         </div>
@@ -239,7 +239,7 @@ const SecurityAlertModal: React.FC<SecurityAlertModalProps> = ({
                   clipRule="evenodd"
                 />
               </svg>
-              Bu Bendim, Devam Et
+              {t('securityAlert.acknowledgeBtn')}
             </button>
 
             <button
@@ -273,7 +273,7 @@ const SecurityAlertModal: React.FC<SecurityAlertModalProps> = ({
                       d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                     ></path>
                   </svg>
-                  İşleniyor...
+                  {t('securityAlert.processing')}
                 </>
               ) : (
                 <>
@@ -284,7 +284,7 @@ const SecurityAlertModal: React.FC<SecurityAlertModalProps> = ({
                       clipRule="evenodd"
                     />
                   </svg>
-                  Hesabımı Güvenli Hale Getir
+                  {t('securityAlert.secureAccountBtn')}
                 </>
               )}
             </button>
@@ -292,8 +292,7 @@ const SecurityAlertModal: React.FC<SecurityAlertModalProps> = ({
 
           {hasHighSeverity && (
             <p className="text-xs text-center text-red-600 dark:text-red-400 mt-3">
-              ⚠️ Yüksek riskli uyarılar tespit edildi. Hesabınızı derhal güvenli hale getirmenizi
-              öneririz.
+              {t('securityAlert.highRiskWarning')}
             </p>
           )}
         </div>

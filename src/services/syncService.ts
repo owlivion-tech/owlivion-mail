@@ -300,25 +300,26 @@ export async function isSyncEnabled(): Promise<boolean> {
 /**
  * Get formatted last sync time
  */
-export function formatLastSync(lastSyncAt?: string): string {
-  if (!lastSyncAt) return 'Hiç senkronize edilmedi';
+export function formatLastSync(lastSyncAt?: string, lang: string = 'en'): string {
+  const isTr = lang === 'tr';
+  if (!lastSyncAt) return isTr ? 'Hiç senkronize edilmedi' : 'Never synced';
 
   const date = new Date(lastSyncAt);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / 60000);
 
-  if (diffMins < 1) return 'Az önce';
-  if (diffMins < 60) return `${diffMins} dakika önce`;
+  if (diffMins < 1) return isTr ? 'Az önce' : 'Just now';
+  if (diffMins < 60) return isTr ? `${diffMins} dakika önce` : `${diffMins} minutes ago`;
 
   const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours} saat önce`;
+  if (diffHours < 24) return isTr ? `${diffHours} saat önce` : `${diffHours} hours ago`;
 
   const diffDays = Math.floor(diffHours / 24);
-  if (diffDays === 1) return 'Dün';
-  if (diffDays < 7) return `${diffDays} gün önce`;
+  if (diffDays === 1) return isTr ? 'Dün' : 'Yesterday';
+  if (diffDays < 7) return isTr ? `${diffDays} gün önce` : `${diffDays} days ago`;
 
-  return date.toLocaleDateString('tr-TR', {
+  return date.toLocaleDateString(isTr ? 'tr-TR' : 'en-US', {
     year: 'numeric',
     month: 'long',
     day: 'numeric',

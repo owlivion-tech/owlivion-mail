@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { useGesture } from '@use-gesture/react';
 import type { MobileEmail } from './types';
 import { useMobileNavigation } from '../../stores/mobileNavigationStore';
+import { useTranslation } from '../../i18n';
 
 interface MobileEmailListProps {
   emails: MobileEmail[];
@@ -18,14 +19,15 @@ interface MobileEmailListProps {
   showSearch?: boolean;
 }
 
-function formatDate(date: Date): string {
+function formatDate(date: Date, lang: string, yesterdayLabel: string): string {
+  const locale = lang === 'tr' ? 'tr-TR' : 'en-US';
   const now = new Date();
   const diff = now.getTime() - date.getTime();
   const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-  if (days === 0) return date.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
-  if (days === 1) return 'Dun';
-  if (days < 7) return date.toLocaleDateString('tr-TR', { weekday: 'short' });
-  return date.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' });
+  if (days === 0) return date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+  if (days === 1) return yesterdayLabel;
+  if (days < 7) return date.toLocaleDateString(locale, { weekday: 'short' });
+  return date.toLocaleDateString(locale, { day: 'numeric', month: 'short' });
 }
 
 function getInitials(name: string): string {
@@ -46,6 +48,7 @@ function SwipeableEmailRow({
   onDelete?: (emailId: string) => void;
   onArchive?: (emailId: string) => void;
 }) {
+  const { t, lang } = useTranslation();
   const [swipeX, setSwipeX] = useState(0);
   const [swiping, setSwiping] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
@@ -96,13 +99,13 @@ function SwipeableEmailRow({
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 19v-8.93a2 2 0 01.89-1.664l7-4.666a2 2 0 012.22 0l7 4.666A2 2 0 0121 10.07V19M3 19a2 2 0 002 2h14a2 2 0 002-2M3 19l6.75-4.5M21 19l-6.75-4.5M3 10l6.75 4.5M21 10l-6.75 4.5m0 0l-1.14.76a2 2 0 01-2.22 0l-1.14-.76" />
         </svg>
         <span className="text-white text-xs ml-2 font-medium">
-          {email.read ? 'Okunmadi' : 'Okundu'}
+          {email.read ? t('mobile.markUnread') : t('mobile.markRead')}
         </span>
       </div>
 
       {/* Swipe background - right (delete) */}
       <div className="absolute inset-y-0 right-0 w-full flex items-center justify-end pr-4 bg-red-600">
-        <span className="text-white text-xs mr-2 font-medium">Sil</span>
+        <span className="text-white text-xs mr-2 font-medium">{t('mobile.delete')}</span>
         <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
         </svg>
@@ -138,7 +141,7 @@ function SwipeableEmailRow({
               {email.from.name || email.from.email}
             </span>
             <span className="text-xs text-owl-text-secondary flex-shrink-0 whitespace-nowrap">
-              {formatDate(email.date)}
+              {formatDate(email.date, lang, t('mobile.yesterday'))}
             </span>
           </div>
 
@@ -147,7 +150,7 @@ function SwipeableEmailRow({
               <div className="w-2 h-2 rounded-full bg-owl-accent flex-shrink-0" />
             )}
             <span className={`text-sm truncate ${!email.read ? 'font-medium text-owl-text' : 'text-owl-text-secondary'}`}>
-              {email.subject || '(Konu yok)'}
+              {email.subject || t('mobile.noSubject')}
             </span>
           </div>
 
@@ -188,6 +191,7 @@ export function MobileEmailList({
   activeFolder,
   showSearch,
 }: MobileEmailListProps) {
+  const { t } = useTranslation();
   const { toggleDrawer } = useMobileNavigation();
   const [pullDistance, setPullDistance] = useState(0);
   const [_isPulling, setIsPulling] = useState(false);
@@ -224,7 +228,7 @@ export function MobileEmailList({
     },
   });
 
-  const folderDisplayName = activeFolder === 'INBOX' ? 'Gelen Kutusu' : activeFolder;
+  const folderDisplayName = activeFolder === 'INBOX' ? t('mobile.inbox') : activeFolder;
 
   return (
     <div className="flex flex-col h-full bg-owl-bg">
@@ -269,7 +273,7 @@ export function MobileEmailList({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => onSearchChange(e.target.value)}
-                placeholder="E-posta ara..."
+                placeholder={t('mobile.searchPlaceholder')}
                 className="flex-1 bg-transparent text-sm text-owl-text placeholder-owl-text-secondary outline-none"
               />
               {searchQuery && (
@@ -315,7 +319,7 @@ export function MobileEmailList({
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
               </svg>
-              <span className="text-sm text-owl-text-secondary">Senkronize ediliyor...</span>
+              <span className="text-sm text-owl-text-secondary">{t('mobile.syncing')}</span>
             </div>
           </div>
         )}
@@ -327,7 +331,7 @@ export function MobileEmailList({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
               </svg>
               <p className="text-sm text-owl-text-secondary">
-                {searchQuery ? 'Sonuc bulunamadi' : 'Henuz e-posta yok'}
+                {searchQuery ? t('mobile.noResults') : t('mobile.noEmails')}
               </p>
             </div>
           </div>

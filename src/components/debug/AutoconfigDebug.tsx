@@ -4,6 +4,7 @@
 
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { useTranslation } from '../../i18n';
 
 interface AutoConfigDebug {
   email: string;
@@ -35,6 +36,7 @@ interface AutoConfigDebug {
 }
 
 export function AutoconfigDebug() {
+  const { t } = useTranslation();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AutoConfigDebug | null>(null);
@@ -42,7 +44,7 @@ export function AutoconfigDebug() {
 
   const runTest = async () => {
     if (!email) {
-      setError('Lütfen bir email adresi girin');
+      setError(t('debug.enterEmail'));
       return;
     }
 
@@ -84,7 +86,7 @@ export function AutoconfigDebug() {
               🔍 Autoconfig Debug Tool
             </h1>
             <p className="text-sm text-owl-text-secondary">
-              Thunderbird-style email otomatik yapılandırma sistemini test edin
+              {t('debug.subtitle')}
             </p>
           </div>
 
@@ -105,7 +107,7 @@ export function AutoconfigDebug() {
                 disabled={loading}
                 className="px-6 py-3 bg-owl-accent hover:bg-owl-accent-hover text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {loading ? 'Test Ediliyor...' : 'Test Et'}
+                {loading ? t('debug.testing') : t('debug.testBtn')}
               </button>
             </div>
 
@@ -131,7 +133,7 @@ export function AutoconfigDebug() {
                     <p className="font-mono text-sm text-owl-text">{result.domain}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-owl-text-secondary mb-1">Toplam Süre</p>
+                    <p className="text-xs text-owl-text-secondary mb-1">{t('debug.totalDuration')}</p>
                     <p className="font-mono text-sm text-owl-text">{result.totalDurationMs}ms</p>
                   </div>
                   <div>
@@ -145,7 +147,7 @@ export function AutoconfigDebug() {
 
               {/* Detection Steps */}
               <div>
-                <h3 className="text-lg font-semibold text-owl-text mb-3">Detection Steps</h3>
+                <h3 className="text-lg font-semibold text-owl-text mb-3">{t('debug.detectionSteps')}</h3>
                 <div className="space-y-2">
                   {/* Preset */}
                   <DetectionStep
@@ -212,7 +214,7 @@ export function AutoconfigDebug() {
               {/* Final Config */}
               {result.finalConfig && (
                 <div>
-                  <h3 className="text-lg font-semibold text-owl-text mb-3">Final Configuration</h3>
+                  <h3 className="text-lg font-semibold text-owl-text mb-3">{t('debug.finalConfig')}</h3>
                   <div className="bg-owl-surface-2 rounded-lg p-4 border border-owl-border">
                     <div className="grid grid-cols-2 gap-4">
                       {result.finalConfig.provider && (
@@ -241,12 +243,11 @@ export function AutoconfigDebug() {
 
         {/* Instructions */}
         <div className="mt-6 bg-owl-surface border border-owl-border rounded-lg p-4">
-          <h4 className="font-semibold text-owl-text mb-2">Nasıl Kullanılır?</h4>
+          <h4 className="font-semibold text-owl-text mb-2">{t('debug.howToUseTitle')}</h4>
           <ul className="text-sm text-owl-text-secondary space-y-1">
-            <li>• Email adresinizi girin ve "Test Et" butonuna tıklayın</li>
-            <li>• Sistem 6 farklı metodu sırayla deneyecek</li>
-            <li>• ✅ = Başarılı, ⚠️ = Bulunamadı, ❌ = Hata, ⏭ = Atlandı</li>
-            <li>• İlk başarılı metod bulunduğunda diğerleri atlanır</li>
+            <li>• {t('debug.howToUse1')}</li>
+            <li>• {t('debug.howToUse2')}</li>
+            <li>• {t('debug.howToUse3')}</li>
           </ul>
         </div>
       </div>

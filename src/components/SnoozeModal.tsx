@@ -4,43 +4,35 @@
 // ============================================================================
 
 import { useState } from 'react';
+import { useTranslation } from '../i18n';
 
 interface SnoozeModalProps {
   onSnooze: (snoozeUntil: string) => void;
   onClose: () => void;
 }
 
-const PRESETS = [
-  { label: '1 saat sonra', hours: 1 },
-  { label: '4 saat sonra', hours: 4 },
-  { label: 'Yarin sabah', preset: 'tomorrow_morning' as const },
-  { label: 'Yarin aksam', preset: 'tomorrow_evening' as const },
-  { label: '2 gun sonra', days: 2 },
-  { label: '1 hafta sonra', days: 7 },
-];
-
-function getPresetDate(preset: typeof PRESETS[number]): Date {
+function getPresetDate(preset: { hours?: number; days?: number; preset?: string }): Date {
   const now = new Date();
 
-  if ('preset' in preset && preset.preset === 'tomorrow_morning') {
+  if (preset.preset === 'tomorrow_morning') {
     const d = new Date(now);
     d.setDate(d.getDate() + 1);
     d.setHours(9, 0, 0, 0);
     return d;
   }
 
-  if ('preset' in preset && preset.preset === 'tomorrow_evening') {
+  if (preset.preset === 'tomorrow_evening') {
     const d = new Date(now);
     d.setDate(d.getDate() + 1);
     d.setHours(18, 0, 0, 0);
     return d;
   }
 
-  if ('hours' in preset && preset.hours) {
+  if (preset.hours) {
     return new Date(now.getTime() + preset.hours * 60 * 60 * 1000);
   }
 
-  if ('days' in preset && preset.days) {
+  if (preset.days) {
     const d = new Date(now);
     d.setDate(d.getDate() + preset.days);
     d.setHours(9, 0, 0, 0);
@@ -56,9 +48,19 @@ function toLocalISO(d: Date): string {
 }
 
 export function SnoozeModal({ onSnooze, onClose }: SnoozeModalProps) {
+  const { t } = useTranslation();
   const [showCustom, setShowCustom] = useState(false);
   const [customDate, setCustomDate] = useState('');
   const [customTime, setCustomTime] = useState('09:00');
+
+  const PRESETS = [
+    { label: t('snooze.inHours1'), hours: 1 },
+    { label: t('snooze.inHours4'), hours: 4 },
+    { label: t('snooze.tomorrowMorning'), preset: 'tomorrow_morning' as const },
+    { label: t('snooze.tomorrowEvening'), preset: 'tomorrow_evening' as const },
+    { label: t('snooze.inDays2'), days: 2 },
+    { label: t('snooze.inWeek1'), days: 7 },
+  ];
 
   const handlePreset = (preset: typeof PRESETS[number]) => {
     const d = getPresetDate(preset);
@@ -82,8 +84,8 @@ export function SnoozeModal({ onSnooze, onClose }: SnoozeModalProps) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="p-4 border-b border-owl-border">
-          <h3 className="text-sm font-semibold text-owl-text-primary">E-postayi Ertele</h3>
-          <p className="text-xs text-owl-text-muted mt-1">Secilen zamanda tekrar hatirlatilacak</p>
+          <h3 className="text-sm font-semibold text-owl-text-primary">{t('snooze.title')}</h3>
+          <p className="text-xs text-owl-text-muted mt-1">{t('snooze.subtitle')}</p>
         </div>
 
         <div className="p-2">
@@ -117,7 +119,7 @@ export function SnoozeModal({ onSnooze, onClose }: SnoozeModalProps) {
                 onClick={() => setShowCustom(true)}
                 className="w-full px-3 py-2.5 rounded-lg text-sm text-owl-text-secondary hover:bg-owl-bg-tertiary transition-colors text-left"
               >
-                Ozel tarih sec...
+                {t('snooze.customDate')}
               </button>
             ) : (
               <div className="p-3 space-y-2">
@@ -139,7 +141,7 @@ export function SnoozeModal({ onSnooze, onClose }: SnoozeModalProps) {
                   disabled={!customDate}
                   className="w-full py-1.5 bg-owl-accent-primary text-white text-sm rounded-lg hover:bg-owl-accent-primary/90 disabled:opacity-50 transition-colors"
                 >
-                  Ertele
+                  {t('snooze.snoozeAction')}
                 </button>
               </div>
             )}

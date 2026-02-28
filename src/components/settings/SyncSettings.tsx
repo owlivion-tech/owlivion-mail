@@ -3,6 +3,7 @@
 // ============================================================================
 
 import { useState, useEffect } from 'react';
+import { useTranslation } from '../../i18n';
 import { useSyncConfig, useSyncStatus, useScheduler } from '../../hooks/useSync';
 import {
   formatLastSync,
@@ -22,6 +23,7 @@ interface SyncSettingsProps {
 }
 
 export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
+  const { t, lang } = useTranslation();
   const { config, loading, error, update, reload } = useSyncConfig();
   const { statuses, reload: reloadStatus } = useSyncStatus();
   const { status: schedulerStatus, loading: schedulerLoading, updateConfig: updateScheduler } = useScheduler();
@@ -116,7 +118,7 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="text-owl-text-secondary">Yükleniyor...</div>
+        <div className="text-owl-text-secondary">{t('common.loading')}</div>
       </div>
     );
   }
@@ -124,7 +126,7 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
   if (error) {
     return (
       <div className="bg-owl-error/10 border border-owl-error rounded-lg p-4 text-owl-error">
-        Senkronizasyon ayarları yüklenemedi: {error}
+        {t('settings.syncSettings.loadError')} {error}
       </div>
     );
   }
@@ -132,7 +134,7 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
   if (!config) {
     return (
       <div className="bg-owl-surface border border-owl-border rounded-lg p-4 text-owl-text-secondary">
-        Senkronizasyon ayarları bulunamadı
+        {t('settings.syncSettings.notFound')}
       </div>
     );
   }
@@ -143,15 +145,15 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
     <div className="space-y-4 sm:space-y-8">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-semibold text-owl-text">Senkronizasyon</h2>
+        <h2 className="text-2xl font-semibold text-owl-text">{t('settings.syncSettings.title')}</h2>
         <p className="text-owl-text-secondary mt-1">
-          Verilerinizi cihazlar arası senkronize edin (şifreli ve güvenli)
+          {t('settings.syncSettings.subtitle')}
         </p>
       </div>
 
       {/* Owlivion Account Status */}
       <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
-        <h3 className="text-lg font-medium text-owl-text mb-4">Owlivion Hesabı</h3>
+        <h3 className="text-lg font-medium text-owl-text mb-4">{t('settings.syncSettings.owlivionAccount')}</h3>
 
         {isAccountConnected ? (
           <div className="space-y-4">
@@ -163,9 +165,9 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
                 </svg>
               </div>
               <div className="flex-1">
-                <div className="font-medium text-owl-text">Senkronizasyon Aktif</div>
+                <div className="font-medium text-owl-text">{t('settings.syncSettings.syncActive')}</div>
                 <div className="text-sm text-owl-text-secondary">
-                  Son senkronizasyon: {formatLastSync(config.lastSyncAt)}
+                  {t('settings.syncSettings.lastSync')} {formatLastSync(config.lastSyncAt, lang)}
                 </div>
               </div>
             </div>
@@ -177,7 +179,7 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
                 <div className="min-w-0">
                   <div className="font-medium text-owl-text truncate">{config.deviceName}</div>
                   <div className="text-sm text-owl-text-secondary truncate">
-                    Cihaz ID: {config.deviceId.slice(0, 8)}...
+                    {t('settings.syncSettings.deviceId')} {config.deviceId.slice(0, 8)}...
                   </div>
                 </div>
               </div>
@@ -185,7 +187,7 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
                 onClick={() => setShowDeviceManager(true)}
                 className="px-3 py-1.5 text-sm text-owl-accent hover:bg-owl-accent/10 rounded-lg transition-colors flex-shrink-0"
               >
-                Cihazları Yönet
+                {t('settings.syncSettings.manageDevices')}
               </button>
             </div>
 
@@ -194,19 +196,19 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
               onClick={() => setShowAccountModal(true)}
               className="w-full px-4 py-2 text-sm text-owl-text-secondary hover:text-owl-error hover:bg-owl-error/10 border border-owl-border rounded-lg transition-colors"
             >
-              Hesaptan Çıkış Yap
+              {t('settings.syncSettings.signOut')}
             </button>
           </div>
         ) : (
           <div className="space-y-4">
             <p className="text-sm text-owl-text-secondary">
-              Verilerinizi cihazlar arasında senkronize etmek için bir Owlivion Hesabı oluşturun veya giriş yapın.
+              {t('settings.syncSettings.syncDescription')}
             </p>
             <button
               onClick={() => setShowAccountModal(true)}
               className="w-full px-4 py-3 bg-owl-accent text-white font-medium rounded-lg hover:bg-owl-accent-hover transition-colors"
             >
-              Hesap Oluştur veya Giriş Yap
+              {t('settings.syncSettings.createOrSignIn')}
             </button>
           </div>
         )}
@@ -219,9 +221,9 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
           <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-medium text-owl-text">Otomatik Senkronizasyon</h3>
+                <h3 className="text-lg font-medium text-owl-text">{t('settings.syncSettings.autoSync')}</h3>
                 <p className="text-sm text-owl-text-secondary mt-1">
-                  Değişiklikler otomatik olarak senkronize edilsin
+                  {t('settings.syncSettings.autoSyncDesc')}
                 </p>
               </div>
               <Toggle
@@ -233,15 +235,15 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
 
           {/* Data Types */}
           <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
-            <h3 className="text-lg font-medium text-owl-text mb-4">Senkronize Edilecek Veriler</h3>
+            <h3 className="text-lg font-medium text-owl-text mb-4">{t('settings.syncSettings.dataToSync')}</h3>
 
             <div className="space-y-4">
               {/* Accounts */}
               <div className="flex items-center justify-between">
                 <div>
-                  <label className="text-sm font-medium text-owl-text">E-posta Hesapları</label>
+                  <label className="text-sm font-medium text-owl-text">{t('settings.syncSettings.emailAccounts')}</label>
                   <p className="text-xs text-owl-text-secondary mt-0.5">
-                    IMAP/SMTP ayarları (şifreler hariç)
+                    {t('settings.syncSettings.emailAccountsDesc')}
                   </p>
                 </div>
                 <Toggle
@@ -253,9 +255,9 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
               {/* Contacts */}
               <div className="flex items-center justify-between">
                 <div>
-                  <label className="text-sm font-medium text-owl-text">Kişiler</label>
+                  <label className="text-sm font-medium text-owl-text">{t('settings.syncSettings.contacts')}</label>
                   <p className="text-xs text-owl-text-secondary mt-0.5">
-                    Adres defteri kişileri
+                    {t('settings.syncSettings.contactsDesc')}
                   </p>
                 </div>
                 <Toggle
@@ -267,9 +269,9 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
               {/* Preferences */}
               <div className="flex items-center justify-between">
                 <div>
-                  <label className="text-sm font-medium text-owl-text">Tercihler</label>
+                  <label className="text-sm font-medium text-owl-text">{t('settings.syncSettings.preferences')}</label>
                   <p className="text-xs text-owl-text-secondary mt-0.5">
-                    Tema, dil, bildirim ayarları
+                    {t('settings.syncSettings.preferencesDesc')}
                   </p>
                 </div>
                 <Toggle
@@ -281,9 +283,9 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
               {/* Signatures */}
               <div className="flex items-center justify-between">
                 <div>
-                  <label className="text-sm font-medium text-owl-text">İmzalar</label>
+                  <label className="text-sm font-medium text-owl-text">{t('settings.syncSettings.signaturesData')}</label>
                   <p className="text-xs text-owl-text-secondary mt-0.5">
-                    E-posta imzaları
+                    {t('settings.syncSettings.signaturesDesc')}
                   </p>
                 </div>
                 <Toggle
@@ -297,12 +299,12 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
           {/* Sync Status */}
           <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-medium text-owl-text">Senkronizasyon Durumu</h3>
+              <h3 className="text-lg font-medium text-owl-text">{t('settings.syncSettings.syncStatus')}</h3>
               <button
                 onClick={() => setShowManualSync(true)}
                 className="px-4 py-2 bg-owl-accent text-white text-sm font-medium rounded-lg hover:bg-owl-accent-hover transition-colors"
               >
-                Manuel Senkronize Et
+                {t('settings.syncSettings.manualSync')}
               </button>
             </div>
 
@@ -314,10 +316,10 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-medium text-owl-text capitalize">
-                      {status.dataType === 'accounts' && 'Hesaplar'}
-                      {status.dataType === 'contacts' && 'Kişiler'}
-                      {status.dataType === 'preferences' && 'Tercihler'}
-                      {status.dataType === 'signatures' && 'İmzalar'}
+                      {status.dataType === 'accounts' && t('settings.syncSettings.accounts')}
+                      {status.dataType === 'contacts' && t('settings.syncSettings.contacts')}
+                      {status.dataType === 'preferences' && t('settings.syncSettings.preferences')}
+                      {status.dataType === 'signatures' && t('settings.syncSettings.signaturesData')}
                     </span>
                     <span
                       className={`text-xs px-2 py-0.5 rounded-full ${
@@ -328,19 +330,19 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
                           : 'bg-owl-success/20 text-owl-success'
                       }`}
                     >
-                      {status.status === 'syncing' && 'Senkronize ediliyor'}
-                      {status.status === 'error' && 'Hata'}
-                      {status.status === 'idle' && 'Hazır'}
+                      {status.status === 'syncing' && t('settings.syncSettings.syncing')}
+                      {status.status === 'error' && t('common.error')}
+                      {status.status === 'idle' && t('common.ready')}
                     </span>
                   </div>
                   <div className="text-xs text-owl-text-secondary">
-                    Versiyon: {status.version}
+                    {t('common.version')}: {status.version}
                   </div>
                   <button
                     onClick={() => setHistoryDataType(status.dataType as 'accounts' | 'contacts' | 'preferences' | 'signatures')}
                     className="text-xs text-owl-accent hover:underline mt-2"
                   >
-                    📜 Geçmişi Görüntüle
+                    {t('settings.syncSettings.viewHistory')}
                   </button>
                 </div>
               ))}
@@ -352,22 +354,22 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-lg font-semibold text-owl-text">
-                  Otomatik Senkronizasyon Zamanlayıcı
+                  {t('settings.syncSettings.autoSyncScheduler')}
                 </h3>
                 <p className="text-sm text-owl-text-secondary mt-1">
-                  Belirli aralıklarla otomatik olarak veri senkronize et
+                  {t('settings.syncSettings.autoSyncSchedulerDesc')}
                 </p>
               </div>
               <div className="flex items-center gap-2">
                 {schedulerStatus?.running ? (
                   <span className="text-owl-success flex items-center gap-1">
                     <span className="w-2 h-2 bg-owl-success rounded-full animate-pulse"></span>
-                    Çalışıyor
+                    {t('common.running')}
                   </span>
                 ) : (
                   <span className="text-owl-text-secondary flex items-center gap-1">
                     <span className="w-2 h-2 bg-owl-text-secondary rounded-full"></span>
-                    Durduruldu
+                    {t('common.stopped')}
                   </span>
                 )}
               </div>
@@ -377,10 +379,10 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
             <div className="flex items-center justify-between mb-4 p-4 bg-owl-background rounded-lg">
               <div>
                 <label htmlFor="scheduler-enabled" className="text-sm font-medium text-owl-text cursor-pointer">
-                  Otomatik Senkronizasyonu Etkinleştir
+                  {t('settings.syncSettings.enableAutoSync')}
                 </label>
                 <p className="text-xs text-owl-text-secondary mt-1">
-                  Kapalı olduğunda yalnızca manuel senkronizasyon yapılır
+                  {t('settings.syncSettings.enableAutoSyncDesc')}
                 </p>
               </div>
               <input
@@ -399,7 +401,7 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
             {schedulerStatus?.enabled && (
               <div className="mb-4 p-4 bg-owl-background rounded-lg">
                 <label htmlFor="scheduler-interval" className="block text-sm font-medium text-owl-text mb-2">
-                  Senkronizasyon Aralığı
+                  {t('settings.syncSettings.syncInterval')}
                 </label>
                 <select
                   id="scheduler-interval"
@@ -410,14 +412,14 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
                   }}
                   className="block w-full px-3 py-2 border border-owl-border rounded-md shadow-sm focus:ring-owl-accent focus:border-owl-accent bg-owl-surface text-owl-text disabled:opacity-50 cursor-pointer"
                 >
-                  <option value="15">15 Dakika</option>
-                  <option value="30">30 Dakika (Önerilen)</option>
-                  <option value="60">1 Saat</option>
-                  <option value="120">2 Saat</option>
-                  <option value="240">4 Saat</option>
+                  <option value="15">{t('settings.syncSettings.minutes15')}</option>
+                  <option value="30">{t('settings.syncSettings.minutes30')}</option>
+                  <option value="60">{t('settings.syncSettings.hours1')}</option>
+                  <option value="120">{t('settings.syncSettings.hours2')}</option>
+                  <option value="240">{t('settings.syncSettings.hours4')}</option>
                 </select>
                 <p className="text-xs text-owl-text-secondary mt-2">
-                  Daha sık senkronizasyon daha fazla ağ kullanımına neden olur
+                  {t('settings.syncSettings.frequentSyncNote')}
                 </p>
               </div>
             )}
@@ -426,15 +428,15 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
             {schedulerStatus?.enabled && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-owl-background rounded-lg">
                 <div>
-                  <p className="text-xs text-owl-text-secondary mb-1">Son Otomatik Senkronizasyon</p>
+                  <p className="text-xs text-owl-text-secondary mb-1">{t('settings.syncSettings.lastAutoSync')}</p>
                   <p className="text-sm font-medium text-owl-text">
-                    {schedulerStatus.lastRun ? formatLastSync(schedulerStatus.lastRun) : 'Henüz çalışmadı'}
+                    {schedulerStatus.lastRun ? formatLastSync(schedulerStatus.lastRun, lang) : t('settings.syncSettings.notRunYet')}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-owl-text-secondary mb-1">Sonraki Senkronizasyon</p>
+                  <p className="text-xs text-owl-text-secondary mb-1">{t('settings.syncSettings.nextSync')}</p>
                   <p className="text-sm font-medium text-owl-text">
-                    {schedulerStatus.nextRun ? formatLastSync(schedulerStatus.nextRun) : 'Hesaplanıyor...'}
+                    {schedulerStatus.nextRun ? formatLastSync(schedulerStatus.nextRun, lang) : t('common.calculating')}
                   </p>
                 </div>
               </div>
@@ -448,8 +450,7 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
                     <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                   </svg>
                   <span>
-                    <strong>Güvenlik Notu:</strong> Otomatik senkronizasyon şu anda şifreleme desteği sunmamaktadır.
-                    Hassas verilerin güvenli senkronizasyonu için manuel senkronizasyon kullanın.
+                    {t('settings.syncSettings.securityNote')}
                   </span>
                 </p>
               </div>
@@ -460,9 +461,9 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
           {queueStats && (queueStats.totalCount > 0) && (
             <section className="bg-owl-surface border border-owl-border rounded-xl p-4 sm:p-6">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-medium text-owl-text">Çevrimdışı Kuyruk</h3>
+                <h3 className="text-lg font-medium text-owl-text">{t('settings.syncSettings.offlineQueue')}</h3>
                 <span className="text-xs text-owl-text-secondary">
-                  Otomatik yeniden deneme: 30s - 1 saat
+                  {t('settings.syncSettings.autoRetry')}
                 </span>
               </div>
 
@@ -475,7 +476,7 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
                         {queueStats.pendingCount}
                       </div>
                       <div className="text-sm text-owl-text-secondary mt-1">
-                        Beklemede
+                        {t('common.pending')}
                       </div>
                     </div>
                   )}
@@ -486,7 +487,7 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
                         {queueStats.failedCount}
                       </div>
                       <div className="text-sm text-owl-text-secondary mt-1">
-                        Başarısız
+                        {t('common.failed')}
                       </div>
                     </div>
                   )}
@@ -497,7 +498,7 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
                         {queueStats.completedCount}
                       </div>
                       <div className="text-sm text-owl-text-secondary mt-1">
-                        Tamamlandı
+                        {t('common.completed')}
                       </div>
                     </div>
                   )}
@@ -513,14 +514,14 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
                           disabled={queueLoading}
                           className="flex-1 px-4 py-2 bg-owl-accent text-white text-sm font-medium rounded-lg hover:bg-owl-accent-hover transition-colors disabled:opacity-50"
                         >
-                          {queueLoading ? 'İşleniyor...' : 'Başarısızları Tekrar Dene'}
+                          {queueLoading ? t('settings.syncSettings.processing') : t('settings.syncSettings.retryFailed')}
                         </button>
                         <button
                           onClick={handleClearFailed}
                           disabled={queueLoading}
                           className="px-4 py-2 border border-owl-error text-owl-error text-sm font-medium rounded-lg hover:bg-owl-error/10 transition-colors disabled:opacity-50"
                         >
-                          Temizle
+                          {t('common.clear')}
                         </button>
                       </>
                     )}
@@ -529,8 +530,7 @@ export function SyncSettings({ onNavigateToMail }: SyncSettingsProps = {}) {
 
                 <div className="text-xs text-owl-text-secondary">
                   <p>
-                    ℹ️ Senkronizasyon başarısız olduğunda (internet yok, sunucu ulaşılamaz),
-                    verileriniz otomatik olarak kuyruğa alınır ve yeniden denenir.
+                    {t('settings.syncSettings.offlineQueueNote')}
                   </p>
                 </div>
               </div>

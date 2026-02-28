@@ -13,7 +13,8 @@ import type {
   FilterActionType,
   FilterTemplate,
 } from '../../types';
-import { FILTER_TEMPLATES, TEMPLATE_CATEGORIES } from '../../services/filterTemplates';
+import { getFilterTemplates, getTemplateCategories } from '../../services/filterTemplates';
+import { useTranslation } from '../../i18n';
 
 // Icons
 const Icons = {
@@ -34,35 +35,7 @@ const Icons = {
   ),
 };
 
-// Field labels in Turkish
-const FIELD_LABELS: Record<ConditionField, string> = {
-  from: 'Gönderen',
-  to: 'Alıcı',
-  subject: 'Konu',
-  body: 'İçerik',
-  has_attachment: 'Ek var',
-};
-
-// Operator labels in Turkish
-const OPERATOR_LABELS: Record<ConditionOperator, string> = {
-  contains: 'İçerir',
-  not_contains: 'İçermez',
-  equals: 'Eşittir',
-  not_equals: 'Eşit değildir',
-  starts_with: 'İle başlar',
-  ends_with: 'İle biter',
-};
-
-// Action labels in Turkish
-const ACTION_LABELS: Record<FilterActionType, string> = {
-  move_to_folder: 'Klasöre taşı',
-  add_label: 'Etiket ekle',
-  mark_as_read: 'Okundu olarak işaretle',
-  mark_as_starred: 'Yıldızla',
-  mark_as_spam: 'Spam olarak işaretle',
-  delete: 'Sil',
-  archive: 'Arşivle',
-};
+// Label maps are inside component to access t()
 
 interface FilterFormProps {
   isOpen: boolean;
@@ -94,6 +67,36 @@ export function FilterForm({
   const [error, setError] = useState('');
   const [showTemplates, setShowTemplates] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const { t, lang } = useTranslation();
+  const FILTER_TEMPLATES = getFilterTemplates(lang);
+  const TEMPLATE_CATEGORIES = getTemplateCategories(lang);
+
+  const FIELD_LABELS: Record<ConditionField, string> = {
+    from: t('filters.filterForm.from'),
+    to: t('filters.filterForm.to'),
+    subject: t('filters.filterForm.subject'),
+    body: t('filters.filterForm.body'),
+    has_attachment: t('filters.filterForm.hasAttachment'),
+  };
+
+  const OPERATOR_LABELS: Record<ConditionOperator, string> = {
+    contains: t('filters.filterForm.contains'),
+    not_contains: t('filters.filterForm.notContains'),
+    equals: t('filters.filterForm.equals'),
+    not_equals: t('filters.filterForm.notEquals'),
+    starts_with: t('filters.filterForm.startsWith'),
+    ends_with: t('filters.filterForm.endsWith'),
+  };
+
+  const ACTION_LABELS: Record<FilterActionType, string> = {
+    move_to_folder: t('filters.filterForm.moveToFolder'),
+    add_label: t('filters.filterForm.addLabel'),
+    mark_as_read: t('filters.filterForm.markAsRead'),
+    mark_as_starred: t('filters.filterForm.markAsStarred'),
+    mark_as_spam: t('filters.filterForm.markAsSpam'),
+    delete: t('filters.filterForm.deleteAction'),
+    archive: t('filters.filterForm.archiveAction'),
+  };
 
   // Load filter data when editing
   useEffect(() => {
@@ -140,7 +143,7 @@ export function FilterForm({
   const filteredTemplates =
     selectedCategory === 'all'
       ? FILTER_TEMPLATES
-      : FILTER_TEMPLATES.filter(t => t.category === selectedCategory);
+      : FILTER_TEMPLATES.filter(tmpl => tmpl.category === selectedCategory);
 
   // Add condition
   const addCondition = () => {
@@ -191,36 +194,36 @@ export function FilterForm({
   const handleSave = async () => {
     // Validation
     if (!name.trim()) {
-      setError('Filtre adı gereklidir');
+      setError(t('filters.filterForm.nameRequired'));
       return;
     }
 
     if (conditions.length === 0) {
-      setError('En az bir koşul gereklidir');
+      setError(t('filters.filterForm.conditionRequired'));
       return;
     }
 
     // Check if all conditions have values (except has_attachment)
     for (const cond of conditions) {
       if (cond.field !== 'has_attachment' && !cond.value.trim()) {
-        setError('Tüm koşullar için değer girilmelidir');
+        setError(t('filters.filterForm.conditionValueRequired'));
         return;
       }
     }
 
     if (actions.length === 0) {
-      setError('En az bir eylem gereklidir');
+      setError(t('filters.filterForm.actionRequired'));
       return;
     }
 
     // Check action-specific requirements
     for (const action of actions) {
       if (action.action === 'move_to_folder' && !action.folderId) {
-        setError('Klasöre taşı eylemi için klasör seçilmelidir');
+        setError(t('filters.filterForm.folderRequired'));
         return;
       }
       if (action.action === 'add_label' && !action.label?.trim()) {
-        setError('Etiket ekle eylemi için etiket girilmelidir');
+        setError(t('filters.filterForm.labelRequired'));
         return;
       }
     }
@@ -243,7 +246,7 @@ export function FilterForm({
       await onSave(newFilter);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Filtre kaydedilemedi');
+      setError(err instanceof Error ? err.message : t('filters.filterForm.saveFailed'));
     } finally {
       setIsSaving(false);
     }
@@ -257,7 +260,7 @@ export function FilterForm({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700">
           <h2 className="text-xl font-semibold text-gray-100">
-            {filter ? 'Filtreyi Düzenle' : 'Yeni Filtre Oluştur'}
+            {filter ? t('filters.filterForm.editFilter') : t('filters.filterForm.createFilter')}
           </h2>
           <button
             onClick={onClose}
@@ -274,10 +277,10 @@ export function FilterForm({
             <div className="space-y-4">
               <div className="text-center mb-6">
                 <h3 className="text-lg font-medium text-gray-100 mb-2">
-                  Şablondan Başla veya Boş Oluştur
+                  {t('filters.filterForm.templateTitle')}
                 </h3>
                 <p className="text-sm text-gray-400">
-                  Hazır şablonlardan birini seçin veya sıfırdan oluşturun
+                  {t('filters.filterForm.templateSubtitle')}
                 </p>
               </div>
 
@@ -291,7 +294,7 @@ export function FilterForm({
                       : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                   }`}
                 >
-                  Tümü
+                  {t('filters.filterForm.allCategories')}
                 </button>
                 {TEMPLATE_CATEGORIES.map(cat => (
                   <button
@@ -326,9 +329,9 @@ export function FilterForm({
                           {template.description}
                         </p>
                         <div className="mt-2 flex items-center gap-2 text-xs text-gray-500">
-                          <span>{template.conditions.length} koşul</span>
+                          <span>{template.conditions.length} {t('filters.filterForm.conditionCount')}</span>
                           <span>•</span>
-                          <span>{template.actions.length} eylem</span>
+                          <span>{template.actions.length} {t('filters.filterForm.actionCount')}</span>
                         </div>
                       </div>
                     </div>
@@ -342,7 +345,7 @@ export function FilterForm({
                   onClick={() => setShowTemplates(false)}
                   className="w-full px-4 py-3 bg-gray-700 hover:bg-gray-600 text-gray-100 rounded-lg transition-colors"
                 >
-                  ✨ Boş Filtre Oluştur
+                  {t('filters.filterForm.createBlank')}
                 </button>
               </div>
             </div>
@@ -357,33 +360,33 @@ export function FilterForm({
                   onClick={() => setShowTemplates(true)}
                   className="text-sm text-blue-400 hover:text-blue-300 mb-2"
                 >
-                  ← Şablonlara Dön
+                  {t('filters.filterForm.backToTemplates')}
                 </button>
               )}
           {/* Basic Info */}
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                Filtre Adı *
+                {t('filters.filterForm.nameLabel')}
               </label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-gray-100 focus:outline-none focus:border-blue-500"
-                placeholder="Örn: İş emailleri"
+                placeholder={t('filters.filterForm.namePlaceholderExample')}
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                Açıklama
+                {t('filters.filterForm.descriptionLabel')}
               </label>
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-gray-100 focus:outline-none focus:border-blue-500"
-                placeholder="Bu filtrenin ne yaptığını açıklayın (opsiyonel)"
+                placeholder={t('filters.filterForm.descriptionPlaceholderLong')}
                 rows={2}
               />
             </div>
@@ -391,7 +394,7 @@ export function FilterForm({
             <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Öncelik
+                  {t('filters.filterForm.priority')}
                 </label>
                 <input
                   type="number"
@@ -405,15 +408,15 @@ export function FilterForm({
 
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Eşleşme Mantığı
+                  {t('filters.filterForm.matchLogic')}
                 </label>
                 <select
                   value={matchLogic}
                   onChange={(e) => setMatchLogic(e.target.value as 'all' | 'any')}
                   className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-gray-100 focus:outline-none focus:border-blue-500"
                 >
-                  <option value="all">Tümü (VE)</option>
-                  <option value="any">Herhangi (VEYA)</option>
+                  <option value="all">{t('filters.filterForm.matchAll')}</option>
+                  <option value="any">{t('filters.filterForm.matchAny')}</option>
                 </select>
               </div>
 
@@ -425,7 +428,7 @@ export function FilterForm({
                     onChange={(e) => setIsEnabled(e.target.checked)}
                     className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
                   />
-                  <span className="text-sm text-gray-300">Aktif</span>
+                  <span className="text-sm text-gray-300">{t('filters.filterForm.active')}</span>
                 </label>
               </div>
             </div>
@@ -435,14 +438,14 @@ export function FilterForm({
           <div>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-medium text-gray-300">
-                Koşullar *
+                {t('filters.filterForm.conditionsRequired')}
               </h3>
               <button
                 onClick={addCondition}
                 className="flex items-center gap-1 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
               >
                 <Icons.Plus />
-                Koşul Ekle
+                {t('filters.filterForm.addCondition')}
               </button>
             </div>
 
@@ -489,7 +492,7 @@ export function FilterForm({
                           updateCondition(index, 'value', e.target.value)
                         }
                         className="px-2 py-1.5 bg-gray-700 border border-gray-600 rounded text-sm text-gray-100 focus:outline-none focus:border-blue-500"
-                        placeholder="Değer"
+                        placeholder={t('filters.filterForm.value')}
                       />
                     )}
                   </div>
@@ -498,7 +501,7 @@ export function FilterForm({
                     <button
                       onClick={() => removeCondition(index)}
                       className="p-1.5 hover:bg-gray-700 rounded transition-colors text-red-400"
-                      title="Koşulu kaldır"
+                      title={t('filters.filterForm.removeCondition')}
                     >
                       <Icons.Trash />
                     </button>
@@ -512,14 +515,14 @@ export function FilterForm({
           <div>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-medium text-gray-300">
-                Eylemler *
+                {t('filters.filterForm.actionsRequired')}
               </h3>
               <button
                 onClick={addAction}
                 className="flex items-center gap-1 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
               >
                 <Icons.Plus />
-                Eylem Ekle
+                {t('filters.filterForm.addAction')}
               </button>
             </div>
 
@@ -552,7 +555,7 @@ export function FilterForm({
                           updateAction(index, { folderId: Number(e.target.value) })
                         }
                         className="px-2 py-1.5 bg-gray-700 border border-gray-600 rounded text-sm text-gray-100 focus:outline-none focus:border-blue-500"
-                        placeholder="Klasör ID"
+                        placeholder={t('filters.filterForm.folderId')}
                       />
                     )}
 
@@ -564,7 +567,7 @@ export function FilterForm({
                           updateAction(index, { label: e.target.value })
                         }
                         className="px-2 py-1.5 bg-gray-700 border border-gray-600 rounded text-sm text-gray-100 focus:outline-none focus:border-blue-500"
-                        placeholder="Etiket adı"
+                        placeholder={t('filters.filterForm.labelName')}
                       />
                     )}
                   </div>
@@ -573,7 +576,7 @@ export function FilterForm({
                     <button
                       onClick={() => removeAction(index)}
                       className="p-1.5 hover:bg-gray-700 rounded transition-colors text-red-400"
-                      title="Eylemi kaldır"
+                      title={t('filters.filterForm.removeAction')}
                     >
                       <Icons.Trash />
                     </button>
@@ -600,14 +603,14 @@ export function FilterForm({
             disabled={isSaving}
             className="px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
           >
-            İptal
+            {t('filters.filterForm.cancel')}
           </button>
           <button
             onClick={handleSave}
             disabled={isSaving}
             className="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 min-w-[100px]"
           >
-            {isSaving ? 'Kaydediliyor...' : filter ? 'Güncelle' : 'Oluştur'}
+            {isSaving ? t('filters.filterForm.saving') : filter ? t('filters.filterForm.update') : t('filters.filterForm.create')}
           </button>
         </div>
       </div>

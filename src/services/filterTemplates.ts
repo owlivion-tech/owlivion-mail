@@ -3,18 +3,37 @@
 // ============================================================================
 
 import type { FilterTemplate } from '../types';
+import { en } from '../i18n/locales/en';
+import type { TranslationKeys } from '../i18n/locales/en';
+import { tr } from '../i18n/locales/tr';
+
+const locales: Record<string, TranslationKeys> = { en, tr };
+
+function getTranslation(lang: string, key: string): string {
+  const translations = locales[lang] || locales.en;
+  const keys = key.split('.');
+  let current: unknown = translations;
+  for (const k of keys) {
+    if (current === null || current === undefined || typeof current !== 'object') return key;
+    current = (current as Record<string, unknown>)[k];
+  }
+  return typeof current === 'string' ? current : key;
+}
 
 /**
  * Predefined filter templates for common use cases
  */
-export const FILTER_TEMPLATES: FilterTemplate[] = [
+function createFilterTemplates(lang: string): FilterTemplate[] {
+  const t = (key: string) => getTranslation(lang, key);
+
+  return [
   // ============================================================================
   // SPAM & SECURITY
   // ============================================================================
   {
     id: 'spam-keywords',
-    name: 'Spam Anahtar Kelimeler',
-    description: 'Yaygın spam kelimelerini içeren emailleri otomatik spam klasörüne taşır',
+    name: t('filterTemplates.spamKeywords'),
+    description: t('filterTemplates.spamKeywordsDesc'),
     category: 'spam',
     icon: '🚫',
     priority: 100,
@@ -32,8 +51,8 @@ export const FILTER_TEMPLATES: FilterTemplate[] = [
   },
   {
     id: 'suspicious-links',
-    name: 'Şüpheli Linkler',
-    description: 'Phishing denemesi olabilecek şüpheli linkleri içeren emailleri spam klasörüne taşır',
+    name: t('filterTemplates.suspiciousLinks'),
+    description: t('filterTemplates.suspiciousLinksDesc'),
     category: 'spam',
     icon: '⚠️',
     priority: 95,
@@ -53,8 +72,8 @@ export const FILTER_TEMPLATES: FilterTemplate[] = [
   // ============================================================================
   {
     id: 'promotions',
-    name: 'Promosyonlar',
-    description: 'İndirim, kampanya ve promosyon emaillerini etiketler',
+    name: t('filterTemplates.promotions'),
+    description: t('filterTemplates.promotionsDesc'),
     category: 'promotions',
     icon: '🏷️',
     priority: 50,
@@ -73,8 +92,8 @@ export const FILTER_TEMPLATES: FilterTemplate[] = [
   },
   {
     id: 'unsubscribe',
-    name: 'Abonelik İptali Var',
-    description: 'Unsubscribe linki içeren marketing emaillerini etiketler',
+    name: t('filterTemplates.unsubscribe'),
+    description: t('filterTemplates.unsubscribeDesc'),
     category: 'promotions',
     icon: '📧',
     priority: 45,
@@ -93,8 +112,8 @@ export const FILTER_TEMPLATES: FilterTemplate[] = [
   // ============================================================================
   {
     id: 'social-notifications',
-    name: 'Sosyal Medya Bildirimleri',
-    description: 'Facebook, Twitter, Instagram, LinkedIn bildirimlerini etiketler',
+    name: t('filterTemplates.socialNotifications'),
+    description: t('filterTemplates.socialNotificationsDesc'),
     category: 'social',
     icon: '👥',
     priority: 40,
@@ -116,8 +135,8 @@ export const FILTER_TEMPLATES: FilterTemplate[] = [
   // ============================================================================
   {
     id: 'newsletters',
-    name: 'Haber Bültenleri',
-    description: 'Newsletter ve blog güncellemelerini etiketler ve okundu işaretler',
+    name: t('filterTemplates.newsletters'),
+    description: t('filterTemplates.newslettersDesc'),
     category: 'newsletters',
     icon: '📰',
     priority: 30,
@@ -137,8 +156,8 @@ export const FILTER_TEMPLATES: FilterTemplate[] = [
   // ============================================================================
   {
     id: 'important-work',
-    name: 'Önemli İş Emailleri',
-    description: 'Acil, önemli veya ASAP kelimelerini içeren iş emaillerini yıldızlar',
+    name: t('filterTemplates.importantWork'),
+    description: t('filterTemplates.importantWorkDesc'),
     category: 'work',
     icon: '⭐',
     priority: 90,
@@ -156,8 +175,8 @@ export const FILTER_TEMPLATES: FilterTemplate[] = [
   },
   {
     id: 'meeting-invites',
-    name: 'Toplantı Davetleri',
-    description: 'Toplantı ve etkinlik davetlerini etiketler',
+    name: t('filterTemplates.meetingInvites'),
+    description: t('filterTemplates.meetingInvitesDesc'),
     category: 'work',
     icon: '📅',
     priority: 60,
@@ -178,8 +197,8 @@ export const FILTER_TEMPLATES: FilterTemplate[] = [
   // ============================================================================
   {
     id: 'with-attachments',
-    name: 'Ekli Dosyalar',
-    description: 'Ek içeren tüm emailleri etiketler',
+    name: t('filterTemplates.withAttachments'),
+    description: t('filterTemplates.withAttachmentsDesc'),
     category: 'organization',
     icon: '📎',
     priority: 20,
@@ -192,8 +211,8 @@ export const FILTER_TEMPLATES: FilterTemplate[] = [
   },
   {
     id: 'receipts',
-    name: 'Faturalar ve Makbuzlar',
-    description: 'Fatura, makbuz ve sipariş onaylarını etiketler',
+    name: t('filterTemplates.receipts'),
+    description: t('filterTemplates.receiptsDesc'),
     category: 'organization',
     icon: '🧾',
     priority: 55,
@@ -212,8 +231,8 @@ export const FILTER_TEMPLATES: FilterTemplate[] = [
   },
   {
     id: 'auto-archive-read',
-    name: 'Okunmuşları Arşivle',
-    description: '7 günden eski okunmuş emailleri otomatik arşivler (manuel uygulama gerektirir)',
+    name: t('filterTemplates.autoArchiveRead'),
+    description: t('filterTemplates.autoArchiveReadDesc'),
     category: 'organization',
     icon: '📦',
     priority: 10,
@@ -224,30 +243,47 @@ export const FILTER_TEMPLATES: FilterTemplate[] = [
       { action: 'archive' },
     ],
   },
-];
+  ];
+}
+
+/** Default (backward compat) - uses 'en' */
+export const FILTER_TEMPLATES: FilterTemplate[] = createFilterTemplates('en');
+
+/**
+ * Get localized filter templates
+ */
+export function getFilterTemplates(lang: string = 'en'): FilterTemplate[] {
+  return createFilterTemplates(lang);
+}
 
 /**
  * Get templates by category
  */
-export function getTemplatesByCategory(category: FilterTemplate['category']): FilterTemplate[] {
-  return FILTER_TEMPLATES.filter(t => t.category === category);
+export function getTemplatesByCategory(category: FilterTemplate['category'], lang: string = 'en'): FilterTemplate[] {
+  return getFilterTemplates(lang).filter(t => t.category === category);
 }
 
 /**
  * Get template by ID
  */
-export function getTemplateById(id: string): FilterTemplate | undefined {
-  return FILTER_TEMPLATES.find(t => t.id === id);
+export function getTemplateById(id: string, lang: string = 'en'): FilterTemplate | undefined {
+  return getFilterTemplates(lang).find(t => t.id === id);
 }
 
 /**
- * Get all template categories
+ * Get all template categories (localized)
  */
-export const TEMPLATE_CATEGORIES = [
-  { id: 'spam', name: 'Spam & Güvenlik', icon: '🚫' },
-  { id: 'promotions', name: 'Promosyonlar', icon: '🏷️' },
-  { id: 'social', name: 'Sosyal Medya', icon: '👥' },
-  { id: 'newsletters', name: 'Haber Bültenleri', icon: '📰' },
-  { id: 'work', name: 'İş & Önemli', icon: '⭐' },
-  { id: 'organization', name: 'Organizasyon', icon: '📁' },
-] as const;
+export function getTemplateCategories(lang: string = 'en') {
+  const t = (key: string) => getTranslation(lang, key);
+  return [
+    { id: 'spam', name: t('filterTemplates.catSpamSecurity'), icon: '🚫' },
+    { id: 'promotions', name: t('filterTemplates.catPromotions'), icon: '🏷️' },
+    { id: 'social', name: t('filterTemplates.catSocial'), icon: '👥' },
+    { id: 'newsletters', name: t('filterTemplates.catNewsletters'), icon: '📰' },
+    { id: 'work', name: t('filterTemplates.catWork'), icon: '⭐' },
+    { id: 'organization', name: t('filterTemplates.catOrganization'), icon: '📁' },
+  ] as const;
+}
+
+/** @deprecated Use getTemplateCategories(lang) instead */
+export const TEMPLATE_CATEGORIES = getTemplateCategories('en');

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, Search, Star, TrendingUp, FileText } from 'lucide-react';
 import type { EmailTemplate } from '../../types';
 import { templateList, templateSearch, templateGetFavorites } from '../../services';
+import { useTranslation } from '../../i18n';
 
 interface TemplateSelectorProps {
   accountId: number;
@@ -9,15 +10,15 @@ interface TemplateSelectorProps {
   onClose: () => void;
 }
 
-// Category colors and labels
-const CATEGORY_STYLES: Record<string, { bg: string; text: string; label: string }> = {
-  business: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-300', label: 'İş' },
-  personal: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-300', label: 'Kişisel' },
-  customer_support: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-300', label: 'Destek' },
-  sales: { bg: 'bg-orange-100 dark:bg-orange-900/30', text: 'text-orange-700 dark:text-orange-300', label: 'Satış' },
-  marketing: { bg: 'bg-pink-100 dark:bg-pink-900/30', text: 'text-pink-700 dark:text-pink-300', label: 'Pazarlama' },
-  internal: { bg: 'bg-gray-100 dark:bg-gray-900/30', text: 'text-gray-700 dark:text-gray-300', label: 'Dahili' },
-  custom: { bg: 'bg-indigo-100 dark:bg-indigo-900/30', text: 'text-indigo-700 dark:text-indigo-300', label: 'Özel' },
+// Category colors (labels resolved inside component via i18n)
+const CATEGORY_COLORS: Record<string, { bg: string; text: string }> = {
+  business: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-300' },
+  personal: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-300' },
+  customer_support: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-300' },
+  sales: { bg: 'bg-orange-100 dark:bg-orange-900/30', text: 'text-orange-700 dark:text-orange-300' },
+  marketing: { bg: 'bg-pink-100 dark:bg-pink-900/30', text: 'text-pink-700 dark:text-pink-300' },
+  internal: { bg: 'bg-gray-100 dark:bg-gray-900/30', text: 'text-gray-700 dark:text-gray-300' },
+  custom: { bg: 'bg-indigo-100 dark:bg-indigo-900/30', text: 'text-indigo-700 dark:text-indigo-300' },
 };
 
 export default function TemplateSelector({
@@ -25,6 +26,17 @@ export default function TemplateSelector({
   onSelect,
   onClose,
 }: TemplateSelectorProps) {
+  const { t } = useTranslation();
+
+  const CATEGORY_LABELS: Record<string, string> = {
+    business: t('templateList.categoryBusiness'),
+    personal: t('templateList.categoryPersonal'),
+    customer_support: t('templateList.categoryCustomerSupport'),
+    sales: t('templateList.categorySales'),
+    marketing: t('templateList.categoryMarketing'),
+    internal: t('templateList.categoryInternal'),
+    custom: t('templateList.categoryCustom'),
+  };
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -115,7 +127,7 @@ export default function TemplateSelector({
           <div className="flex items-center gap-2">
             <FileText className="w-5 h-5 text-gray-500" />
             <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
-              Email Şablonu Seç
+              {t('templateSelector.title')}
             </h2>
           </div>
           <button
@@ -135,7 +147,7 @@ export default function TemplateSelector({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Şablon ara... (Ctrl+T)"
+              placeholder={t('templateSelector.searchPlaceholder')}
               className="w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
               autoFocus
             />
@@ -150,7 +162,7 @@ export default function TemplateSelector({
               className="w-4 h-4"
             />
             <span className="text-sm text-gray-700 dark:text-gray-300">
-              Sadece Favori Şablonlar
+              {t('templateSelector.favoritesOnly')}
             </span>
           </label>
         </div>
@@ -166,19 +178,20 @@ export default function TemplateSelector({
               <FileText className="w-16 h-16 mx-auto mb-4 opacity-50" />
               <p className="text-lg mb-2">
                 {searchQuery
-                  ? 'Şablon bulunamadı'
+                  ? t('templateSelector.noTemplatesFound')
                   : favoritesOnly
-                  ? 'Favori şablon yok'
-                  : 'Henüz şablon oluşturulmamış'}
+                  ? t('templateSelector.noFavoriteTemplates')
+                  : t('templateSelector.noTemplatesYet')}
               </p>
               <p className="text-sm">
-                Ayarlar → Şablonlar bölümünden yeni şablon oluşturabilirsiniz.
+                {t('templateSelector.noTemplatesHint')}
               </p>
             </div>
           ) : (
             <div className="space-y-2">
               {templates.map((template) => {
-                const categoryStyle = CATEGORY_STYLES[template.category] || CATEGORY_STYLES.custom;
+                const categoryColor = CATEGORY_COLORS[template.category] || CATEGORY_COLORS.custom;
+                const categoryLabel = CATEGORY_LABELS[template.category] || CATEGORY_LABELS.custom;
 
                 return (
                   <button
@@ -197,10 +210,10 @@ export default function TemplateSelector({
                       <span
                         className={`
                           px-2 py-0.5 rounded-full text-xs font-medium flex-shrink-0
-                          ${categoryStyle.bg} ${categoryStyle.text}
+                          ${categoryColor.bg} ${categoryColor.text}
                         `}
                       >
-                        {categoryStyle.label}
+                        {categoryLabel}
                       </span>
                     </div>
 
@@ -214,10 +227,10 @@ export default function TemplateSelector({
                     {/* Subject Preview */}
                     <div className="mb-2">
                       <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                        Konu:
+                        {t('templateSelector.subject')}
                       </span>
                       <p className="text-sm text-gray-700 dark:text-gray-300 truncate">
-                        {template.subjectTemplate || '(Konu yok)'}
+                        {template.subjectTemplate || t('templateSelector.noSubject')}
                       </p>
                     </div>
 
@@ -225,7 +238,7 @@ export default function TemplateSelector({
                     <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
                       <div className="flex items-center gap-1">
                         <TrendingUp className="w-3 h-3" />
-                        <span>{template.usageCount} kullanım</span>
+                        <span>{t('templateSelector.usageCount').replace('{count}', String(template.usageCount))}</span>
                       </div>
                     </div>
                   </button>
@@ -238,8 +251,7 @@ export default function TemplateSelector({
         {/* Footer */}
         <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
           <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
-            <kbd className="px-2 py-1 bg-gray-200 dark:bg-gray-700 rounded text-xs">ESC</kbd> tuşuna
-            basarak kapat | Şablon seçmek için tıklayın
+            {t('templateSelector.escToClose').replace('{key}', 'ESC')}
           </p>
         </div>
       </div>

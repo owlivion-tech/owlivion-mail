@@ -3,6 +3,7 @@ import DOMPurify from 'dompurify';
 import type { MobileEmail } from './types';
 import type { Account } from '../../types';
 import { useMobileNavigation } from '../../stores/mobileNavigationStore';
+import { useTranslation } from '../../i18n';
 
 interface MobileEmailViewProps {
   email: MobileEmail | null;
@@ -54,8 +55,8 @@ function sanitizeEmailHtml(html: string, blockImages: boolean = true): string {
   return sanitized;
 }
 
-function formatFullDate(date: Date): string {
-  return date.toLocaleDateString('tr-TR', {
+function formatFullDate(date: Date, lang: string = 'en'): string {
+  return date.toLocaleDateString(lang === 'tr' ? 'tr-TR' : 'en-US', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
@@ -93,6 +94,7 @@ export function MobileEmailView({
   selectedAccountId,
   accounts,
 }: MobileEmailViewProps) {
+  const { t, lang } = useTranslation();
   const { pop } = useMobileNavigation();
   const [showMoreActions, setShowMoreActions] = useState(false);
   const [processedHtml, setProcessedHtml] = useState<string | null>(null);
@@ -169,28 +171,28 @@ export function MobileEmailView({
                 <div className="absolute right-0 top-full mt-1 w-44 max-w-[calc(100vw-2rem)] bg-owl-surface border border-owl-border rounded-xl shadow-xl z-50 overflow-hidden">
                   <button onClick={() => { onToggleRead(); setShowMoreActions(false); }} className="w-full flex items-center gap-3 px-4 py-3 text-sm text-owl-text hover:bg-owl-bg">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 19v-8.93a2 2 0 01.89-1.664l7-4.666a2 2 0 012.22 0l7 4.666A2 2 0 0121 10.07V19" /></svg>
-                    {email.read ? 'Okunmadi olarak isaretle' : 'Okundu olarak isaretle'}
+                    {email.read ? t('mobile.markUnread') : t('mobile.markRead')}
                   </button>
                   <button onClick={() => { onArchive(); setShowMoreActions(false); }} className="w-full flex items-center gap-3 px-4 py-3 text-sm text-owl-text hover:bg-owl-bg">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
-                    Arsivle
+                    {t('mobile.archive')}
                   </button>
                   {onSummarize && (
                     <button onClick={() => { onSummarize(); setShowMoreActions(false); }} disabled={isSummarizing} className="w-full flex items-center gap-3 px-4 py-3 text-sm text-owl-text hover:bg-owl-bg disabled:opacity-50">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg>
-                      {isSummarizing ? 'Ozetleniyor...' : 'AI ile Ozetle'}
+                      {isSummarizing ? t('mobile.summarizing') : t('mobile.aiSummarize')}
                     </button>
                   )}
                   {!showImages && email.hasImages && (
                     <button onClick={() => { onLoadImages(); setShowMoreActions(false); }} className="w-full flex items-center gap-3 px-4 py-3 text-sm text-owl-text hover:bg-owl-bg">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                      Resimleri Goster
+                      {t('mobile.showImages')}
                     </button>
                   )}
                   <div className="border-t border-owl-border" />
                   <button onClick={() => { onDelete(); setShowMoreActions(false); }} className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-400 hover:bg-owl-bg">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                    Sil
+                    {t('mobile.delete')}
                   </button>
                 </div>
               </>
@@ -204,7 +206,7 @@ export function MobileEmailView({
         <div className="p-4">
           {/* Subject */}
           <h1 className="text-xl font-semibold text-owl-text mb-3 break-words">
-            {email.subject || '(Konu yok)'}
+            {email.subject || t('mobile.noSubject')}
           </h1>
 
           {/* Sender info */}
@@ -220,11 +222,11 @@ export function MobileEmailView({
               </div>
               <span className="text-xs text-owl-text-secondary">{email.from.email}</span>
               <div className="text-xs text-owl-text-secondary mt-0.5">
-                {formatFullDate(email.date)}
+                {formatFullDate(email.date, lang)}
               </div>
               {email.to.length > 0 && (
                 <div className="text-xs text-owl-text-secondary mt-0.5 truncate">
-                  Kime: {email.to.map(t => t.name || t.email).join(', ')}
+                  {t('mobile.to')}: {email.to.map(r => r.name || r.email).join(', ')}
                 </div>
               )}
             </div>
@@ -247,7 +249,7 @@ export function MobileEmailView({
                 <svg className="w-4 h-4 text-owl-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
                 </svg>
-                <span className="text-xs font-medium text-owl-accent">AI Ozet</span>
+                <span className="text-xs font-medium text-owl-accent">{t('mobile.aiSummaryLabel')}</span>
               </div>
               <p className="text-sm text-owl-text leading-relaxed">{summary}</p>
             </div>
@@ -271,7 +273,7 @@ export function MobileEmailView({
           {attachments.length > 0 && (
             <div className="mt-4 border-t border-owl-border pt-4">
               <h3 className="text-xs font-semibold text-owl-text-secondary uppercase mb-2">
-                Ekler ({attachments.length})
+                {t('mobile.attachments').replace('{count}', String(attachments.length))}
               </h3>
               <div className="space-y-2">
                 {attachments.map(attachment => (
@@ -310,7 +312,7 @@ export function MobileEmailView({
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
             </svg>
-            <span className="text-xs">Yanitla</span>
+            <span className="text-xs">{t('mobile.reply')}</span>
           </button>
           <button
             onClick={onReplyAll}
@@ -320,7 +322,7 @@ export function MobileEmailView({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 10h10a8 8 0 018 8v2" />
             </svg>
-            <span className="text-xs">Tumune</span>
+            <span className="text-xs">{t('mobile.replyAll')}</span>
           </button>
           <button
             onClick={onForward}
@@ -329,7 +331,7 @@ export function MobileEmailView({
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10H11a8 8 0 00-8 8v2m18-10l-6 6m6-6l-6-6" />
             </svg>
-            <span className="text-xs">Ilet</span>
+            <span className="text-xs">{t('mobile.forward')}</span>
           </button>
           <button
             onClick={onDelete}
@@ -338,7 +340,7 @@ export function MobileEmailView({
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
             </svg>
-            <span className="text-xs">Sil</span>
+            <span className="text-xs">{t('mobile.delete')}</span>
           </button>
         </div>
       </div>

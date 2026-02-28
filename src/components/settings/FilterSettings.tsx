@@ -8,12 +8,14 @@ import { filterList, filterAdd, filterUpdate, filterDelete, filterToggle, filter
 import { FilterForm } from '../filters/FilterForm';
 import { FilterList } from '../filters/FilterList';
 import { FilterTestModal } from '../filters/FilterTestModal';
+import { useTranslation } from '../../i18n';
 
 interface FilterSettingsProps {
   accounts: Account[];
 }
 
 export function FilterSettings({ accounts }: FilterSettingsProps) {
+  const { t } = useTranslation();
   const [selectedAccount, setSelectedAccount] = useState<number | null>(null);
   const [filters, setFilters] = useState<EmailFilter[]>([]);
   const [loading, setLoading] = useState(false);
@@ -46,7 +48,7 @@ export function FilterSettings({ accounts }: FilterSettingsProps) {
       const data = await filterList(selectedAccount);
       setFilters(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Filtreler yüklenemedi');
+      setError(err instanceof Error ? err.message : t('filterSettings.loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -63,18 +65,18 @@ export function FilterSettings({ accounts }: FilterSettingsProps) {
       setIsFormOpen(false);
       setEditingFilter(undefined);
     } catch (err) {
-      throw new Error(err instanceof Error ? err.message : 'Filtre kaydedilemedi');
+      throw new Error(err instanceof Error ? err.message : t('filterSettings.saveFailed'));
     }
   };
 
   const handleDeleteFilter = async (filterId: number) => {
-    if (!confirm('Bu filtreyi silmek istediğinizden emin misiniz?')) return;
+    if (!confirm(t('filterSettings.confirmDelete'))) return;
 
     try {
       await filterDelete(filterId);
       await loadFilters();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Filtre silinemedi');
+      setError(err instanceof Error ? err.message : t('filterSettings.deleteFailed'));
     }
   };
 
@@ -83,7 +85,7 @@ export function FilterSettings({ accounts }: FilterSettingsProps) {
       await filterToggle(filterId);
       await loadFilters();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Filtre durumu değiştirilemedi');
+      setError(err instanceof Error ? err.message : t('filterSettings.toggleFailed'));
     }
   };
 
@@ -94,21 +96,21 @@ export function FilterSettings({ accounts }: FilterSettingsProps) {
 
   const handleApplyFilter = async (filterId: number) => {
     if (!selectedAccount) return;
-    if (!confirm('Bu filtreyi mevcut tüm emaillere uygulamak istediğinizden emin misiniz?')) return;
+    if (!confirm(t('filterSettings.confirmApply'))) return;
 
     setError(undefined);
 
     try {
       const result = await filterApplyBatch(selectedAccount, filterId);
       alert(
-        `Filtre uygulandı:\n` +
-        `- İşlenen email: ${result.emailsProcessed}\n` +
-        `- Eşleşen email: ${result.filtersMatched}\n` +
-        `- Uygulanan eylem: ${result.actionsExecuted}`
+        t('filterSettings.applyResult')
+          .replace('{processed}', String(result.emailsProcessed))
+          .replace('{matched}', String(result.filtersMatched))
+          .replace('{actions}', String(result.actionsExecuted))
       );
       await loadFilters();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Filtre uygulanamadı');
+      setError(err instanceof Error ? err.message : t('filterSettings.applyFailed'));
     }
   };
 
@@ -126,7 +128,7 @@ export function FilterSettings({ accounts }: FilterSettingsProps) {
     return (
       <div className="text-center py-12">
         <div className="text-gray-400">
-          Filtre oluşturmak için önce bir hesap ekleyin
+          {t('filterSettings.noAccountsHint')}
         </div>
       </div>
     );
@@ -136,15 +138,15 @@ export function FilterSettings({ accounts }: FilterSettingsProps) {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-bold text-gray-100 mb-2">Email Filtreleri</h2>
+        <h2 className="text-2xl font-bold text-gray-100 mb-2">{t('filterSettings.title')}</h2>
         <p className="text-gray-400">
-          Gelen kutunuzu organize etmek için otomatik filtreler oluşturun
+          {t('filterSettings.subtitle')}
         </p>
       </div>
 
       {/* Account Selector */}
       <div className="flex items-center gap-4">
-        <label className="text-sm font-medium text-gray-300">Hesap:</label>
+        <label className="text-sm font-medium text-gray-300">{t('filterSettings.accountLabel')}</label>
         <select
           value={selectedAccount || ''}
           onChange={(e) => setSelectedAccount(Number(e.target.value))}
@@ -165,7 +167,7 @@ export function FilterSettings({ accounts }: FilterSettingsProps) {
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
-          Yeni Filtre
+          {t('filterSettings.newFilter')}
         </button>
       </div>
 

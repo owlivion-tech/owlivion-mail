@@ -11,8 +11,10 @@ import {
   isPro,
 } from '../../services/licenseService';
 import type { LicenseInfo } from '../../services/licenseService';
+import { useTranslation } from '../../i18n';
 
 export function LicenseSettings() {
+  const { t } = useTranslation();
   const [license, setLicense] = useState<LicenseInfo>({ plan: 'free', status: 'active' });
   const [licenseKey, setLicenseKey] = useState('');
   const [loading, setLoading] = useState(true);
@@ -38,12 +40,12 @@ export function LicenseSettings() {
     const result = await activateLicense(licenseKey.trim());
 
     if (result.success) {
-      setMessage({ type: 'success', text: result.message || 'Lisans basariyla aktif edildi!' });
+      setMessage({ type: 'success', text: result.message || t('settings.licenseSettings.licenseActivated') });
       setLicenseKey('');
       if (result.license) setLicense(result.license);
       else fetchStatus();
     } else {
-      setMessage({ type: 'error', text: result.error || 'Lisans aktif edilemedi' });
+      setMessage({ type: 'error', text: result.error || t('settings.licenseSettings.licenseActivationFailed') });
     }
 
     setActivating(false);
@@ -56,22 +58,22 @@ export function LicenseSettings() {
     const result = await deactivateLicense();
 
     if (result.success) {
-      setMessage({ type: 'success', text: 'Lisans bu cihazdan kaldirildi' });
+      setMessage({ type: 'success', text: t('settings.licenseSettings.licenseRemoved') });
       fetchStatus();
     } else {
-      setMessage({ type: 'error', text: result.error || 'Islem basarisiz' });
+      setMessage({ type: 'error', text: result.error || t('settings.licenseSettings.operationFailed') });
     }
 
     setActivating(false);
   };
 
-  const planLabel = {
-    free: 'Ucretsiz',
-    pro: 'Pro',
-    team: 'Takim',
+  const planLabel: Record<string, string> = {
+    free: t('settings.licenseSettings.free'),
+    pro: t('settings.licenseSettings.pro'),
+    team: t('settings.licenseSettings.team'),
   };
 
-  const planColor = {
+  const planColor: Record<string, string> = {
     free: 'text-owl-text-secondary',
     pro: 'text-purple-400',
     team: 'text-blue-400',
@@ -89,8 +91,8 @@ export function LicenseSettings() {
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-semibold text-owl-text-primary mb-1">Plan & Lisans</h3>
-        <p className="text-sm text-owl-text-secondary">Mevcut planinisiniz yonetin ve Pro ozelliklerine erisin</p>
+        <h3 className="text-lg font-semibold text-owl-text-primary mb-1">{t('settings.licenseSettings.planAndLicense')}</h3>
+        <p className="text-sm text-owl-text-secondary">{t('settings.licenseSettings.planSubtitle')}</p>
       </div>
 
       {/* Current Plan Card */}
@@ -102,7 +104,7 @@ export function LicenseSettings() {
             </div>
             {isPro(license) && (
               <span className="px-2 py-0.5 text-xs font-medium bg-purple-500/20 text-purple-300 rounded-full">
-                {license.status === 'active' ? 'Aktif' : license.status === 'expired' ? 'Suresi Dolmus' : 'Iptal'}
+                {license.status === 'active' ? t('settings.licenseSettings.active') : license.status === 'expired' ? t('settings.licenseSettings.expired') : t('settings.licenseSettings.cancelled')}
               </span>
             )}
           </div>
@@ -115,7 +117,7 @@ export function LicenseSettings() {
           <div className="grid grid-cols-2 gap-4 text-sm">
             {license.active_devices !== undefined && (
               <div>
-                <span className="text-owl-text-secondary">Aktif Cihaz:</span>{' '}
+                <span className="text-owl-text-secondary">{t('settings.licenseSettings.activeDevices')}</span>{' '}
                 <span className="text-owl-text-primary font-medium">
                   {license.active_devices} / {license.max_devices}
                 </span>
@@ -123,7 +125,7 @@ export function LicenseSettings() {
             )}
             {license.expires_at && (
               <div>
-                <span className="text-owl-text-secondary">Yenileme:</span>{' '}
+                <span className="text-owl-text-secondary">{t('settings.licenseSettings.renewal')}</span>{' '}
                 <span className="text-owl-text-primary font-medium">
                   {new Date(license.expires_at).toLocaleDateString('tr-TR')}
                 </span>
@@ -134,9 +136,9 @@ export function LicenseSettings() {
 
         {!isPro(license) && (
           <div className="text-sm text-owl-text-secondary">
-            <p className="mb-2">Ucretsiz plan: 2 hesap, sifreleme, phishing tespiti dahil.</p>
+            <p className="mb-2">{t('settings.licenseSettings.freePlanDesc')}</p>
             <p className="text-owl-text-muted">
-              Pro'ya yukselerek sinirsiz hesap, AI akilli siralama ve daha fazlasini edin.
+              {t('settings.licenseSettings.upgradeToProDesc')}
             </p>
           </div>
         )}
@@ -145,30 +147,30 @@ export function LicenseSettings() {
       {/* Pro Features */}
       {!isPro(license) && (
         <div className="bg-gradient-to-br from-purple-500/10 to-blue-500/10 rounded-xl p-5 border border-purple-500/20">
-          <h4 className="text-sm font-semibold text-owl-text-primary mb-3">Pro Ozellikleri</h4>
+          <h4 className="text-sm font-semibold text-owl-text-primary mb-3">{t('settings.licenseSettings.proFeatures')}</h4>
           <div className="grid grid-cols-2 gap-2 text-sm text-owl-text-secondary">
             <div className="flex items-center gap-2">
-              <span className="text-green-400">&#10003;</span> Sinirsiz hesap
+              <span className="text-green-400">&#10003;</span> {t('settings.licenseSettings.unlimitedAccounts')}
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-green-400">&#10003;</span> AI akilli siralama
+              <span className="text-green-400">&#10003;</span> {t('settings.licenseSettings.aiSmartSorting')}
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-green-400">&#10003;</span> E-posta erteleme
+              <span className="text-green-400">&#10003;</span> {t('settings.licenseSettings.emailSnooze')}
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-green-400">&#10003;</span> Zamanlanmis gonderim
+              <span className="text-green-400">&#10003;</span> {t('settings.licenseSettings.scheduledSend')}
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-green-400">&#10003;</span> Takma adi yonetimi
+              <span className="text-green-400">&#10003;</span> {t('settings.licenseSettings.aliasManagement')}
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-green-400">&#10003;</span> Oncelikli destek
+              <span className="text-green-400">&#10003;</span> {t('settings.licenseSettings.prioritySupport')}
             </div>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
             <span className="text-2xl font-bold text-owl-text-primary">$5</span>
-            <span className="text-sm text-owl-text-secondary">/ ay veya $48/yil</span>
+            <span className="text-sm text-owl-text-secondary">{t('settings.licenseSettings.perMonth')}</span>
           </div>
         </div>
       )}
@@ -176,7 +178,7 @@ export function LicenseSettings() {
       {/* License Key Input */}
       <div className="space-y-3">
         <label className="block text-sm font-medium text-owl-text-primary">
-          {isPro(license) ? 'Farkli Lisans Anahtari Gir' : 'Lisans Anahtari'}
+          {isPro(license) ? t('settings.licenseSettings.enterDifferentKey') : t('settings.licenseSettings.licenseKey')}
         </label>
         <div className="flex gap-2">
           <input
@@ -191,7 +193,7 @@ export function LicenseSettings() {
             disabled={activating || !licenseKey.trim()}
             className="px-4 py-2 bg-owl-accent-primary text-white text-sm font-medium rounded-lg hover:bg-owl-accent-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {activating ? 'Aktif ediliyor...' : 'Aktif Et'}
+            {activating ? t('settings.licenseSettings.activating') : t('settings.licenseSettings.activate')}
           </button>
         </div>
       </div>
@@ -203,7 +205,7 @@ export function LicenseSettings() {
           disabled={activating}
           className="text-sm text-red-400 hover:text-red-300 transition-colors"
         >
-          Bu cihazdan lisansi kaldir
+          {t('settings.licenseSettings.removeLicense')}
         </button>
       )}
 

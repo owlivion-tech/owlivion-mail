@@ -21,6 +21,7 @@ import { MobileEmailView } from "./components/mobile/MobileEmailView";
 import { MobileDrawer } from "./components/mobile/MobileDrawer";
 import { MobileBottomNav } from "./components/mobile/MobileBottomNav";
 import { useMobileNavigation } from "./stores/mobileNavigationStore";
+import { LanguageProvider, useTranslation } from "./i18n";
 
 // Configure DOMPurify to remove dangerous content
 // SECURITY: 'style' attribute removed to prevent CSS injection attacks (e.g., expression(), url(javascript:))
@@ -34,11 +35,11 @@ const purifyConfig = {
 };
 
 // Sanitize HTML with optional image blocking
-function sanitizeEmailHtml(html: string, blockImages: boolean = true): string {
+function sanitizeEmailHtml(html: string, blockImages: boolean = true, imageHiddenText: string = '[Image hidden]'): string {
   // First: Block images if requested (before DOMPurify strips them)
   let processed = html;
   if (blockImages) {
-    processed = processed.replace(/<img[^>]*>/gi, '<div style="background: #1a1a24; padding: 20px; text-align: center; color: #71717a; border-radius: 8px; margin: 10px 0;">[Resim gizlendi]</div>');
+    processed = processed.replace(/<img[^>]*>/gi, `<div style="background: #1a1a24; padding: 20px; text-align: center; color: #71717a; border-radius: 8px; margin: 10px 0;">${imageHiddenText}</div>`);
   }
 
   // Config that allows images when not blocked
@@ -133,14 +134,15 @@ function parseEmailId(id: string, selectedAccountId: number | null | 'all'): { a
 }
 
 // Helper Functions
-function formatDate(date: Date): string {
+function formatDate(date: Date, t: (key: string) => string, lang: string): string {
+  const locale = lang === 'tr' ? 'tr-TR' : 'en-US';
   const now = new Date();
   const diff = now.getTime() - date.getTime();
   const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-  if (days === 0) return date.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
-  if (days === 1) return "Dün";
-  if (days < 7) return date.toLocaleDateString("tr-TR", { weekday: "short" });
-  return date.toLocaleDateString("tr-TR", { day: "numeric", month: "short" });
+  if (days === 0) return date.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
+  if (days === 1) return t('app.yesterday');
+  if (days < 7) return date.toLocaleDateString(locale, { weekday: "short" });
+  return date.toLocaleDateString(locale, { day: "numeric", month: "short" });
 }
 
 function getInitials(name: string): string {
@@ -466,6 +468,7 @@ function MailPanel({
   sortDirection: 'asc' | 'desc';
   onSortDirectionChange: (dir: 'asc' | 'desc') => void;
 }) {
+  const { t, lang } = useTranslation();
   const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
   const [showAllFolders, setShowAllFolders] = useState(false);
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
@@ -549,14 +552,14 @@ function MailPanel({
     if (isDraftsFolder) {
       let result = drafts.map((draft): Email => {
         const toAddresses = JSON.parse(draft.toAddresses || '[]') as EmailAddress[];
-        const toPreview = toAddresses.length > 0 ? toAddresses[0].email : '(Alıcı yok)';
+        const toPreview = toAddresses.length > 0 ? toAddresses[0].email : t('mailPanel.noRecipient');
 
         return {
           id: `draft-${draft.id}`,
-          from: { name: 'Taslak', email: '' },
+          from: { name: t('mailPanel.draft'), email: '' },
           to: toAddresses,
-          subject: draft.subject || '(Konu yok)',
-          preview: `Alıcı: ${toPreview}`,
+          subject: draft.subject || t('mailPanel.noSubject'),
+          preview: `${t('mailPanel.recipientPrefix')} ${toPreview}`,
           body: '',
           bodyHtml: '',
           bodyText: '',
@@ -649,7 +652,7 @@ function MailPanel({
               onClick={onSyncClick}
               disabled={isSyncing}
               className={`p-2 rounded-lg transition-colors ${isSyncing ? 'text-owl-accent animate-spin' : 'text-owl-text-secondary hover:text-owl-text hover:bg-owl-surface-2'}`}
-              title="Senkronize Et"
+              title={t('sidebar.sync')}
             >
               <Icons.Refresh />
             </button>
@@ -694,7 +697,7 @@ function MailPanel({
           <div className="mt-3 flex items-center justify-between px-3 py-2 bg-owl-bg rounded-lg">
             <div className="flex items-center gap-2">
               <Icons.Mail />
-              <span className="text-sm text-owl-text">Birleşik Gelen Kutusu</span>
+              <span className="text-sm text-owl-text">{t('app.unifiedInbox')}</span>
             </div>
             <button
               onClick={onToggleUnifiedInbox}
@@ -726,14 +729,14 @@ function MailPanel({
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
                       </svg>
                     </div>
-                    <span className="truncate font-medium">Tüm Hesaplar</span>
+                    <span className="truncate font-medium">{t('app.allAccounts')}</span>
                   </>
                 ) : (
                   <>
                     <div className="w-6 h-6 rounded-full bg-owl-accent/20 flex items-center justify-center text-xs text-owl-accent font-medium">
                       {selectedAccount?.email?.charAt(0).toUpperCase() || '?'}
                     </div>
-                    <span className="truncate">{selectedAccount?.email || 'Hesap Seç'}</span>
+                    <span className="truncate">{selectedAccount?.email || t('app.selectAccount')}</span>
                   </>
                 )}
               </div>
@@ -767,8 +770,8 @@ function MailPanel({
                         </svg>
                       </div>
                       <div className="flex-1">
-                        <div className="font-medium">Tüm Hesaplar</div>
-                        <div className="text-xs text-owl-text-secondary">{accounts.length} hesap birleşik görünüm</div>
+                        <div className="font-medium">{t('app.allAccounts')}</div>
+                        <div className="text-xs text-owl-text-secondary">{accounts.length} {t('app.accountsUnifiedView')}</div>
                       </div>
                       {selectedAccountId === 'all' && (
                         <svg className="w-4 h-4 text-owl-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -890,11 +893,11 @@ function MailPanel({
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
-              Klasörler yükleniyor...
+              {t('app.foldersLoading')}
             </div>
           ) : folderTree.length === 0 ? (
             <div className="text-center py-4 text-owl-text-secondary text-sm">
-              Klasör bulunamadı
+              {t('app.noFolders')}
             </div>
           ) : (
             <div className="py-2">
@@ -937,7 +940,7 @@ function MailPanel({
                 <button
                   onClick={() => setSortMenuOpen(!sortMenuOpen)}
                   className="p-1 rounded hover:bg-owl-bg text-owl-text-secondary hover:text-owl-text transition-colors"
-                  title="Sıralama"
+                  title={t('mailPanel.sort')}
                 >
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
                     <path d="M2 4h10M4 7h6M6 10h2" />
@@ -946,10 +949,10 @@ function MailPanel({
                 {sortMenuOpen && (
                   <div className="absolute right-0 top-full mt-1 w-48 bg-owl-surface border border-owl-border rounded-lg shadow-xl z-50 py-1">
                     {([
-                      { value: 'priority', label: 'Öncelik' },
-                      { value: 'date', label: 'Tarihe Göre' },
-                      { value: 'unread', label: 'Okunmamışlar Önce' },
-                      { value: 'account', label: 'Hesaba Göre' },
+                      { value: 'priority', label: t('mailPanel.priority') },
+                      { value: 'date', label: t('mailPanel.byDate') },
+                      { value: 'unread', label: t('mailPanel.unreadFirst') },
+                      { value: 'account', label: t('mailPanel.byAccount') },
                     ] as const).map(opt => (
                       <button
                         key={opt.value}
@@ -968,7 +971,7 @@ function MailPanel({
                       onClick={() => { onSortDirectionChange(sortDirection === 'desc' ? 'asc' : 'desc'); setSortMenuOpen(false); }}
                       className="w-full text-left px-3 py-1.5 text-xs text-owl-text hover:bg-owl-bg transition-colors flex items-center justify-between"
                     >
-                      <span>{sortDirection === 'desc' ? 'Eskiden Yeniye' : 'Yeniden Eskiye'}</span>
+                      <span>{sortDirection === 'desc' ? t('mailPanel.oldestFirst') : t('mailPanel.newestFirst')}</span>
                       <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
                         {sortDirection === 'desc' ? (
                           <path d="M6 2v8M3 7l3 3 3-3" />
@@ -1024,7 +1027,7 @@ function MailPanel({
                         );
                       })()}
                     </div>
-                    <span className="text-xs text-owl-text-secondary ml-2 shrink-0">{formatDate(email.date)}</span>
+                    <span className="text-xs text-owl-text-secondary ml-2 shrink-0">{formatDate(email.date, t, lang)}</span>
                   </div>
                   <div className={`text-sm truncate mb-1 ${!email.read ? "font-medium text-owl-text" : "text-owl-text-secondary"}`}>
                     {email.subject}
@@ -1037,12 +1040,12 @@ function MailPanel({
                       onClick={(e) => {
                         e.stopPropagation();
                         const draftId = parseInt(email.id.replace('draft-', ''));
-                        if (onDeleteDraft && window.confirm('Bu taslağı silmek istediğinizden emin misiniz?')) {
+                        if (onDeleteDraft && window.confirm(t('mailPanel.confirmDeleteDraft'))) {
                           onDeleteDraft(draftId);
                         }
                       }}
                       className="p-1 rounded transition-colors cursor-pointer text-owl-text-secondary/50 hover:text-red-500"
-                      title="Taslağı sil"
+                      title={t('mailPanel.deleteDraft')}
                     >
                       <Icons.Trash />
                     </div>
@@ -1057,7 +1060,7 @@ function MailPanel({
                           ? 'text-yellow-500 hover:text-yellow-400'
                           : 'text-owl-text-secondary/50 hover:text-yellow-500'
                       }`}
-                      title={email.starred ? "Yıldızı kaldır" : "Yıldızla"}
+                      title={email.starred ? t('mailPanel.removeStar') : t('mailPanel.addStar')}
                     >
                       {email.starred ? <Icons.StarFilled /> : <Icons.Star />}
                     </div>
@@ -1070,7 +1073,7 @@ function MailPanel({
           {filteredEmails.length === 0 && (
             <div className="text-center py-8 text-owl-text-secondary">
               <Icons.Mail />
-              <p className="mt-2">Bu klasörde e-posta yok</p>
+              <p className="mt-2">{t('app.noEmailsInFolder')}</p>
             </div>
           )}
         </div>
@@ -1083,20 +1086,20 @@ function MailPanel({
             {selectedAccount?.displayName?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || selectedAccount?.email?.charAt(0).toUpperCase() || '?'}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-sm text-owl-text truncate">{selectedAccount?.displayName || 'Hesap seçin'}</div>
+            <div className="text-sm text-owl-text truncate">{selectedAccount?.displayName || t('app.selectAccount')}</div>
             <div className="text-xs text-owl-text-secondary truncate">{selectedAccount?.email || ''}</div>
           </div>
           <button
             onClick={onFiltersClick}
             className="p-2 hover:bg-owl-surface-2 text-owl-text-secondary hover:text-owl-text rounded-lg transition-colors"
-            title="Filtreler"
+            title={t('sidebar.filters')}
           >
             <Icons.Filter />
           </button>
           <button
             onClick={onSettingsClick}
             className="p-2 hover:bg-owl-surface-2 text-owl-text-secondary hover:text-owl-text rounded-lg transition-colors"
-            title="Ayarlar"
+            title={t('sidebar.settings')}
           >
             <Icons.Settings />
           </button>
@@ -1162,6 +1165,7 @@ function EmailView({
   selectedAccountId: number | null | 'all';
   accounts: Account[];
 }) {
+  const { t, lang } = useTranslation();
   const [showSummary, setShowSummary] = useState(false);
   const [processedHtml, setProcessedHtml] = useState<string | null>(null);
 
@@ -1238,7 +1242,7 @@ function EmailView({
           <div className="w-16 h-16 bg-owl-surface rounded-2xl flex items-center justify-center mx-auto mb-4">
             <Icons.Mail />
           </div>
-          <p className="text-owl-text-secondary">Select an email to read</p>
+          <p className="text-owl-text-secondary">{t('app.selectEmailToRead')}</p>
           <p className="text-sm text-owl-text-secondary mt-2">
             Press <kbd className="px-1.5 py-0.5 bg-owl-surface rounded text-xs">?</kbd> for shortcuts
           </p>
@@ -1255,7 +1259,7 @@ function EmailView({
 
   // Sanitize HTML with DOMPurify for XSS protection
   const sanitizedHtml = hasHtmlContent && htmlToSanitize
-    ? sanitizeEmailHtml(htmlToSanitize, !shouldShowImages)
+    ? sanitizeEmailHtml(htmlToSanitize, !shouldShowImages, t('app.imageHidden'))
     : null;
 
   return (
@@ -1275,7 +1279,7 @@ function EmailView({
                 {isTrustedSender && (
                   <span className="flex items-center gap-1 text-xs text-owl-success bg-owl-success/10 px-2 py-0.5 rounded-full">
                     <Icons.ShieldCheck />
-                    Güvenilir
+                    {t('emailView.trusted')}
                   </span>
                 )}
                 {/* Only show badge in unified inbox mode */}
@@ -1304,19 +1308,19 @@ function EmailView({
             <button
               onClick={onToggleStar}
               className={`p-2 rounded-lg transition-colors ${email.starred ? 'text-yellow-500' : 'text-owl-text-secondary hover:text-owl-text'}`}
-              title={email.starred ? "Yıldızı kaldır (S)" : "Yıldızla (S)"}
+              title={email.starred ? t('emailView.unstarAction') + ' (S)' : t('emailView.starAction') + ' (S)'}
             >
               {email.starred ? <Icons.StarFilled /> : <Icons.Star />}
             </button>
             <button
               onClick={onToggleRead}
               className="p-2 text-owl-text-secondary hover:text-owl-text rounded-lg transition-colors"
-              title={email.read ? "Okunmadı işaretle (U)" : "Okundu işaretle (U)"}
+              title={email.read ? t('emailView.markUnread') + ' (U)' : t('emailView.markRead') + ' (U)'}
             >
               {email.read ? <Icons.MailUnread /> : <Icons.MailOpen />}
             </button>
             <span className="text-sm text-owl-text-secondary">
-              {email.date.toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+              {email.date.toLocaleDateString(lang === 'tr' ? 'tr-TR' : 'en-US', { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}
             </span>
           </div>
         </div>
@@ -1331,16 +1335,16 @@ function EmailView({
               <Icons.Image />
             </div>
             <div>
-              <p className="text-sm text-owl-text">Bu e-postada resimler var</p>
-              <p className="text-xs text-owl-text-secondary">Gizlilik için resimler gizlendi</p>
+              <p className="text-sm text-owl-text">{t('emailView.imagesBlocked')}</p>
+              <p className="text-xs text-owl-text-secondary">{t('emailView.imagesBlockedDesc')}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={onLoadImages} className="text-sm px-3 py-1.5 bg-owl-accent hover:bg-owl-accent-hover text-white rounded-lg transition-colors">
-              Resimleri Göster
+              {t('emailView.showImages')}
             </button>
             <button onClick={() => onTrustSender(email.from.email)} className="text-sm px-3 py-1.5 bg-owl-surface-2 hover:bg-owl-border text-owl-text rounded-lg transition-colors">
-              Her Zaman Göster
+              {t('emailView.alwaysShow')}
             </button>
           </div>
         </div>
@@ -1361,7 +1365,7 @@ function EmailView({
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
-              <span className="text-owl-text-secondary text-sm">Phishing analizi yapılıyor...</span>
+              <span className="text-owl-text-secondary text-sm">{t('phishing.analyzing')}</span>
             </div>
           ) : phishingAnalysis && (() => {
             const isCollapsed = phishingWarningCollapsed; // Prop from parent
@@ -1392,12 +1396,12 @@ function EmailView({
                           phishingAnalysis.riskLevel === 'medium' ? 'text-yellow-400' :
                           'text-owl-text'
                         }`}>
-                          {phishingAnalysis.riskLevel === 'critical' ? 'Kritik Güvenlik Riski' :
-                           phishingAnalysis.riskLevel === 'high' ? 'Yüksek Güvenlik Riski' :
-                           phishingAnalysis.riskLevel === 'medium' ? 'Orta Seviye Risk' :
-                           'Dikkat Gerekli'}
+                          {phishingAnalysis.riskLevel === 'critical' ? t('phishing.criticalRisk') :
+                           phishingAnalysis.riskLevel === 'high' ? t('phishing.highRisk') :
+                           phishingAnalysis.riskLevel === 'medium' ? t('phishing.mediumRisk') :
+                           t('phishing.attentionNeeded')}
                         </p>
-                        <p className="text-xs text-owl-text-secondary">Risk skoru: {phishingAnalysis.score}/100 • Detaylar için tıkla</p>
+                        <p className="text-xs text-owl-text-secondary">{t('phishing.riskScore')}: {phishingAnalysis.score}/100 • {t('phishing.clickForDetails')}</p>
                       </div>
                     </div>
                     <svg className="w-5 h-5 text-owl-text-secondary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1426,18 +1430,18 @@ function EmailView({
                             phishingAnalysis.riskLevel === 'medium' ? 'text-yellow-400' :
                             'text-owl-text'
                           }`}>
-                            {phishingAnalysis.riskLevel === 'critical' ? '⚠️ Kritik Phishing Riski!' :
-                             phishingAnalysis.riskLevel === 'high' ? '⚠️ Yüksek Phishing Riski' :
-                             phishingAnalysis.riskLevel === 'medium' ? '⚠️ Orta Seviye Risk' :
-                             'ℹ️ Dikkat'}
+                            {phishingAnalysis.riskLevel === 'critical' ? t('phishing.criticalPhishing') :
+                             phishingAnalysis.riskLevel === 'high' ? t('phishing.highPhishing') :
+                             phishingAnalysis.riskLevel === 'medium' ? t('phishing.mediumPhishingRisk') :
+                             t('phishing.attention')}
                           </p>
-                          <p className="text-xs text-owl-text-secondary">Risk skoru: {phishingAnalysis.score}/100</p>
+                          <p className="text-xs text-owl-text-secondary">{t('phishing.riskScore')}: {phishingAnalysis.score}/100</p>
                         </div>
                       </div>
                       <button
                         onClick={onTogglePhishingCollapse}
                         className="p-1 hover:bg-white/10 rounded transition-colors flex-shrink-0"
-                        title="Küçült"
+                        title={t('emailView.collapse')}
                       >
                         <svg className="w-5 h-5 text-owl-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
@@ -1447,7 +1451,7 @@ function EmailView({
 
                     {phishingAnalysis.reasons.length > 0 && (
                       <div className="mt-3 space-y-1">
-                        <p className="text-xs font-medium text-owl-text-secondary uppercase">Tespit edilen göstergeler:</p>
+                        <p className="text-xs font-medium text-owl-text-secondary uppercase">{t('phishing.detectedIndicators')}</p>
                         <ul className="text-sm text-owl-text space-y-1">
                           {phishingAnalysis.reasons.slice(0, 4).map((reason, i) => (
                             <li key={i} className="flex items-start gap-2">
@@ -1460,7 +1464,7 @@ function EmailView({
                     )}
                     {phishingAnalysis.recommendations.length > 0 && (
                       <div className="mt-3 pt-3 border-t border-owl-border/50">
-                        <p className="text-xs font-medium text-owl-text-secondary uppercase mb-1">Öneriler:</p>
+                        <p className="text-xs font-medium text-owl-text-secondary uppercase mb-1">{t('phishing.recommendations')}</p>
                         <ul className="text-sm text-owl-text space-y-1">
                           {phishingAnalysis.recommendations.slice(0, 3).map((rec, i) => (
                             <li key={i} className="flex items-start gap-2">
@@ -1491,12 +1495,12 @@ function EmailView({
             </div>
             <div>
               <p className="font-medium text-purple-400">
-                {trackingAnalysis.isMarketingEmail ? '📧 Pazarlama E-postası' : '👁️ Takip Tespiti'}
+                {trackingAnalysis.isMarketingEmail ? t('phishing.marketingEmail') : t('phishing.trackingDetected')}
               </p>
               <p className="text-xs text-owl-text-secondary">
-                {trackingAnalysis.trackingPixels.length > 0 && `${trackingAnalysis.trackingPixels.length} takip pikseli`}
+                {trackingAnalysis.trackingPixels.length > 0 && `${trackingAnalysis.trackingPixels.length} ${t('phishing.trackingPixels')}`}
                 {trackingAnalysis.trackingPixels.length > 0 && trackingAnalysis.trackingLinks.length > 0 && ' • '}
-                {trackingAnalysis.trackingLinks.length > 0 && `${trackingAnalysis.trackingLinks.length} takip linki`}
+                {trackingAnalysis.trackingLinks.length > 0 && `${trackingAnalysis.trackingLinks.length} ${t('phishing.trackingLinks')}`}
               </p>
             </div>
           </div>
@@ -1524,7 +1528,7 @@ function EmailView({
           {!shouldShowImages && trackingAnalysis.trackingPixels.length > 0 && (
             <div className="mt-3 px-3 py-2 bg-owl-success/10 rounded text-sm text-owl-success flex items-center gap-2">
               <Icons.ShieldCheck />
-              Resimler gizli - okundu bildirimi gönderilmedi
+              {t('emailView.imagesHiddenNoTracking')}
             </div>
           )}
         </div>
@@ -1536,7 +1540,7 @@ function EmailView({
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2 text-owl-accent">
               <Icons.Sparkles />
-              <span className="font-medium">AI Özet</span>
+              <span className="font-medium">{t('emailView.aiSummary')}</span>
             </div>
             <button onClick={() => setShowSummary(!showSummary)} className="text-owl-accent">
               {showSummary ? <Icons.ChevronUp /> : <Icons.ChevronDown />}
@@ -1549,7 +1553,7 @@ function EmailView({
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
-                <span>Özetleniyor...</span>
+                <span>{t('emailView.summarizing')}</span>
               </div>
             ) : (
               <p className="text-sm text-owl-text">{summary}</p>
@@ -1562,7 +1566,7 @@ function EmailView({
       {email.hasImages && isTrustedSender && (
         <div className="mx-4 mt-4 px-3 py-2 bg-owl-success/10 rounded-lg flex items-center gap-2 text-owl-success text-sm">
           <Icons.ShieldCheck />
-          <span>Güvenilir gönderici - resimler otomatik yüklendi</span>
+          <span>{t('emailView.trustedSenderImages')}</span>
         </div>
       )}
 
@@ -1578,8 +1582,8 @@ function EmailView({
           <div className="mt-6 pt-6 border-t border-owl-border">
             <div className="flex items-center gap-2 mb-3">
               <Icons.Paperclip />
-              <span className="font-medium text-owl-text">Ekler</span>
-              <span className="text-xs text-owl-text-secondary">({email.attachments.length} ek)</span>
+              <span className="font-medium text-owl-text">{t('emailView.attachments')}</span>
+              <span className="text-xs text-owl-text-secondary">({email.attachments.length} {t('emailView.attachment')})</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {email.attachments
@@ -1603,7 +1607,7 @@ function EmailView({
                       <button
                         onClick={() => onDownloadAttachment(attachment.index, attachment.filename)}
                         className="p-2 text-owl-text-secondary hover:text-owl-accent rounded-lg transition-colors"
-                        title="İndir"
+                        title={t('emailView.download')}
                       >
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -1629,10 +1633,10 @@ function EmailView({
             <span>Reply</span>
             <kbd className="text-xs bg-owl-bg px-1.5 py-0.5 rounded ml-1">R</kbd>
           </button>
-          <button onClick={onReplyAll} className="flex items-center gap-2 px-3 py-2 bg-owl-surface hover:bg-owl-surface-2 text-owl-text rounded-lg transition-colors" title="Tümünü Yanıtla (A)">
+          <button onClick={onReplyAll} className="flex items-center gap-2 px-3 py-2 bg-owl-surface hover:bg-owl-surface-2 text-owl-text rounded-lg transition-colors" title={t('emailView.replyAll') + ' (A)'}>
             <Icons.ReplyAll />
           </button>
-          <button onClick={onForward} className="flex items-center gap-2 px-3 py-2 bg-owl-surface hover:bg-owl-surface-2 text-owl-text rounded-lg transition-colors" title="İlet (F)">
+          <button onClick={onForward} className="flex items-center gap-2 px-3 py-2 bg-owl-surface hover:bg-owl-surface-2 text-owl-text rounded-lg transition-colors" title={t('emailView.forward') + ' (F)'}>
             <Icons.Forward />
           </button>
           <div className="flex-1" />
@@ -1641,16 +1645,16 @@ function EmailView({
               onClick={onSummarize}
               disabled={isSummarizing}
               className="flex items-center gap-2 px-3 py-2 text-owl-accent hover:bg-owl-accent/10 rounded-lg transition-colors"
-              title="AI ile özetle"
+              title={t('emailView.summarizeWithAI')}
             >
               <Icons.Summarize />
-              <span className="text-sm">Özetle</span>
+              <span className="text-sm">{t('emailView.summarize')}</span>
             </button>
           )}
-          <button onClick={onArchive} className="p-2 hover:bg-owl-surface-2 text-owl-text-secondary hover:text-owl-text rounded-lg transition-colors" title="Arşivle (E)">
+          <button onClick={onArchive} className="p-2 hover:bg-owl-surface-2 text-owl-text-secondary hover:text-owl-text rounded-lg transition-colors" title={t('emailView.archiveAction') + ' (E)'}>
             <Icons.Archive />
           </button>
-          <button onClick={onDelete} className="p-2 hover:bg-owl-surface-2 text-owl-text-secondary hover:text-owl-error rounded-lg transition-colors" title="Sil (#)">
+          <button onClick={onDelete} className="p-2 hover:bg-owl-surface-2 text-owl-text-secondary hover:text-owl-error rounded-lg transition-colors" title={t('emailView.deleteAction') + ' (#)'}>
             <Icons.Trash />
           </button>
         </div>
@@ -1662,21 +1666,22 @@ function EmailView({
 // Command Palette
 function CommandPalette({ isOpen, onClose, onCommand }: { isOpen: boolean; onClose: () => void; onCommand: (cmd: string) => void }) {
   const [query, setQuery] = useState("");
+  const { t } = useTranslation();
 
   if (!isOpen) return null;
 
   const commands = [
-    { id: "compose", name: "Yeni E-posta", shortcut: "C", icon: <Icons.Plus /> },
-    { id: "search", name: "Ara", shortcut: "/", icon: <Icons.Search /> },
-    { id: "reply", name: "Yanıtla", shortcut: "R", icon: <Icons.Reply /> },
-    { id: "replyAll", name: "Tümünü Yanıtla", shortcut: "A", icon: <Icons.ReplyAll /> },
-    { id: "forward", name: "İlet", shortcut: "F", icon: <Icons.Forward /> },
-    { id: "archive", name: "Arşivle", shortcut: "E", icon: <Icons.Archive /> },
-    { id: "delete", name: "Sil", shortcut: "#", icon: <Icons.Trash /> },
-    { id: "star", name: "Yıldızla", shortcut: "S", icon: <Icons.Star /> },
-    { id: "markUnread", name: "Okunmadı İşaretle", shortcut: "U", icon: <Icons.MailUnread /> },
-    { id: "aiReply", name: "AI Yanıt Oluştur", shortcut: "G", icon: <Icons.Sparkles /> },
-    { id: "shortcuts", name: "Kısayol Yardımı", shortcut: "?", icon: <Icons.Command /> },
+    { id: "compose", name: t('commands.newEmail'), shortcut: "C", icon: <Icons.Plus /> },
+    { id: "search", name: t('commands.searchCmd'), shortcut: "/", icon: <Icons.Search /> },
+    { id: "reply", name: t('commands.replyCmd'), shortcut: "R", icon: <Icons.Reply /> },
+    { id: "replyAll", name: t('commands.replyAllCmd'), shortcut: "A", icon: <Icons.ReplyAll /> },
+    { id: "forward", name: t('commands.forwardCmd'), shortcut: "F", icon: <Icons.Forward /> },
+    { id: "archive", name: t('commands.archiveCmd'), shortcut: "E", icon: <Icons.Archive /> },
+    { id: "delete", name: t('commands.deleteCmd'), shortcut: "#", icon: <Icons.Trash /> },
+    { id: "star", name: t('commands.starCmd'), shortcut: "S", icon: <Icons.Star /> },
+    { id: "markUnread", name: t('commands.markUnreadCmd'), shortcut: "U", icon: <Icons.MailUnread /> },
+    { id: "aiReply", name: t('commands.aiReplyCmd'), shortcut: "G", icon: <Icons.Sparkles /> },
+    { id: "shortcuts", name: t('commands.shortcutsHelp'), shortcut: "?", icon: <Icons.Command /> },
   ];
 
   const filteredCommands = query
@@ -1692,7 +1697,7 @@ function CommandPalette({ isOpen, onClose, onCommand }: { isOpen: boolean; onClo
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Komut ara..."
+            placeholder={t('app.searchCommand')}
             className="flex-1 ml-3 bg-transparent text-owl-text placeholder-owl-text-secondary focus:outline-none"
             autoFocus
           />
@@ -1723,6 +1728,7 @@ function App() {
   // Mobile navigation (hook must be before any conditional returns)
   const mobileNav = useMobileNavigation();
   const mobile = isMobile();
+  const { t: _tApp, lang: appLang } = useTranslation();
 
   const [currentPage, setCurrentPage] = useState<Page>('mail');
   const [activeFolder, setActiveFolder] = useState("INBOX");
@@ -2065,7 +2071,7 @@ function App() {
               console.error('Error loading emails:', emailErr);
               // Show error to user
               const errorMessage = emailErr instanceof Error ? emailErr.message : String(emailErr);
-              if (window.confirm(`E-postalar yüklenemedi: ${errorMessage}\n\nHesabı yeniden bağlamayı denemek ister misiniz?`)) {
+              if (window.confirm(_tApp('appErrors.emailsLoadFailed').replace('{error}', errorMessage))) {
                 // Reconnect attempt
                 try {
                   await connectAccount(firstAccount.id.toString());
@@ -2092,7 +2098,7 @@ function App() {
                   }
                 } catch (retryErr) {
                   console.error('Reconnect failed:', retryErr);
-                  alert('Yeniden bağlanma başarısız oldu. Lütfen hesabı silin ve OAuth ile tekrar ekleyin.');
+                  alert(_tApp('appErrors.reconnectFailed'));
                 }
               }
             }
@@ -2729,9 +2735,9 @@ function App() {
     // Only analyze if email has HTML content
     if (!currentEmail.bodyHtml) return;
 
-    const result = detectEmailTracking(currentEmail.bodyHtml);
+    const result = detectEmailTracking(currentEmail.bodyHtml, appLang as 'tr' | 'en');
     setTrackingResults(prev => ({ ...prev, [currentEmail.id]: result }));
-  }, [currentEmail?.id, currentEmail?.bodyHtml, trackingResults]);
+  }, [currentEmail?.id, currentEmail?.bodyHtml, trackingResults, appLang]);
 
   // Email actions
   const handleToggleStar = useCallback(async (emailId?: string) => {
@@ -2920,7 +2926,7 @@ function App() {
       // Use the selected account ID (cannot send from "All Accounts")
       const accountId = typeof selectedAccountId === 'number' ? selectedAccountId : draft.accountId;
       if (!accountId || typeof accountId !== 'number') {
-        throw new Error('Lütfen göndermek için bir hesap seçin');
+        throw new Error(_tApp('appErrors.selectAccountToSend'));
       }
       const emailToSend = {
         ...draft,
@@ -2984,7 +2990,7 @@ function App() {
       console.log('✓ Attachment downloaded:', result.filename);
     } catch (err) {
       console.error('Failed to download attachment:', err);
-      alert(`Ek indirilirken hata oluştu: ${err}`);
+      alert(_tApp('appErrors.attachmentDownloadError').replace('{error}', String(err)));
     }
   };
 
@@ -2993,7 +2999,7 @@ function App() {
     if (!currentEmail || summarizingId) return;
     if (!geminiApiKey) {
       console.error("Gemini API key not set. Please configure it in Settings > AI.");
-      alert("Gemini API anahtarı ayarlanmamış. Lütfen Ayarlar > AI bölümünden ayarlayın.");
+      alert(_tApp('appErrors.geminiApiKeyNotSet'));
       return;
     }
     setSummarizingId(currentEmail.id);
@@ -3519,4 +3525,12 @@ function App() {
   );
 }
 
-export default App;
+function AppWithProviders() {
+  return (
+    <LanguageProvider>
+      <App />
+    </LanguageProvider>
+  );
+}
+
+export default AppWithProviders;

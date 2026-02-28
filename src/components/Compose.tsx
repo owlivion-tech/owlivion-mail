@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import DOMPurify from 'dompurify';
+import { useTranslation } from '../i18n';
 import { useShortcut } from '../hooks/useKeyboardShortcuts';
 import { isMobile } from '../hooks/usePlatform';
 import { RecipientInput } from './compose/RecipientInput';
@@ -64,6 +65,8 @@ export function Compose({
   onSend,
   defaultAccount,
 }: ComposeProps) {
+  const { t, lang } = useTranslation();
+
   // Recipients
   const [to, setTo] = useState<EmailAddress[]>([]);
   const [cc, setCc] = useState<EmailAddress[]>([]);
@@ -107,7 +110,7 @@ export function Compose({
   const handleImagePaste = useCallback((files: File[]) => {
     const MAX_ATTACHMENTS = 10;
     if (attachments.length + files.length > MAX_ATTACHMENTS) {
-      showNotification('warning', `En fazla ${MAX_ATTACHMENTS} dosya ekleyebilirsiniz`);
+      showNotification('warning', t('compose.maxAttachments').replace('{max}', String(MAX_ATTACHMENTS)));
       return;
     }
 
@@ -122,7 +125,7 @@ export function Compose({
     }));
 
     setAttachments(prev => [...prev, ...newAttachments]);
-    showNotification('success', `${files.length} görsel eklendi`);
+    showNotification('success', `${files.length} ${t('compose.imageAdded')}`);
   }, [attachments]);
 
   // Auto-save draft
@@ -191,17 +194,17 @@ export function Compose({
     } else if (originalEmail) {
       if (mode === 'reply') {
         setTo([{ email: originalEmail.from.email, name: originalEmail.from.name }]);
-        setSubject(originalEmail.subject.startsWith('Re:') ? originalEmail.subject : `Re: ${originalEmail.subject}`);
+        setSubject(originalEmail.subject.startsWith('Re:') ? originalEmail.subject : `${t('compose.replyPrefix')} ${originalEmail.subject}`);
         setBodyHtml(generateQuote(originalEmail));
       } else if (mode === 'replyAll') {
         setTo([{ email: originalEmail.from.email, name: originalEmail.from.name }]);
         setCc(originalEmail.to.filter((addr) => addr.email !== defaultAccount?.email));
         setShowCc(true);
-        setSubject(originalEmail.subject.startsWith('Re:') ? originalEmail.subject : `Re: ${originalEmail.subject}`);
+        setSubject(originalEmail.subject.startsWith('Re:') ? originalEmail.subject : `${t('compose.replyPrefix')} ${originalEmail.subject}`);
         setBodyHtml(generateQuote(originalEmail));
       } else if (mode === 'forward') {
         setTo([]);
-        setSubject(originalEmail.subject.startsWith('Fwd:') ? originalEmail.subject : `Fwd: ${originalEmail.subject}`);
+        setSubject(originalEmail.subject.startsWith('Fwd:') ? originalEmail.subject : `${t('compose.forwardPrefix')} ${originalEmail.subject}`);
         setBodyHtml(generateForwardQuote(originalEmail));
       }
     }
@@ -230,11 +233,13 @@ export function Compose({
     // SECURITY: Sanitize email body before including in quote
     const safeBody = sanitizeForCompose(email.bodyHtml || `<p>${escapeHtml(email.bodyText || '')}</p>`);
 
+    const quoteHeader = t('compose.onDateWrote').replace('{date}', escapeHtml(dateStr)).replace('{name}', safeName);
+
     return `
 <br><br>
 <div class="email-quote">
   <p class="quote-header">
-    ${escapeHtml(dateStr)} tarihinde ${safeName} yazdı:
+    ${quoteHeader}
   </p>
   ${safeBody}
 </div>
@@ -265,12 +270,12 @@ export function Compose({
     return `
 <br><br>
 <div class="email-forward">
-  <p class="forward-header">---------- İletilen İleti ----------</p>
+  <p class="forward-header">${t('compose.forwardedMessage')}</p>
   <p class="forward-meta">
-    <strong>Kimden:</strong> ${safeName ? `${safeName} &lt;${safeEmail}&gt;` : safeEmail}<br>
-    <strong>Tarih:</strong> ${escapeHtml(dateStr)}<br>
-    <strong>Konu:</strong> ${safeSubject}<br>
-    <strong>Kime:</strong> ${safeRecipients}
+    <strong>${t('compose.forwardFrom')}</strong> ${safeName ? `${safeName} &lt;${safeEmail}&gt;` : safeEmail}<br>
+    <strong>${t('compose.forwardDate')}</strong> ${escapeHtml(dateStr)}<br>
+    <strong>${t('compose.forwardSubject')}</strong> ${safeSubject}<br>
+    <strong>${t('compose.forwardTo')}</strong> ${safeRecipients}
   </p>
   <br>
   ${safeBody}
@@ -281,7 +286,7 @@ export function Compose({
   // Handle send
   async function handleSend() {
     if (to.length === 0) {
-      showNotification('warning', 'Lütfen en az bir alıcı girin');
+      showNotification('warning', t('compose.noRecipientError'));
       return;
     }
 
@@ -317,7 +322,7 @@ export function Compose({
     } catch (err) {
       // SECURITY: Don't expose detailed error info to users
       log.error('Send failed:', err);
-      showNotification('error', 'E-posta gönderilemedi. Lütfen tekrar deneyin.');
+      showNotification('error', t('compose.sendFailed'));
     } finally {
       setIsSending(false);
     }
@@ -329,11 +334,11 @@ export function Compose({
 
     try {
       await saveNow();
-      showNotification('success', 'Taslak kaydedildi');
+      showNotification('success', t('compose.draftSaved'));
     } catch (err) {
       // SECURITY: Don't expose detailed error info
       log.error('Save draft failed:', err);
-      showNotification('error', 'Taslak kaydedilemedi');
+      showNotification('error', t('compose.draftSaveError'));
     } finally {
       setIsSaving(false);
     }
@@ -343,7 +348,7 @@ export function Compose({
   async function handleTemplateSelect(template: EmailTemplate) {
     try {
       // Build context from account and first recipient
-      const context = buildTemplateContext(defaultAccount, to[0]);
+      const context = buildTemplateContext(defaultAccount, to[0], undefined, lang);
 
       // Replace variables in subject and body
       const processedSubject = replaceTemplateVariables(template.subjectTemplate, context);
@@ -354,7 +359,7 @@ export function Compose({
         setSubject(processedSubject);
       } else {
         // Ask user if they want to replace existing subject
-        if (window.confirm('Mevcut konu satırını şablon konusuyla değiştirmek ister misiniz?')) {
+        if (window.confirm(t('compose.confirmReplaceSubject'))) {
           setSubject(processedSubject);
         }
       }
@@ -375,10 +380,10 @@ export function Compose({
       // Increment usage count
       await templateIncrementUsage(template.id);
 
-      showNotification('success', `"${template.name}" şablonu uygulandı`);
+      showNotification('success', t('compose.templateApplied').replace('{name}', template.name));
     } catch (err) {
       log.error('Failed to apply template:', err);
-      showNotification('error', 'Şablon uygulanamadı');
+      showNotification('error', t('compose.templateApplyError'));
     }
   }
 
@@ -390,7 +395,7 @@ export function Compose({
     // SECURITY: Limit number of attachments
     const MAX_ATTACHMENTS = 10;
     if (attachments.length + files.length > MAX_ATTACHMENTS) {
-      showNotification('warning', `En fazla ${MAX_ATTACHMENTS} dosya ekleyebilirsiniz`);
+      showNotification('warning', t('compose.maxAttachments').replace('{max}', String(MAX_ATTACHMENTS)));
       return;
     }
 
@@ -430,7 +435,7 @@ export function Compose({
     // SECURITY: Limit number of attachments
     const MAX_ATTACHMENTS = 10;
     if (attachments.length + files.length > MAX_ATTACHMENTS) {
-      showNotification('warning', `En fazla ${MAX_ATTACHMENTS} dosya ekleyebilirsiniz`);
+      showNotification('warning', t('compose.maxAttachments').replace('{max}', String(MAX_ATTACHMENTS)));
       return;
     }
 
@@ -488,10 +493,10 @@ export function Compose({
         <div className={`flex items-center justify-between border-b border-owl-border ${mobile ? 'px-4 py-3' : 'px-6 py-4'}`}>
           <div className="flex items-center gap-3">
             <h2 className={`font-semibold text-owl-text ${mobile ? 'text-base' : 'text-lg'}`}>
-              {mode === 'new' && 'Yeni E-posta'}
-              {mode === 'reply' && 'Yanıtla'}
-              {mode === 'replyAll' && 'Tümünü Yanıtla'}
-              {mode === 'forward' && 'İlet'}
+              {mode === 'new' && t('compose.newEmail')}
+              {mode === 'reply' && t('compose.reply')}
+              {mode === 'replyAll' && t('compose.replyAll')}
+              {mode === 'forward' && t('compose.forward')}
             </h2>
 
             {/* Auto-save indicator */}
@@ -501,7 +506,7 @@ export function Compose({
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
-                Kaydediliyor...
+                {t('compose.saving')}
               </div>
             )}
             {autoSaveStatus === 'saved' && (
@@ -509,7 +514,7 @@ export function Compose({
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
-                Kaydedildi
+                {t('compose.saved')}
               </div>
             )}
             {autoSaveStatus === 'error' && (
@@ -517,7 +522,7 @@ export function Compose({
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
-                Hata
+                {t('compose.autoSaveError')}
               </div>
             )}
           </div>
@@ -528,7 +533,7 @@ export function Compose({
               disabled={isSaving}
               className="px-3 py-1.5 text-sm text-owl-text-secondary hover:text-owl-text hover:bg-owl-surface-2 rounded-lg transition-colors"
             >
-              {isSaving ? 'Kaydediliyor...' : 'Taslak Kaydet'}
+              {isSaving ? t('compose.saving') : t('compose.saveDraft')}
             </button>
             <button
               onClick={onClose}
@@ -546,12 +551,12 @@ export function Compose({
         <div className={`py-3 space-y-2 border-b border-owl-border ${mobile ? 'px-4' : 'px-6'}`}>
           {/* To */}
           <div className="flex items-start gap-3">
-            <label className="text-sm text-owl-text-secondary w-12 pt-2">Kime:</label>
+            <label className="text-sm text-owl-text-secondary w-12 pt-2">{t('compose.toLabel')}</label>
             <div className="flex-1">
               <RecipientInput
                 recipients={to}
                 onChange={setTo}
-                placeholder="Alıcı ekle..."
+                placeholder={t('compose.addRecipientPlaceholder')}
               />
             </div>
             {!showCc && !showBcc && (
@@ -575,12 +580,12 @@ export function Compose({
           {/* CC */}
           {showCc && (
             <div className="flex items-start gap-3">
-              <label className="text-sm text-owl-text-secondary w-12 pt-2">CC:</label>
+              <label className="text-sm text-owl-text-secondary w-12 pt-2">{t('compose.cc')}:</label>
               <div className="flex-1">
                 <RecipientInput
                   recipients={cc}
                   onChange={setCc}
-                  placeholder="CC ekle..."
+                  placeholder={t('compose.addCcPlaceholder')}
                 />
               </div>
             </div>
@@ -589,12 +594,12 @@ export function Compose({
           {/* BCC */}
           {showBcc && (
             <div className="flex items-start gap-3">
-              <label className="text-sm text-owl-text-secondary w-12 pt-2">BCC:</label>
+              <label className="text-sm text-owl-text-secondary w-12 pt-2">{t('compose.bcc')}:</label>
               <div className="flex-1">
                 <RecipientInput
                   recipients={bcc}
                   onChange={setBcc}
-                  placeholder="BCC ekle..."
+                  placeholder={t('compose.addBccPlaceholder')}
                 />
               </div>
             </div>
@@ -602,12 +607,12 @@ export function Compose({
 
           {/* Subject */}
           <div className="flex items-center gap-3">
-            <label className="text-sm text-owl-text-secondary w-12">Konu:</label>
+            <label className="text-sm text-owl-text-secondary w-12">{t('compose.subjectLabel')}</label>
             <input
               type="text"
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
-              placeholder="Konu..."
+              placeholder={t('compose.subjectPlaceholder')}
               maxLength={500}
               className="flex-1 px-3 py-2 bg-transparent text-owl-text placeholder-owl-text-secondary focus:outline-none"
             />
@@ -620,7 +625,7 @@ export function Compose({
             content={bodyHtml}
             onChange={(html) => setBodyHtml(html)}
             onPaste={handleImagePaste}
-            placeholder="E-posta içeriği..."
+            placeholder={t('compose.bodyPlaceholder')}
             disabled={isSending}
           />
         </div>
@@ -642,7 +647,7 @@ export function Compose({
             <button
               onClick={() => fileInputRef.current?.click()}
               className="p-2.5 text-owl-text-secondary hover:text-owl-text hover:bg-owl-surface rounded-lg transition-colors"
-              title="Dosya ekle"
+              title={t('compose.attachTooltip')}
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
@@ -659,7 +664,7 @@ export function Compose({
             {/* AI Button */}
             <button
               className="p-2.5 text-owl-text-secondary hover:text-owl-accent hover:bg-owl-accent/10 rounded-lg transition-colors"
-              title="AI ile yanıt oluştur"
+              title={t('compose.aiTooltip')}
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
@@ -670,7 +675,7 @@ export function Compose({
             <button
               onClick={() => setShowTemplateSelector(true)}
               className="p-2.5 text-owl-text-secondary hover:text-owl-primary hover:bg-owl-primary/10 rounded-lg transition-colors"
-              title="Email şablonu kullan (Ctrl+T)"
+              title={t('compose.templateTooltip')}
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -681,7 +686,7 @@ export function Compose({
           <div className="flex items-center gap-3">
             {!mobile && (
               <span className="text-xs text-owl-text-secondary">
-                <kbd className="px-1.5 py-0.5 bg-owl-surface border border-owl-border rounded text-[10px]">Ctrl+Enter</kbd> gonder
+                <kbd className="px-1.5 py-0.5 bg-owl-surface border border-owl-border rounded text-[10px]">Ctrl+Enter</kbd> {t('compose.ctrlEnterSend')}
               </span>
             )}
             <button
@@ -695,14 +700,14 @@ export function Compose({
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                  Gönderiliyor...
+                  {t('compose.sending')}
                 </>
               ) : (
                 <>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                   </svg>
-                  Gönder
+                  {t('compose.send')}
                 </>
               )}
             </button>

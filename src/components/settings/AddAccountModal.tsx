@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { useShortcut } from '../../hooks/useKeyboardShortcuts';
 import { isMobile } from '../../hooks/usePlatform';
+import { useTranslation } from '../../i18n';
 import type { Account, AutoConfig, SecurityType } from '../../types';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -57,6 +58,8 @@ export function AddAccountModal({
   onAccountAdded,
   editAccount,
 }: AddAccountModalProps) {
+  const { t } = useTranslation();
+
   // Form state
   const [displayName, setDisplayName] = useState(editAccount?.displayName || '');
   const [email, setEmail] = useState(editAccount?.email || '');
@@ -101,7 +104,7 @@ export function AddAccountModal({
     try {
       setStep('detecting');
       setError('');
-      setTestProgress('Tarayıcı açılıyor...');
+      setTestProgress(t('settings.addAccount.openingBrowser'));
 
       // Start OAuth flow - this will open browser and wait for callback automatically
       const result = await invoke<{
@@ -128,7 +131,7 @@ export function AddAccountModal({
 
       // Auto-save the account
       setStep('testing');
-      setTestProgress('Hesap kaydediliyor...');
+      setTestProgress(t('settings.addAccount.savingAccount'));
 
       const newAccount = {
         displayName: result.display_name || result.email.split('@')[0],
@@ -165,7 +168,7 @@ export function AddAccountModal({
       });
 
       // Connect to the account immediately to establish IMAP connection with OAuth
-      setTestProgress('IMAP bağlantısı kuruluyor...');
+      setTestProgress(t('settings.addAccount.connectingImap'));
       await invoke('account_connect', { accountId });
 
       setStep('success');
@@ -179,7 +182,7 @@ export function AddAccountModal({
         onClose();
       }, 1500);
     } catch (err: any) {
-      setError(`OAuth başarısız: ${err}`);
+      setError(`${t('settings.addAccount.oauthFailed')} ${err}`);
       setStep('credentials');
     }
   };
@@ -218,7 +221,7 @@ export function AddAccountModal({
       log.error('Auto-detect failed');
       setShowManual(true);
       setStep('configure');
-      setError('Otomatik yapılandırma bulunamadı. Lütfen sunucu ayarlarını manuel girin veya Debug Detaylarını inceleyin.');
+      setError(t('settings.addAccount.autoConfigFailed'));
     }
   };
 
@@ -226,7 +229,7 @@ export function AddAccountModal({
   const testAndAdd = async () => {
     setStep('testing');
     setError('');
-    setTestProgress('IMAP bağlantısı test ediliyor...');
+    setTestProgress(t('settings.addAccount.testingImap'));
 
     try {
       // Test IMAP connection
@@ -238,7 +241,7 @@ export function AddAccountModal({
         password,
       });
 
-      setTestProgress('SMTP bağlantısı test ediliyor...');
+      setTestProgress(t('settings.addAccount.testingSmtp'));
 
       // Test SMTP connection
       await invoke('account_test_smtp', {
@@ -249,7 +252,7 @@ export function AddAccountModal({
         password,
       });
 
-      setTestProgress('Hesap kaydediliyor...');
+      setTestProgress(t('settings.addAccount.savingAccount'));
 
       let resultAccount: Account;
 
@@ -324,7 +327,7 @@ export function AddAccountModal({
     } catch (err: any) {
       const errorMsg = typeof err === 'string' ? err : (err.message || JSON.stringify(err));
       console.error('Connection test error:', err);
-      setError(errorMsg || 'Bağlantı testi başarısız oldu');
+      setError(errorMsg || t('settings.addAccount.connectionFailed'));
       setStep('error');
     }
   };
@@ -335,7 +338,7 @@ export function AddAccountModal({
 
     if (step === 'credentials') {
       if (!displayName || !email || !password) {
-        setError('Lütfen tüm alanları doldurun');
+        setError(t('settings.addAccount.fillAllFields'));
         return;
       }
 
@@ -346,11 +349,11 @@ export function AddAccountModal({
       }
     } else if (step === 'configure') {
       if (!imapHost || !smtpHost) {
-        setError('Lütfen sunucu ayarlarını doldurun');
+        setError(t('settings.addAccount.fillServerSettings'));
         return;
       }
       if (editAccount && !password) {
-        setError('Lütfen şifrenizi girin');
+        setError(t('settings.addAccount.enterPassword'));
         return;
       }
       testAndAdd();
@@ -377,7 +380,7 @@ export function AddAccountModal({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-owl-border">
           <h2 className="text-lg font-semibold text-owl-text">
-            {editAccount ? 'Hesabı Düzenle' : 'Hesap Ekle'}
+            {editAccount ? t('settings.addAccount.editTitle') : t('settings.addAccount.addTitle')}
           </h2>
           <button
             onClick={onClose}
@@ -410,13 +413,13 @@ export function AddAccountModal({
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-owl-text mb-2">
-                      Görünen Ad
+                      {t('settings.addAccount.displayName')}
                     </label>
                     <input
                       type="text"
                       value={displayName}
                       onChange={(e) => setDisplayName(e.target.value)}
-                      placeholder="Berkan Çetinel"
+                      placeholder={t('settings.addAccount.displayNamePlaceholder')}
                       className="w-full px-4 py-3 bg-owl-surface-2 border border-owl-border rounded-lg text-owl-text placeholder-owl-text-secondary focus:outline-none focus:ring-2 focus:ring-owl-accent focus:border-transparent"
                       autoFocus
                     />
@@ -424,32 +427,32 @@ export function AddAccountModal({
 
                   <div>
                     <label className="block text-sm font-medium text-owl-text mb-2">
-                      E-posta Adresi
+                      {t('settings.addAccount.emailAddress')}
                     </label>
                     <input
                       type="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="ornek@gmail.com"
+                      placeholder={t('settings.addAccount.emailPlaceholder')}
                       className="w-full px-4 py-3 bg-owl-surface-2 border border-owl-border rounded-lg text-owl-text placeholder-owl-text-secondary focus:outline-none focus:ring-2 focus:ring-owl-accent focus:border-transparent"
                     />
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-owl-text mb-2">
-                      Şifre
+                      {t('settings.addAccount.password')}
                     </label>
                     <input
                       type="password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
+                      placeholder={t('settings.addAccount.passwordPlaceholder')}
                       className="w-full px-4 py-3 bg-owl-surface-2 border border-owl-border rounded-lg text-owl-text placeholder-owl-text-secondary focus:outline-none focus:ring-2 focus:ring-owl-accent focus:border-transparent"
                     />
                     <p className="mt-2 text-xs text-owl-text-secondary">
-                      Gmail için uygulama şifresi kullanın.
+                      {t('settings.addAccount.gmailAppPassword')}
                       <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer" className="text-owl-accent hover:underline ml-1">
-                        Nasıl oluşturulur?
+                        {t('settings.addAccount.howToCreate')}
                       </a>
                     </p>
                   </div>
@@ -476,7 +479,7 @@ export function AddAccountModal({
                     onClick={() => setShowManual(!showManual)}
                     className="ml-2 text-sm text-owl-text-secondary cursor-pointer"
                   >
-                    Sunucu ayarlarını manuel gir
+                    {t('settings.addAccount.manualServerSettings')}
                   </label>
                 </div>
 
@@ -487,7 +490,7 @@ export function AddAccountModal({
                       <div className="w-full border-t border-owl-border" />
                     </div>
                     <div className="relative flex justify-center text-sm">
-                      <span className="px-2 bg-owl-surface text-owl-text-secondary">veya</span>
+                      <span className="px-2 bg-owl-surface text-owl-text-secondary">{t('common.or')}</span>
                     </div>
                   </div>
 
@@ -505,8 +508,8 @@ export function AddAccountModal({
                       <path fill="#FBBC05" d="M5.277 14.268A7.12 7.12 0 0 1 4.909 12c0-.782.125-1.533.357-2.235L1.24 6.65A11.934 11.934 0 0 0 0 12c0 1.92.445 3.73 1.237 5.335l4.04-3.067Z" />
                     </svg>
                     <div className="flex-1 text-left">
-                      <div className="font-medium">Gmail ile giriş yap</div>
-                      <div className="text-xs text-owl-text-secondary">Gmail, Google Workspace</div>
+                      <div className="font-medium">{t('settings.addAccount.gmailSignIn')}</div>
+                      <div className="text-xs text-owl-text-secondary">{t('settings.addAccount.gmailDesc')}</div>
                     </div>
                     <svg className="w-4 h-4 text-owl-text-secondary group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -527,10 +530,10 @@ export function AddAccountModal({
                   </svg>
                 </div>
                 <h3 className="text-lg font-medium text-owl-text mb-2">
-                  Ayarlar Algılanıyor...
+                  {t('settings.addAccount.detecting')}
                 </h3>
                 <p className="text-owl-text-secondary">
-                  {email} için sunucu ayarları aranıyor
+                  {email} {t('settings.addAccount.detectingFor')}
                 </p>
               </div>
             )}
@@ -542,17 +545,17 @@ export function AddAccountModal({
                 {editAccount && (
                   <div>
                     <label className="block text-sm font-medium text-owl-text mb-2">
-                      Şifre (yeniden girin)
+                      {t('settings.addAccount.reenterPassword')}
                     </label>
                     <input
                       type="password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
+                      placeholder={t('settings.addAccount.passwordPlaceholder')}
                       className="w-full px-4 py-3 bg-owl-surface-2 border border-owl-border rounded-lg text-owl-text placeholder-owl-text-secondary focus:outline-none focus:ring-2 focus:ring-owl-accent focus:border-transparent"
                     />
                     <p className="mt-2 text-xs text-owl-text-secondary">
-                      Güvenlik nedeniyle şifrenizi yeniden girmeniz gerekmektedir.
+                      {t('settings.addAccount.reenterPasswordDesc')}
                     </p>
                   </div>
                 )}
@@ -569,8 +572,8 @@ export function AddAccountModal({
                     </svg>
                     <span className={`text-sm ${config.provider ? 'text-owl-success' : 'text-owl-warning'}`}>
                       {config.provider
-                        ? `${config.provider} ayarları otomatik algılandı`
-                        : `Ayarlar tahmin edildi (${config.detectionMethod || 'guessed'})`}
+                        ? `${config.provider} ${t('settings.addAccount.settingsDetected')}`
+                        : `${t('settings.addAccount.settingsGuessed')} (${config.detectionMethod || 'guessed'})`}
                     </span>
                   </div>
                 )}
@@ -579,7 +582,7 @@ export function AddAccountModal({
                 <div>
                   <h4 className="text-sm font-medium text-owl-text mb-3 flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-owl-accent"></span>
-                    Gelen Sunucu (IMAP)
+                    {t('settings.addAccount.incomingServer')}
                   </h4>
                   <div className="grid grid-cols-3 gap-3">
                     <div className="col-span-2">
@@ -587,7 +590,7 @@ export function AddAccountModal({
                         type="text"
                         value={imapHost}
                         onChange={(e) => setImapHost(e.target.value)}
-                        placeholder="imap.gmail.com"
+                        placeholder={t('settings.addAccount.imapPlaceholder')}
                         className="w-full px-4 py-2.5 bg-owl-surface-2 border border-owl-border rounded-lg text-owl-text placeholder-owl-text-secondary focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm"
                       />
                     </div>
@@ -607,9 +610,9 @@ export function AddAccountModal({
                       onChange={(e) => setImapSecurity(e.target.value as SecurityType)}
                       className="w-full px-4 py-2.5 bg-owl-bg border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm text-owl-text appearance-none cursor-pointer"
                     >
-                      <option value="SSL" className="bg-owl-bg text-owl-text">SSL/TLS (Önerilen)</option>
-                      <option value="STARTTLS" className="bg-owl-bg text-owl-text">STARTTLS</option>
-                      <option value="NONE" className="bg-owl-bg text-owl-text">Şifreleme Yok (Güvensiz)</option>
+                      <option value="SSL" className="bg-owl-bg text-owl-text">{t('settings.addAccount.sslTls')}</option>
+                      <option value="STARTTLS" className="bg-owl-bg text-owl-text">{t('settings.addAccount.starttls')}</option>
+                      <option value="NONE" className="bg-owl-bg text-owl-text">{t('settings.addAccount.noEncryption')}</option>
                     </select>
                   </div>
                 </div>
@@ -618,7 +621,7 @@ export function AddAccountModal({
                 <div>
                   <h4 className="text-sm font-medium text-owl-text mb-3 flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-owl-accent"></span>
-                    Giden Sunucu (SMTP)
+                    {t('settings.addAccount.outgoingServer')}
                   </h4>
                   <div className="grid grid-cols-3 gap-3">
                     <div className="col-span-2">
@@ -626,7 +629,7 @@ export function AddAccountModal({
                         type="text"
                         value={smtpHost}
                         onChange={(e) => setSmtpHost(e.target.value)}
-                        placeholder="smtp.gmail.com"
+                        placeholder={t('settings.addAccount.smtpPlaceholder')}
                         className="w-full px-4 py-2.5 bg-owl-surface-2 border border-owl-border rounded-lg text-owl-text placeholder-owl-text-secondary focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm"
                       />
                     </div>
@@ -646,9 +649,9 @@ export function AddAccountModal({
                       onChange={(e) => setSmtpSecurity(e.target.value as SecurityType)}
                       className="w-full px-4 py-2.5 bg-owl-bg border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-sm text-owl-text appearance-none cursor-pointer"
                     >
-                      <option value="STARTTLS" className="bg-owl-bg text-owl-text">STARTTLS (Önerilen)</option>
-                      <option value="SSL" className="bg-owl-bg text-owl-text">SSL/TLS</option>
-                      <option value="NONE" className="bg-owl-bg text-owl-text">Şifreleme Yok (Güvensiz)</option>
+                      <option value="STARTTLS" className="bg-owl-bg text-owl-text">{t('settings.addAccount.starttls')}</option>
+                      <option value="SSL" className="bg-owl-bg text-owl-text">{t('settings.addAccount.sslTls')}</option>
+                      <option value="NONE" className="bg-owl-bg text-owl-text">{t('settings.addAccount.noEncryption')}</option>
                     </select>
                   </div>
                 </div>
@@ -676,18 +679,18 @@ export function AddAccountModal({
                         onClick={() => setAcceptInvalidCerts(!acceptInvalidCerts)}
                         className="text-sm font-medium text-owl-text cursor-pointer"
                       >
-                        Geçersiz SSL sertifikalarını kabul et
+                        {t('settings.addAccount.acceptInvalidCerts')}
                       </label>
                       <p className="text-xs text-owl-text-secondary mt-1">
-                        Self-signed veya süresi dolmuş sertifikalar için gerekli.
-                        <span className="text-owl-warning"> ⚠️ Güvenlik riski oluşturabilir.</span>
+                        {t('settings.addAccount.acceptInvalidCertsDesc')}
+                        <span className="text-owl-warning"> {t('settings.addAccount.securityWarning')}</span>
                       </p>
                       <div className="mt-2 text-xs text-owl-text-secondary bg-owl-surface-2 rounded p-2 border border-owl-border">
-                        <p className="font-medium mb-1">Ne zaman kullanılmalı?</p>
+                        <p className="font-medium mb-1">{t('settings.addAccount.whenToUse')}</p>
                         <ul className="list-disc list-inside space-y-0.5 ml-1">
-                          <li>Paylaşımlı hosting (Hostinger, cPanel, vb.)</li>
-                          <li>Self-signed sertifikalar</li>
-                          <li>Yerel test sunucuları</li>
+                          <li>{t('settings.addAccount.sharedHosting')}</li>
+                          <li>{t('settings.addAccount.selfSignedCerts')}</li>
+                          <li>{t('settings.addAccount.localTestServers')}</li>
                         </ul>
                       </div>
                     </div>
@@ -705,7 +708,7 @@ export function AddAccountModal({
                       <svg className={`w-4 h-4 transition-transform ${showDebug ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                       </svg>
-                      Debug Detayları ({debugInfo.totalDurationMs}ms)
+                      {t('settings.addAccount.debugDetails')} ({debugInfo.totalDurationMs}ms)
                     </button>
 
                     {showDebug && (
@@ -757,7 +760,7 @@ export function AddAccountModal({
                   </svg>
                 </div>
                 <h3 className="text-lg font-medium text-owl-text mb-2">
-                  Bağlantı Test Ediliyor...
+                  {t('settings.addAccount.testingConnection')}
                 </h3>
                 <p className="text-owl-text-secondary">
                   {testProgress}
@@ -774,15 +777,15 @@ export function AddAccountModal({
                   </svg>
                 </div>
                 <h3 className="text-lg font-medium text-owl-text mb-2">
-                  Hesap Başarıyla Eklendi!
+                  {t('settings.addAccount.accountAdded')}
                 </h3>
                 <p className="text-owl-text-secondary mb-4">
-                  {email} hesabı kullanıma hazır
+                  {email} {t('settings.addAccount.accountReady')}
                 </p>
                 <button
                   type="button"
                   onClick={async () => {
-                    setTestProgress('Test e-postası gönderiliyor...');
+                    setTestProgress(t('settings.addAccount.sendingTestEmail'));
                     try {
                       await invoke('send_test_email', {
                         host: smtpHost,
@@ -792,14 +795,14 @@ export function AddAccountModal({
                         password,
                         toEmail: email,
                       });
-                      setTestProgress('Test e-postası gönderildi!');
+                      setTestProgress(t('settings.addAccount.testEmailSent'));
                     } catch (err: any) {
-                      setTestProgress(`Hata: ${err.message || err}`);
+                      setTestProgress(`${t('common.error')}: ${err.message || err}`);
                     }
                   }}
                   className="px-4 py-2 bg-owl-surface-2 hover:bg-owl-border text-owl-text rounded-lg transition-colors text-sm"
                 >
-                  Test E-postası Gönder
+                  {t('settings.addAccount.sendTestEmail')}
                 </button>
                 {testProgress && (
                   <p className="mt-3 text-sm text-owl-text-secondary">{testProgress}</p>
@@ -816,7 +819,7 @@ export function AddAccountModal({
                   </svg>
                 </div>
                 <h3 className="text-lg font-medium text-owl-text mb-2">
-                  Bağlantı Başarısız
+                  {t('settings.addAccount.connectionFailed')}
                 </h3>
                 <p className="text-owl-error text-sm mb-4">
                   {error}
@@ -826,7 +829,7 @@ export function AddAccountModal({
                   onClick={() => setStep('configure')}
                   className="text-owl-accent hover:underline text-sm"
                 >
-                  Ayarları düzenle
+                  {t('settings.addAccount.editSettings')}
                 </button>
               </div>
             )}
@@ -847,13 +850,13 @@ export function AddAccountModal({
                 onClick={onClose}
                 className="px-4 py-2.5 text-owl-text-secondary hover:text-owl-text hover:bg-owl-surface rounded-lg transition-colors"
               >
-                İptal
+                {t('common.cancel')}
               </button>
               <button
                 type="submit"
                 className="px-6 py-2.5 bg-owl-accent hover:bg-owl-accent-hover text-white font-medium rounded-lg transition-colors"
               >
-                {step === 'credentials' ? (showManual ? 'Devam' : 'Ayarları Algıla') : 'Bağlantıyı Test Et'}
+                {step === 'credentials' ? (showManual ? t('settings.addAccount.continue') : t('settings.addAccount.detectSettings')) : t('settings.addAccount.testConnection')}
               </button>
             </div>
           )}

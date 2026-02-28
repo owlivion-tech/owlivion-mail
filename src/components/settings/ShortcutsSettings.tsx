@@ -3,21 +3,24 @@
 // ============================================================================
 
 import {
-  SHORTCUT_CATEGORIES,
+  getShortcutCategories,
   getShortcutsByCategory,
   formatShortcutKey,
 } from '../../constants/shortcuts';
+import { useTranslation } from '../../i18n';
 
 export function ShortcutsSettings() {
-  const groupedShortcuts = getShortcutsByCategory();
+  const { t } = useTranslation();
+  const categories = getShortcutCategories(t);
+  const groupedShortcuts = getShortcutsByCategory(t);
 
   return (
     <div className="space-y-8">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-semibold text-owl-text">Klavye Kısayolları</h2>
+        <h2 className="text-2xl font-semibold text-owl-text">{t('shortcuts.title')}</h2>
         <p className="text-owl-text-secondary mt-1">
-          Owlivion Mail'i daha hızlı kullanmak için klavye kısayollarını öğrenin
+          {t('shortcuts.subtitle')}
         </p>
       </div>
 
@@ -28,11 +31,11 @@ export function ShortcutsSettings() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
           </svg>
           <div>
-            <p className="text-sm font-medium text-owl-accent">Hızlı İpucu</p>
+            <p className="text-sm font-medium text-owl-accent">{t('shortcuts.quickTip')}</p>
             <p className="text-sm text-owl-text-secondary mt-1">
-              Kısayolları görmek için herhangi bir ekranda{' '}
+              {t('shortcuts.quickTipDesc').split('?')[0]}{' '}
               <kbd className="px-1.5 py-0.5 bg-owl-surface-2 border border-owl-border rounded text-xs font-mono">?</kbd>{' '}
-              tuşuna basın.
+              {t('shortcuts.quickTipDesc').split('?').slice(1).join('?')}
             </p>
           </div>
         </div>
@@ -40,7 +43,7 @@ export function ShortcutsSettings() {
 
       {/* Shortcut Categories */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {Object.entries(SHORTCUT_CATEGORIES).map(([categoryKey, category]) => {
+        {Object.entries(categories).map(([categoryKey, category]: [string, { label: string; icon: string }]) => {
           const shortcuts = groupedShortcuts[categoryKey];
           if (!shortcuts || shortcuts.length === 0) return null;
 
@@ -75,36 +78,36 @@ export function ShortcutsSettings() {
 
       {/* Vim-style Navigation */}
       <section className="bg-owl-surface border border-owl-border rounded-xl p-6">
-        <h3 className="text-lg font-medium text-owl-text mb-4">Vim Tarzı Gezinme</h3>
+        <h3 className="text-lg font-medium text-owl-text mb-4">{t('shortcuts.vimNavigation')}</h3>
         <p className="text-sm text-owl-text-secondary mb-4">
-          Owlivion Mail, Vim editöründen ilham alan klavye kısayollarını destekler.
+          {t('shortcuts.vimNavigationDesc')}
         </p>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="text-center p-4 bg-owl-surface-2 rounded-lg">
             <kbd className="px-3 py-1.5 text-lg font-mono bg-owl-bg border border-owl-border rounded">j</kbd>
-            <p className="text-xs text-owl-text-secondary mt-2">Aşağı</p>
+            <p className="text-xs text-owl-text-secondary mt-2">{t('shortcuts.down')}</p>
           </div>
           <div className="text-center p-4 bg-owl-surface-2 rounded-lg">
             <kbd className="px-3 py-1.5 text-lg font-mono bg-owl-bg border border-owl-border rounded">k</kbd>
-            <p className="text-xs text-owl-text-secondary mt-2">Yukarı</p>
+            <p className="text-xs text-owl-text-secondary mt-2">{t('shortcuts.up')}</p>
           </div>
           <div className="text-center p-4 bg-owl-surface-2 rounded-lg">
             <kbd className="px-3 py-1.5 text-lg font-mono bg-owl-bg border border-owl-border rounded">o</kbd>
-            <p className="text-xs text-owl-text-secondary mt-2">Aç</p>
+            <p className="text-xs text-owl-text-secondary mt-2">{t('shortcuts.open')}</p>
           </div>
           <div className="text-center p-4 bg-owl-surface-2 rounded-lg">
             <kbd className="px-3 py-1.5 text-lg font-mono bg-owl-bg border border-owl-border rounded">Esc</kbd>
-            <p className="text-xs text-owl-text-secondary mt-2">Geri</p>
+            <p className="text-xs text-owl-text-secondary mt-2">{t('shortcuts.back')}</p>
           </div>
         </div>
       </section>
 
       {/* Go Commands */}
       <section className="bg-owl-surface border border-owl-border rounded-xl p-6">
-        <h3 className="text-lg font-medium text-owl-text mb-4">Go (Git) Komutları</h3>
+        <h3 className="text-lg font-medium text-owl-text mb-4">{t('shortcuts.goCommands')}</h3>
         <p className="text-sm text-owl-text-secondary mb-4">
-          Hızlı klasör gezinmesi için <kbd className="px-1.5 py-0.5 bg-owl-surface-2 border border-owl-border rounded text-xs font-mono">g</kbd> ile başlayan iki tuşlu kombinasyonlar:
+          {t('shortcuts.goCommandsDesc').split('g')[0]}<kbd className="px-1.5 py-0.5 bg-owl-surface-2 border border-owl-border rounded text-xs font-mono">g</kbd>{t('shortcuts.goCommandsDesc').split('g').slice(1).join('g').substring(0, t('shortcuts.goCommandsDesc').split('g').slice(1).join('g').indexOf(':') + 1)}
         </p>
 
         <div className="grid grid-cols-2 gap-4">
@@ -113,41 +116,41 @@ export function ShortcutsSettings() {
               <kbd className="px-2 py-1 text-xs font-mono bg-owl-bg border border-owl-border rounded">g</kbd>
               <kbd className="px-2 py-1 text-xs font-mono bg-owl-bg border border-owl-border rounded">i</kbd>
             </div>
-            <span className="text-sm text-owl-text">Gelen Kutusu</span>
+            <span className="text-sm text-owl-text">{t('shortcuts.goToInbox')}</span>
           </div>
           <div className="flex items-center gap-3 p-3 bg-owl-surface-2 rounded-lg">
             <div className="flex gap-1">
               <kbd className="px-2 py-1 text-xs font-mono bg-owl-bg border border-owl-border rounded">g</kbd>
               <kbd className="px-2 py-1 text-xs font-mono bg-owl-bg border border-owl-border rounded">s</kbd>
             </div>
-            <span className="text-sm text-owl-text">Gönderilenler</span>
+            <span className="text-sm text-owl-text">{t('shortcuts.goToSent')}</span>
           </div>
           <div className="flex items-center gap-3 p-3 bg-owl-surface-2 rounded-lg">
             <div className="flex gap-1">
               <kbd className="px-2 py-1 text-xs font-mono bg-owl-bg border border-owl-border rounded">g</kbd>
               <kbd className="px-2 py-1 text-xs font-mono bg-owl-bg border border-owl-border rounded">d</kbd>
             </div>
-            <span className="text-sm text-owl-text">Taslaklar</span>
+            <span className="text-sm text-owl-text">{t('shortcuts.goToDrafts')}</span>
           </div>
           <div className="flex items-center gap-3 p-3 bg-owl-surface-2 rounded-lg">
             <div className="flex gap-1">
               <kbd className="px-2 py-1 text-xs font-mono bg-owl-bg border border-owl-border rounded">g</kbd>
               <kbd className="px-2 py-1 text-xs font-mono bg-owl-bg border border-owl-border rounded">t</kbd>
             </div>
-            <span className="text-sm text-owl-text">Yıldızlılar</span>
+            <span className="text-sm text-owl-text">{t('shortcuts.goToStarred')}</span>
           </div>
         </div>
       </section>
 
       {/* Command Palette */}
       <section className="bg-owl-surface border border-owl-border rounded-xl p-6">
-        <h3 className="text-lg font-medium text-owl-text mb-4">Komut Paleti</h3>
+        <h3 className="text-lg font-medium text-owl-text mb-4">{t('shortcuts.commandPaletteSection')}</h3>
         <p className="text-sm text-owl-text-secondary mb-4">
-          Tüm komutlara erişmek için{' '}
+          {t('shortcuts.commandPaletteDesc').split('Ctrl+K')[0]}
           <kbd className="px-1.5 py-0.5 bg-owl-surface-2 border border-owl-border rounded text-xs font-mono">Ctrl</kbd>
           {' + '}
           <kbd className="px-1.5 py-0.5 bg-owl-surface-2 border border-owl-border rounded text-xs font-mono">K</kbd>
-          {' '}tuşlarına basın.
+          {t('shortcuts.commandPaletteDesc').split('Ctrl+K').slice(1).join('Ctrl+K')}
         </p>
 
         <div className="bg-owl-bg border border-owl-border rounded-lg p-4">
@@ -155,19 +158,19 @@ export function ShortcutsSettings() {
             <svg className="w-5 h-5 text-owl-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
-            <span className="text-owl-text-secondary">Komut ara...</span>
+            <span className="text-owl-text-secondary">{t('shortcuts.searchCommands')}</span>
           </div>
           <div className="space-y-2 text-sm">
             <div className="flex items-center justify-between p-2 bg-owl-surface rounded">
-              <span className="text-owl-text">Yeni e-posta yaz</span>
+              <span className="text-owl-text">{t('shortcuts.composeNewEmail')}</span>
               <kbd className="px-2 py-0.5 text-xs font-mono bg-owl-surface-2 border border-owl-border rounded">C</kbd>
             </div>
             <div className="flex items-center justify-between p-2 rounded">
-              <span className="text-owl-text-secondary">E-postaları ara</span>
+              <span className="text-owl-text-secondary">{t('shortcuts.searchEmails')}</span>
               <kbd className="px-2 py-0.5 text-xs font-mono bg-owl-surface-2 border border-owl-border rounded">/</kbd>
             </div>
             <div className="flex items-center justify-between p-2 rounded">
-              <span className="text-owl-text-secondary">Arşivle</span>
+              <span className="text-owl-text-secondary">{t('shortcuts.archiveEmail')}</span>
               <kbd className="px-2 py-0.5 text-xs font-mono bg-owl-surface-2 border border-owl-border rounded">E</kbd>
             </div>
           </div>

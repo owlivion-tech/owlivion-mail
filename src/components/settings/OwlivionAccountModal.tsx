@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { useShortcut } from '../../hooks/useKeyboardShortcuts';
 import { registerAccount, loginAccount, logoutAccount, startSync } from '../../services/syncService';
 import { isMobile } from '../../hooks/usePlatform';
+import { useTranslation } from '../../i18n';
 
 interface OwlivionAccountModalProps {
   isOpen: boolean;
@@ -16,22 +17,26 @@ interface OwlivionAccountModalProps {
 
 type Tab = 'login' | 'register';
 
-function translateSyncError(msg: string): string {
-  if (!msg) return 'Bir hata olustu';
-  const lower = msg.toLowerCase();
-  if (lower.includes('invalid credentials') || lower.includes('invalid email or password'))
-    return 'E-posta veya sifre hatali';
-  if (lower.includes('user already exists') || lower.includes('conflict'))
-    return 'Bu e-posta adresi zaten kayitli';
-  if (lower.includes('unauthorized'))
-    return 'Oturum suresi doldu, tekrar giris yapin';
-  if (lower.includes('rate limit'))
-    return 'Cok fazla deneme yaptiniz, lutfen bekleyin';
-  if (lower.includes('network') || lower.includes('request failed') || lower.includes('connect'))
-    return 'Sunucuya baglanilamadi, internet baglantinizi kontrol edin';
-  if (lower.includes('server error'))
-    return 'Sunucu hatasi, daha sonra tekrar deneyin';
-  return msg;
+function useTranslateSyncError() {
+  const { t } = useTranslation();
+
+  return (msg: string): string => {
+    if (!msg) return t('owlivionAccount.errorGeneric');
+    const lower = msg.toLowerCase();
+    if (lower.includes('invalid credentials') || lower.includes('invalid email or password'))
+      return t('owlivionAccount.errorInvalidCredentials');
+    if (lower.includes('user already exists') || lower.includes('conflict'))
+      return t('owlivionAccount.errorUserExists');
+    if (lower.includes('unauthorized'))
+      return t('owlivionAccount.errorSessionExpired');
+    if (lower.includes('rate limit'))
+      return t('owlivionAccount.errorRateLimit');
+    if (lower.includes('network') || lower.includes('request failed') || lower.includes('connect'))
+      return t('owlivionAccount.errorNetwork');
+    if (lower.includes('server error'))
+      return t('owlivionAccount.errorServer');
+    return msg;
+  };
 }
 
 export function OwlivionAccountModal({
@@ -40,6 +45,9 @@ export function OwlivionAccountModal({
   isLoggedIn,
   onSuccess,
 }: OwlivionAccountModalProps) {
+  const { t } = useTranslation();
+  const translateSyncError = useTranslateSyncError();
+
   const [tab, setTab] = useState<Tab>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -62,21 +70,21 @@ export function OwlivionAccountModal({
     try {
       const trimmedEmail = email.trim().toLowerCase();
       if (!masterPassword) {
-        setError('Ana sifre gereklidir');
+        setError(t('owlivionAccount.masterPasswordRequired'));
         setLoading(false);
         return;
       }
 
       if (tab === 'register') {
-        setStatus('Hesap olusturuluyor...');
+        setStatus(t('owlivionAccount.creating'));
         await registerAccount(trimmedEmail, password, masterPassword);
       } else {
-        setStatus('Giris yapiliyor...');
+        setStatus(t('owlivionAccount.signingIn'));
         await loginAccount(trimmedEmail, password);
       }
 
       // Trigger sync to download accounts
-      setStatus('Veriler senkronize ediliyor...');
+      setStatus(t('owlivionAccount.syncingData'));
       try {
         await startSync(masterPassword);
       } catch (syncErr) {
@@ -104,7 +112,7 @@ export function OwlivionAccountModal({
       onClose();
     } catch (err) {
       console.error('Owlivion logout error:', err);
-      setError(err instanceof Error ? err.message : typeof err === 'string' ? err : 'Cikis yapilamadi');
+      setError(err instanceof Error ? err.message : typeof err === 'string' ? err : t('owlivionAccount.signOutFailed'));
     } finally {
       setLoading(false);
     }
@@ -116,7 +124,7 @@ export function OwlivionAccountModal({
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-owl-border">
           <h2 className="text-xl font-semibold text-owl-text">
-            {isLoggedIn ? 'Hesaptan Çıkış' : 'Owlivion Hesabı'}
+            {isLoggedIn ? t('owlivionAccount.signOut') : t('owlivionAccount.title')}
           </h2>
           <button
             onClick={onClose}
@@ -134,7 +142,7 @@ export function OwlivionAccountModal({
           {isLoggedIn ? (
             <div className="space-y-4">
               <p className="text-owl-text-secondary">
-                Hesaptan çıkış yapmak istediğinizden emin misiniz? Senkronizasyon devre dışı kalacak.
+                {t('owlivionAccount.signOutConfirm')}
               </p>
               <div className="flex gap-3">
                 <button
@@ -142,14 +150,14 @@ export function OwlivionAccountModal({
                   disabled={loading}
                   className="flex-1 px-4 py-2 border border-owl-border text-owl-text rounded-lg hover:bg-owl-surface-2 transition-colors disabled:opacity-50"
                 >
-                  İptal
+                  {t('common.cancel')}
                 </button>
                 <button
                   onClick={handleLogout}
                   disabled={loading}
                   className="flex-1 px-4 py-2 bg-owl-error text-white rounded-lg hover:bg-owl-error-hover transition-colors disabled:opacity-50"
                 >
-                  {loading ? 'Çıkış yapılıyor...' : 'Çıkış Yap'}
+                  {loading ? t('owlivionAccount.signingOut') : t('owlivionAccount.signIn')}
                 </button>
               </div>
             </div>
@@ -165,7 +173,7 @@ export function OwlivionAccountModal({
                       : 'text-owl-text-secondary hover:text-owl-text'
                   }`}
                 >
-                  Giriş Yap
+                  {t('owlivionAccount.signIn')}
                 </button>
                 <button
                   onClick={() => setTab('register')}
@@ -175,7 +183,7 @@ export function OwlivionAccountModal({
                       : 'text-owl-text-secondary hover:text-owl-text'
                   }`}
                 >
-                  Hesap Oluştur
+                  {t('owlivionAccount.createAccount')}
                 </button>
               </div>
 
@@ -183,7 +191,7 @@ export function OwlivionAccountModal({
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                   <label htmlFor="email" className="block text-sm font-medium text-owl-text mb-2">
-                    E-posta
+                    {t('owlivionAccount.email')}
                   </label>
                   <input
                     id="email"
@@ -197,13 +205,13 @@ export function OwlivionAccountModal({
                     autoComplete="email"
                     spellCheck={false}
                     className="w-full px-4 py-3 bg-owl-bg border border-owl-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owl-accent text-owl-text disabled:opacity-50"
-                    placeholder="ornek@email.com"
+                    placeholder={t('owlivionAccount.emailPlaceholder')}
                   />
                 </div>
 
                 <div>
                   <label htmlFor="password" className="block text-sm font-medium text-owl-text mb-2">
-                    Şifre
+                    {t('owlivionAccount.password')}
                   </label>
                   <div className="relative">
                     <input
@@ -242,9 +250,9 @@ export function OwlivionAccountModal({
 
                 <div>
                   <label htmlFor="masterPassword" className="block text-sm font-medium text-owl-text mb-2">
-                    Ana Sifre
+                    {t('owlivionAccount.masterPassword')}
                     <span className="text-xs text-owl-text-secondary ml-2">
-                      ({tab === 'register' ? 'Verilerinizi sifrelemek icin' : 'Verilerinizi cozemek icin'})
+                      ({tab === 'register' ? t('owlivionAccount.masterPasswordEncryptDesc') : t('owlivionAccount.masterPasswordDecryptDesc')})
                     </span>
                   </label>
                   <input
@@ -262,7 +270,7 @@ export function OwlivionAccountModal({
                     placeholder="••••••••"
                   />
                   <p className="text-xs text-owl-text-secondary mt-1">
-                    Bu sifre sadece yerel cihazinizda kullanilir ve sunucuya gonderilmez
+                    {t('owlivionAccount.masterPasswordLocalNote')}
                   </p>
                 </div>
 
@@ -278,10 +286,10 @@ export function OwlivionAccountModal({
                   className="w-full px-4 py-3 bg-owl-accent text-white font-medium rounded-lg hover:bg-owl-accent-hover transition-colors disabled:opacity-50"
                 >
                   {loading
-                    ? (status || 'Isleniyor...')
+                    ? (status || t('owlivionAccount.processing'))
                     : tab === 'register'
-                    ? 'Hesap Olustur'
-                    : 'Giris Yap'}
+                    ? t('owlivionAccount.createAccount')
+                    : t('owlivionAccount.signIn')}
                 </button>
               </form>
             </>

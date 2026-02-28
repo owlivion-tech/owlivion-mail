@@ -334,21 +334,39 @@ function playMoonlightChime(ctx: AudioContext, startTime: number, volume: number
   });
 }
 
+import { en } from '../i18n/locales/en';
+import type { TranslationKeys } from '../i18n/locales/en';
+import { tr } from '../i18n/locales/tr';
+
+const locales: Record<string, TranslationKeys> = { en, tr };
+
+function getTranslation(lang: string, key: string): string {
+  const translations = locales[lang] || locales.en;
+  const keys = key.split('.');
+  let current: unknown = translations;
+  for (const k of keys) {
+    if (current === null || current === undefined || typeof current !== 'object') return key;
+    current = (current as Record<string, unknown>)[k];
+  }
+  return typeof current === 'string' ? current : key;
+}
+
 /**
  * Get human-readable name for sound type
  */
-export function getSoundName(soundType: NotificationSoundType): string {
+export function getSoundName(soundType: NotificationSoundType, lang: string = 'en'): string {
+  const t = (key: string) => getTranslation(lang, key);
   const names: Record<NotificationSoundType, string> = {
-    gentle: 'Yumuşak',
-    pop: 'Pop',
-    chime: 'Zil',
-    ding: 'Ding',
-    subtle: 'Minimal',
-    system: 'Sistem',
-    owlivion: '🦉 Owl Hoot',
-    whisper: '🌙 Night Whisper',
-    call: '🦉 Owlivion Signature',
-    moonlight: '✨ Moonlight Chime',
+    gentle: t('notificationSounds.gentle'),
+    pop: t('notificationSounds.pop'),
+    chime: t('notificationSounds.chime'),
+    ding: t('notificationSounds.ding'),
+    subtle: t('notificationSounds.subtle'),
+    system: t('notificationSounds.system'),
+    owlivion: t('notificationSounds.owlivion'),
+    whisper: t('notificationSounds.whisper'),
+    call: t('notificationSounds.call'),
+    moonlight: t('notificationSounds.moonlight'),
   };
   return names[soundType];
 }
@@ -356,18 +374,19 @@ export function getSoundName(soundType: NotificationSoundType): string {
 /**
  * Get description for sound type
  */
-export function getSoundDescription(soundType: NotificationSoundType): string {
+export function getSoundDescription(soundType: NotificationSoundType, lang: string = 'en'): string {
+  const t = (key: string) => getTranslation(lang, key);
   const descriptions: Record<NotificationSoundType, string> = {
-    gentle: 'Profesyonel ve yumuşak bildirim sesi',
-    pop: 'Kısa ve dikkat çekici',
-    chime: 'Melodik üç notalı zil',
-    ding: 'Klasik çan sesi',
-    subtle: 'Çok hafif, minimal bildirim',
-    system: 'Basit sistem sesi',
-    owlivion: 'Baykuş temalı yumuşak melodi - Hoo-hoo-hooo',
-    whisper: 'Gizemli gece fısıltısı - Sakin ve ambient',
-    call: 'GERÇEK baykuş sesi - %100 authentic! ⭐',
-    moonlight: 'Ay ışığı melodisi - Kristal berraklığında',
+    gentle: t('notificationSounds.gentleDesc'),
+    pop: t('notificationSounds.popDesc'),
+    chime: t('notificationSounds.chimeDesc'),
+    ding: t('notificationSounds.dingDesc'),
+    subtle: t('notificationSounds.subtleDesc'),
+    system: t('notificationSounds.systemDesc'),
+    owlivion: t('notificationSounds.owlivionDesc'),
+    whisper: t('notificationSounds.whisperDesc'),
+    call: t('notificationSounds.callDesc'),
+    moonlight: t('notificationSounds.moonlightDesc'),
   };
   return descriptions[soundType];
 }

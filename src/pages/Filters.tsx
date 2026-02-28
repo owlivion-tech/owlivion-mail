@@ -3,6 +3,7 @@
 // ============================================================================
 
 import { useState, useEffect } from 'react';
+import { useTranslation } from '../i18n';
 import { FilterList } from '../components/filters/FilterList';
 import { FilterForm } from '../components/filters/FilterForm';
 import { FilterTestModal } from '../components/filters/FilterTestModal';
@@ -41,6 +42,7 @@ const Icons = {
 };
 
 export function Filters({ onBack, defaultAccountId }: FiltersProps) {
+  const { t } = useTranslation();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<number>(defaultAccountId || 0);
   const [filters, setFilters] = useState<EmailFilter[]>([]);
@@ -86,7 +88,7 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
       }
     } catch (err) {
       console.error('Failed to load accounts:', err);
-      showToast('error', 'Hesaplar yüklenemedi');
+      showToast('error', t('filters.accountsLoadFailed'));
     }
   };
 
@@ -102,7 +104,7 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
       setFilters(filters);
     } catch (err) {
       console.error('Failed to load filters:', err);
-      setError(err instanceof Error ? err.message : 'Filtreler yüklenemedi');
+      setError(err instanceof Error ? err.message : t('filters.loadError'));
     } finally {
       setLoading(false);
     }
@@ -132,11 +134,11 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
       if (editingFilter) {
         // Update existing
         await filterUpdate(editingFilter.id, filter);
-        showToast('success', 'Filtre güncellendi');
+        showToast('success', t('filters.filterUpdated'));
       } else {
         // Create new
         await filterAdd(filter);
-        showToast('success', 'Filtre oluşturuldu');
+        showToast('success', t('filters.filterCreated'));
       }
 
       // Reload filters
@@ -149,17 +151,17 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
 
   // Handle delete filter
   const handleDeleteFilter = async (filterId: number) => {
-    if (!confirm('Bu filtreyi silmek istediğinizden emin misiniz?')) {
+    if (!confirm(t('filters.confirmDeleteFilter'))) {
       return;
     }
 
     try {
       await filterDelete(filterId);
-      showToast('success', 'Filtre silindi');
+      showToast('success', t('filters.filterDeleted'));
       await loadFilters();
     } catch (err) {
       console.error('Failed to delete filter:', err);
-      showToast('error', 'Filtre silinemedi');
+      showToast('error', t('filters.filterDeleteFailed'));
     }
   };
 
@@ -167,11 +169,11 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
   const handleToggleFilter = async (filterId: number) => {
     try {
       await filterToggle(filterId);
-      showToast('success', 'Filtre durumu değiştirildi');
+      showToast('success', t('filters.filterStatusChanged'));
       await loadFilters();
     } catch (err) {
       console.error('Failed to toggle filter:', err);
-      showToast('error', 'Filtre durumu değiştirilemedi');
+      showToast('error', t('filters.filterStatusChangeFailed'));
     }
   };
 
@@ -182,7 +184,7 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
 
   // Handle apply filter to existing emails
   const handleApplyFilter = async (filterId: number) => {
-    if (!confirm('Bu filtreyi mevcut tüm emaillere uygulamak istediğinizden emin misiniz?')) {
+    if (!confirm(t('filters.confirmApplyFilter'))) {
       return;
     }
 
@@ -192,10 +194,10 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
     try {
       const result = await filterApplyBatch(selectedAccountId, filterId);
       setBatchResult(result);
-      showToast('success', `${result.actionsExecuted} eylem uygulandı`);
+      showToast('success', `${result.actionsExecuted} ${t('filters.actionsApplied')}`);
     } catch (err) {
       console.error('Failed to apply filter:', err);
-      showToast('error', 'Filtre uygulanamadı');
+      showToast('error', t('filters.filterApplyFailed'));
     } finally {
       setIsBatchProcessing(false);
     }
@@ -203,7 +205,7 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
 
   // Handle apply all filters
   const handleApplyAllFilters = async () => {
-    if (!confirm('Tüm aktif filtreleri mevcut emaillere uygulamak istediğinizden emin misiniz? Bu işlem uzun sürebilir.')) {
+    if (!confirm(t('filters.confirmApplyAll'))) {
       return;
     }
 
@@ -213,10 +215,10 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
     try {
       const result = await filterApplyBatch(selectedAccountId);
       setBatchResult(result);
-      showToast('success', `${result.actionsExecuted} eylem uygulandı`);
+      showToast('success', `${result.actionsExecuted} ${t('filters.actionsApplied')}`);
     } catch (err) {
       console.error('Failed to apply filters:', err);
-      showToast('error', 'Filtreler uygulanamadı');
+      showToast('error', t('filters.applyAllFailed'));
     } finally {
       setIsBatchProcessing(false);
     }
@@ -238,10 +240,10 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      showToast('success', 'Filtreler dışa aktarıldı');
+      showToast('success', t('filters.exported'));
     } catch (err) {
       console.error('Failed to export filters:', err);
-      showToast('error', 'Filtreler dışa aktarılamadı');
+      showToast('error', t('filters.exportFailed'));
     }
   };
 
@@ -257,11 +259,11 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
       try {
         const text = await file.text();
         const count = await filterImport(selectedAccountId, text);
-        showToast('success', `${count} filtre içe aktarıldı`);
+        showToast('success', `${count} ${t('filters.imported')}`);
         await loadFilters();
       } catch (err) {
         console.error('Failed to import filters:', err);
-        showToast('error', 'Filtreler içe aktarılamadı');
+        showToast('error', t('filters.importFailed'));
       }
     };
     input.click();
@@ -269,7 +271,7 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
 
   // Handle sync emails with filters
   const handleSyncWithFilters = async () => {
-    if (!confirm('Email senkronizasyonu yapılacak ve filtreler otomatik uygulanacak. Devam edilsin mi?')) {
+    if (!confirm(t('filters.confirmSync'))) {
       return;
     }
 
@@ -279,7 +281,7 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
     try {
       const account = accounts.find(a => a.id === selectedAccountId);
       if (!account) {
-        showToast('error', 'Hesap bulunamadı');
+        showToast('error', t('filters.accountNotFound'));
         return;
       }
 
@@ -295,10 +297,10 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
         filtersAppliedCount: result.filtersAppliedCount,
       });
 
-      showToast('success', `${result.newEmailsCount} yeni email, ${result.filtersAppliedCount} filtre uygulandı`);
+      showToast('success', `${result.newEmailsCount} ${t('filters.newEmailFilterApplied')}`);
     } catch (err) {
       console.error('Failed to sync with filters:', err);
-      showToast('error', 'Senkronizasyon başarısız');
+      showToast('error', t('filters.syncFailed'));
     } finally {
       setIsSyncing(false);
     }
@@ -315,11 +317,11 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
             <button
               onClick={onBack}
               className="p-2 hover:bg-owl-surface-2 rounded-lg transition-colors text-owl-text"
-              title="Geri don"
+              title={t('filters.backToMail')}
             >
               <Icons.ArrowLeft />
             </button>
-            <h1 className={`font-bold text-owl-text ${mobile ? 'text-lg' : 'text-2xl'}`}>Email Filtreleri</h1>
+            <h1 className={`font-bold text-owl-text ${mobile ? 'text-lg' : 'text-2xl'}`}>{t('filters.title')}</h1>
           </div>
 
           <div className="flex items-center gap-2">
@@ -343,7 +345,7 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
               onClick={loadFilters}
               disabled={loading}
               className="p-2 hover:bg-owl-surface-2 rounded-lg transition-colors disabled:opacity-50 text-owl-text"
-              title="Yenile"
+              title={t('filters.refresh')}
             >
               <Icons.Refresh />
             </button>
@@ -355,7 +357,7 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
               className={`flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${mobile ? 'p-2' : 'px-4 py-2'}`}
             >
               <Icons.Plus />
-              {!mobile && 'Yeni Filtre'}
+              {!mobile && t('filters.newFilter')}
             </button>
           </div>
         </div>
@@ -369,21 +371,21 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
               className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Icons.Refresh />
-              {isSyncing ? 'Senkronize ediliyor...' : 'Filtrelerle Senkronize Et'}
+              {isSyncing ? t('filters.syncing') : t('filters.syncWithFilters')}
             </button>
             <button
               onClick={handleImportFilters}
               disabled={selectedAccountId <= 0}
               className="px-4 py-2 bg-owl-surface-2 hover:bg-owl-border text-owl-text rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Ice Aktar
+              {t('filters.import')}
             </button>
             <button
               onClick={handleExportFilters}
               disabled={selectedAccountId <= 0}
               className="px-4 py-2 bg-owl-surface-2 hover:bg-owl-border text-owl-text rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Disa Aktar
+              {t('filters.export')}
             </button>
             <button
               onClick={handleApplyAllFilters}
@@ -391,7 +393,7 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
               className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Icons.Play />
-              {isBatchProcessing ? 'Uygulaniyor...' : 'Tumunu Uygula'}
+              {isBatchProcessing ? t('filters.applying') : t('filters.applyAll')}
             </button>
           </div>
         )}
@@ -405,7 +407,7 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
               className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 text-white rounded-lg text-xs whitespace-nowrap disabled:opacity-50"
             >
               <Icons.Refresh />
-              {isSyncing ? 'Senk...' : 'Senkronize'}
+              {isSyncing ? t('filters.syncingShort') : t('filters.syncShort')}
             </button>
             <button
               onClick={handleApplyAllFilters}
@@ -413,21 +415,21 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
               className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs whitespace-nowrap disabled:opacity-50"
             >
               <Icons.Play />
-              {isBatchProcessing ? 'Uyg...' : 'Tumunu Uygula'}
+              {isBatchProcessing ? t('filters.applyingShort') : t('filters.applyShort')}
             </button>
             <button
               onClick={handleImportFilters}
               disabled={selectedAccountId <= 0}
               className="px-3 py-1.5 bg-owl-surface-2 text-owl-text rounded-lg text-xs whitespace-nowrap disabled:opacity-50"
             >
-              Ice Aktar
+              {t('filters.import')}
             </button>
             <button
               onClick={handleExportFilters}
               disabled={selectedAccountId <= 0}
               className="px-3 py-1.5 bg-owl-surface-2 text-owl-text rounded-lg text-xs whitespace-nowrap disabled:opacity-50"
             >
-              Disa Aktar
+              {t('filters.export')}
             </button>
           </div>
         )}
@@ -438,7 +440,7 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
         {selectedAccountId <= 0 ? (
           <div className="flex flex-col items-center justify-center h-full">
             <p className="text-gray-400 text-center">
-              Filtre oluşturmak için bir hesap seçin
+              {t('filters.selectAccount')}
             </p>
           </div>
         ) : (
@@ -481,15 +483,15 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-md p-6">
             <h3 className="text-lg font-semibold text-gray-100 mb-4">
-              Senkronizasyon Sonuçları
+              {t('filters.syncResults')}
             </h3>
             <div className="space-y-3">
               <div className="flex items-center justify-between py-2 border-b border-gray-700">
-                <span className="text-gray-400">Yeni Email:</span>
+                <span className="text-gray-400">{t('filters.newEmail')}</span>
                 <span className="text-gray-100 font-medium">{syncResult.newEmailsCount}</span>
               </div>
               <div className="flex items-center justify-between py-2">
-                <span className="text-gray-400">Filtre Uygulandı:</span>
+                <span className="text-gray-400">{t('filters.filterApplied')}</span>
                 <span className="text-green-400 font-medium">{syncResult.filtersAppliedCount}</span>
               </div>
             </div>
@@ -498,7 +500,7 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
                 onClick={() => setSyncResult(null)}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
               >
-                Tamam
+                {t('common.ok')}
               </button>
             </div>
           </div>
@@ -510,19 +512,19 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-md p-6">
             <h3 className="text-lg font-semibold text-gray-100 mb-4">
-              Filtre Uygulama Sonuçları
+              {t('filters.applyResults')}
             </h3>
             <div className="space-y-3">
               <div className="flex items-center justify-between py-2 border-b border-gray-700">
-                <span className="text-gray-400">İşlenen Email:</span>
+                <span className="text-gray-400">{t('filters.processedEmail')}</span>
                 <span className="text-gray-100 font-medium">{batchResult.emailsProcessed}</span>
               </div>
               <div className="flex items-center justify-between py-2 border-b border-gray-700">
-                <span className="text-gray-400">Eşleşen Filtre:</span>
+                <span className="text-gray-400">{t('filters.matchedFilter')}</span>
                 <span className="text-gray-100 font-medium">{batchResult.filtersMatched}</span>
               </div>
               <div className="flex items-center justify-between py-2">
-                <span className="text-gray-400">Uygulanan Eylem:</span>
+                <span className="text-gray-400">{t('filters.appliedAction')}</span>
                 <span className="text-green-400 font-medium">{batchResult.actionsExecuted}</span>
               </div>
             </div>
@@ -531,7 +533,7 @@ export function Filters({ onBack, defaultAccountId }: FiltersProps) {
                 onClick={() => setBatchResult(null)}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
               >
-                Tamam
+                {t('common.ok')}
               </button>
             </div>
           </div>

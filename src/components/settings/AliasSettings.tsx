@@ -13,12 +13,14 @@ import {
 } from '../../services/aliasService';
 import type { EmailAlias } from '../../services/aliasService';
 import type { Account } from '../../types';
+import { useTranslation } from '../../i18n';
 
 interface AliasSettingsProps {
   accounts: Account[];
 }
 
 export function AliasSettings({ accounts }: AliasSettingsProps) {
+  const { t } = useTranslation();
   const [selectedAccount, setSelectedAccount] = useState<number>(accounts[0]?.id || 0);
   const [aliases, setAliases] = useState<EmailAlias[]>([]);
   const [loading, setLoading] = useState(true);
@@ -95,9 +97,9 @@ export function AliasSettings({ accounts }: AliasSettingsProps) {
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-semibold text-owl-text-primary mb-1">Takma Adlar</h3>
+        <h3 className="text-lg font-semibold text-owl-text-primary mb-1">{t('settings.aliasSettings.title')}</h3>
         <p className="text-sm text-owl-text-secondary">
-          Hesaplariniz icin alternatif e-posta adresleri tanimlayin
+          {t('settings.aliasSettings.subtitle')}
         </p>
       </div>
 
@@ -124,7 +126,7 @@ export function AliasSettings({ accounts }: AliasSettingsProps) {
               {currentAccount.email}
             </span>
             <span className="ml-2 px-2 py-0.5 text-xs bg-owl-accent-primary/20 text-owl-accent-primary rounded-full">
-              Ana Hesap
+              {t('settings.aliasSettings.primaryAccount')}
             </span>
           </div>
         </div>
@@ -154,7 +156,7 @@ export function AliasSettings({ accounts }: AliasSettingsProps) {
                   </span>
                   {alias.is_default && (
                     <span className="px-1.5 py-0.5 text-[10px] bg-purple-500/20 text-purple-300 rounded">
-                      Varsayilan
+                      {t('settings.aliasSettings.isDefault')}
                     </span>
                   )}
                 </div>
@@ -168,7 +170,7 @@ export function AliasSettings({ accounts }: AliasSettingsProps) {
                   <button
                     onClick={() => handleSetDefault(alias.id)}
                     className="p-1.5 text-owl-text-muted hover:text-purple-400 transition-colors"
-                    title="Varsayilan yap"
+                    title={t('settings.aliasSettings.makeDefault')}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
@@ -182,7 +184,7 @@ export function AliasSettings({ accounts }: AliasSettingsProps) {
                       ? 'text-green-400 hover:text-green-300'
                       : 'text-owl-text-muted hover:text-green-400'
                   }`}
-                  title={alias.is_enabled ? 'Devre disi birak' : 'Etkinlestir'}
+                  title={alias.is_enabled ? t('settings.aliasSettings.disable') : t('settings.aliasSettings.enable')}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     {alias.is_enabled ? (
@@ -195,7 +197,7 @@ export function AliasSettings({ accounts }: AliasSettingsProps) {
                 <button
                   onClick={() => handleDelete(alias.id)}
                   className="p-1.5 text-owl-text-muted hover:text-red-400 transition-colors"
-                  title="Sil"
+                  title={t('common.delete')}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -207,14 +209,14 @@ export function AliasSettings({ accounts }: AliasSettingsProps) {
         </div>
       ) : (
         <div className="text-center py-6 text-sm text-owl-text-muted">
-          Bu hesap icin tanimli takma ad yok
+          {t('settings.aliasSettings.noAliasesDesc')}
         </div>
       )}
 
       {/* Add New Alias */}
       <div className="space-y-3 pt-2 border-t border-owl-border">
         <label className="block text-sm font-medium text-owl-text-primary">
-          Yeni Takma Ad Ekle
+          {t('settings.aliasSettings.newAlias')}
         </label>
         <div className="flex gap-2">
           <input
@@ -228,7 +230,7 @@ export function AliasSettings({ accounts }: AliasSettingsProps) {
             type="text"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            placeholder="Gosterilen Ad (opsiyonel)"
+            placeholder={t('settings.aliasSettings.displayNameOptional')}
             className="flex-1 px-3 py-2 bg-owl-bg-primary border border-owl-border rounded-lg text-owl-text-primary placeholder-owl-text-muted text-sm focus:outline-none focus:border-owl-accent-primary"
           />
         </div>
@@ -237,7 +239,7 @@ export function AliasSettings({ accounts }: AliasSettingsProps) {
           disabled={adding || !newEmail.trim()}
           className="px-4 py-2 bg-owl-accent-primary text-white text-sm font-medium rounded-lg hover:bg-owl-accent-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          {adding ? 'Ekleniyor...' : 'Ekle'}
+          {adding ? t('settings.aliasSettings.adding') : t('settings.aliasSettings.add')}
         </button>
         {error && (
           <p className="text-sm text-red-400">{error}</p>

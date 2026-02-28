@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useGesture } from '@use-gesture/react';
 import type { Account, ImapFolder } from '../../types';
 import { useMobileNavigation } from '../../stores/mobileNavigationStore';
+import { useTranslation } from '../../i18n';
 import owlivionIcon from '../../assets/owlivion-logo.svg';
 
 interface MobileDrawerProps {
@@ -39,6 +40,7 @@ export function MobileDrawer({
   onSettingsClick,
   onFiltersClick,
 }: MobileDrawerProps) {
+  const { t } = useTranslation();
   const { drawerOpen, setDrawerOpen } = useMobileNavigation();
   const drawerRef = useRef<HTMLDivElement>(null);
   const [dragX, setDragX] = useState(0);
@@ -123,7 +125,7 @@ export function MobileDrawer({
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
                 </svg>
-                Tum Hesaplar
+                {t('mobile.allAccounts')}
               </button>
               {accounts.map(acc => (
                 <button

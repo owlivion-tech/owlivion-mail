@@ -4,6 +4,7 @@
 
 import { useState } from 'react';
 import { resolveConflict } from '../../services/syncService';
+import { useTranslation } from '../../i18n';
 import type { ConflictInfo } from '../../types';
 
 interface ConflictResolutionModalProps {
@@ -21,6 +22,7 @@ export function ConflictResolutionModal({
   masterPassword,
   onResolveComplete,
 }: ConflictResolutionModalProps) {
+  const { t } = useTranslation();
   const [selectedStrategies, setSelectedStrategies] = useState<
     Map<string, 'use_local' | 'use_server'>
   >(new Map());
@@ -41,7 +43,7 @@ export function ConflictResolutionModal({
   const handleResolve = async () => {
     // Validation: all conflicts must have selected strategy
     if (selectedStrategies.size !== conflicts.length) {
-      setError('Lütfen tüm çakışmalar için bir strateji seçin');
+      setError(t('conflictResolution.selectAllStrategies'));
       return;
     }
 
@@ -61,7 +63,7 @@ export function ConflictResolutionModal({
       onResolveComplete();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Çözüm başarısız');
+      setError(err instanceof Error ? err.message : t('conflictResolution.resolutionFailed'));
     } finally {
       setResolving(false);
     }
@@ -71,56 +73,57 @@ export function ConflictResolutionModal({
   const getDataTypeLabel = (dataType: string) => {
     switch (dataType) {
       case 'contacts':
-        return '📇 Kişiler';
+        return `📇 ${t('conflictResolution.contacts')}`;
       case 'accounts':
-        return '📧 Hesaplar';
+        return `📧 ${t('conflictResolution.accounts')}`;
       case 'preferences':
-        return '⚙️ Tercihler';
+        return `⚙️ ${t('conflictResolution.preferences')}`;
       case 'signatures':
-        return '✍️ İmzalar';
+        return `✍️ ${t('conflictResolution.signatures')}`;
       default:
         return dataType;
     }
   };
 
-  // Get field label in Turkish
+  // Get field label
   const getFieldLabel = (field: string): string => {
+    // Try to get from translation keys first
+    const fieldKey = `conflictResolution.field_${field}`;
+    const translated = t(fieldKey);
+    if (translated !== fieldKey) return translated;
+
+    // Fallback labels
     const labels: Record<string, string> = {
-      // Account fields
-      display_name: 'Görünen Ad',
-      imap_host: 'IMAP Sunucu',
+      display_name: t('settings.addAccount.displayName'),
+      imap_host: 'IMAP Host',
       imap_port: 'IMAP Port',
-      imap_security: 'IMAP Güvenlik',
-      smtp_host: 'SMTP Sunucu',
+      imap_security: 'IMAP Security',
+      smtp_host: 'SMTP Host',
       smtp_port: 'SMTP Port',
-      smtp_security: 'SMTP Güvenlik',
-      signature: 'İmza',
-      sync_days: 'Senkronizasyon Günleri',
-      is_default: 'Varsayılan Hesap',
-      oauth_provider: 'OAuth Sağlayıcı',
-
-      // Preferences fields
-      theme: 'Tema',
-      language: 'Dil',
-      notifications_enabled: 'Bildirimler',
-      notification_sound: 'Bildirim Sesi',
-      notification_badge: 'Bildirim Rozeti',
-      auto_mark_read: 'Otomatik Okundu İşaretle',
-      auto_mark_read_delay: 'Okundu Gecikmesi',
-      confirm_delete: 'Silme Onayı',
-      confirm_send: 'Gönderme Onayı',
-      signature_position: 'İmza Konumu',
-      reply_position: 'Cevap Konumu',
-      gemini_api_key: 'Gemini API Anahtarı',
-      ai_auto_summarize: 'AI Otomatik Özet',
-      ai_reply_tone: 'AI Cevap Tonu',
-      keyboard_shortcuts_enabled: 'Klavye Kısayolları',
-      compact_list_view: 'Kompakt Liste',
-      show_avatars: 'Avatar Göster',
-      conversation_view: 'Konuşma Görünümü',
-
-      // Signature fields
-      signature_html: 'İmza İçeriği',
+      smtp_security: 'SMTP Security',
+      signature: t('settings.signatures'),
+      sync_days: t('settings.syncSettings.syncInterval'),
+      is_default: t('settings.accountSettings.default'),
+      oauth_provider: 'OAuth Provider',
+      theme: t('settings.generalSettings.theme'),
+      language: t('settings.generalSettings.language'),
+      notifications_enabled: t('settings.generalSettings.enableNotifications'),
+      notification_sound: t('settings.generalSettings.notificationSound'),
+      notification_badge: t('settings.generalSettings.badgeCounter'),
+      auto_mark_read: t('settings.generalSettings.autoMarkRead'),
+      auto_mark_read_delay: t('settings.generalSettings.readDelay'),
+      confirm_delete: t('settings.generalSettings.confirmDelete'),
+      confirm_send: t('settings.generalSettings.confirmSend'),
+      signature_position: t('settings.generalSettings.signaturePosition'),
+      reply_position: t('settings.generalSettings.replyPosition'),
+      gemini_api_key: t('settings.aiSettings.apiKeyLabel'),
+      ai_auto_summarize: t('settings.aiSettings.autoSummarize'),
+      ai_reply_tone: t('settings.aiSettings.replyTone'),
+      keyboard_shortcuts_enabled: t('shortcuts.title'),
+      compact_list_view: t('settings.generalSettings.compactList'),
+      show_avatars: t('settings.generalSettings.showAvatars'),
+      conversation_view: t('settings.generalSettings.conversationView'),
+      signature_html: t('settings.signatureSettings.content'),
     };
 
     return labels[field] || field;
@@ -135,7 +138,7 @@ export function ConflictResolutionModal({
     return (
       <div className="mb-4 p-3 bg-owl-surface-1 rounded border border-owl-border">
         <div className="text-xs font-medium text-owl-text-primary mb-2">
-          Değişen Alanlar ({conflict.fieldChanges.length})
+          {t('conflictResolution.fieldChanges')} ({conflict.fieldChanges.length})
         </div>
         <div className="flex flex-wrap gap-2">
           {conflict.fieldChanges.map((field) => (
@@ -160,25 +163,25 @@ export function ConflictResolutionModal({
           {/* Local Signature */}
           <div className="border-l-4 border-owl-accent p-3 bg-owl-surface-3 rounded">
             <div className="text-xs font-medium text-owl-text-primary mb-2">
-              Yerel İmza
+              {t('conflictResolution.localSignature')}
             </div>
             {conflict.localData?.signature_html ? (
               <>
-                <div className="text-xs text-owl-text-muted mb-1">Önizleme:</div>
+                <div className="text-xs text-owl-text-muted mb-1">{t('conflictResolution.previewLabel')}</div>
                 <div
                   className="p-2 bg-white text-black rounded text-xs mb-2 max-h-32 overflow-auto"
                   dangerouslySetInnerHTML={{ __html: conflict.localData.signature_html }}
                 />
                 <div className="text-xs text-owl-text-muted">
-                  Düz metin: {conflict.localData.signature_text || 'Boş'}
+                  {t('conflictResolution.plainText')} {conflict.localData.signature_text || t('conflictResolution.empty')}
                 </div>
               </>
             ) : (
-              <div className="text-xs text-owl-text-muted">İmza yok</div>
+              <div className="text-xs text-owl-text-muted">{t('conflictResolution.noSignature')}</div>
             )}
             {conflict.localUpdatedAt && (
               <div className="text-xs text-owl-text-muted mt-2">
-                Güncellenme: {new Date(conflict.localUpdatedAt).toLocaleString('tr-TR')}
+                {t('conflictResolution.localUpdated')} {new Date(conflict.localUpdatedAt).toLocaleString('tr-TR')}
               </div>
             )}
           </div>
@@ -186,25 +189,25 @@ export function ConflictResolutionModal({
           {/* Server Signature */}
           <div className="border-l-4 border-owl-warning p-3 bg-owl-surface-3 rounded">
             <div className="text-xs font-medium text-owl-text-primary mb-2">
-              Sunucu İmzası
+              {t('conflictResolution.serverSignature')}
             </div>
             {conflict.serverData?.signature_html ? (
               <>
-                <div className="text-xs text-owl-text-muted mb-1">Önizleme:</div>
+                <div className="text-xs text-owl-text-muted mb-1">{t('conflictResolution.previewLabel')}</div>
                 <div
                   className="p-2 bg-white text-black rounded text-xs mb-2 max-h-32 overflow-auto"
                   dangerouslySetInnerHTML={{ __html: conflict.serverData.signature_html }}
                 />
                 <div className="text-xs text-owl-text-muted">
-                  Düz metin: {conflict.serverData.signature_text || 'Boş'}
+                  {t('conflictResolution.plainText')} {conflict.serverData.signature_text || t('conflictResolution.empty')}
                 </div>
               </>
             ) : (
-              <div className="text-xs text-owl-text-muted">İmza yok</div>
+              <div className="text-xs text-owl-text-muted">{t('conflictResolution.noSignature')}</div>
             )}
             {conflict.serverUpdatedAt && (
               <div className="text-xs text-owl-text-muted mt-2">
-                Güncellenme: {new Date(conflict.serverUpdatedAt).toLocaleString('tr-TR')}
+                {t('conflictResolution.serverUpdated')} {new Date(conflict.serverUpdatedAt).toLocaleString('tr-TR')}
               </div>
             )}
           </div>
@@ -221,7 +224,7 @@ export function ConflictResolutionModal({
           {/* Local Data */}
           <div className="border-l-4 border-owl-accent p-3 bg-owl-surface-3 rounded">
             <div className="text-xs font-medium text-owl-text-primary mb-2">
-              Yerel Veri
+              {t('conflictResolution.localData')}
             </div>
             <div className="space-y-1 text-xs max-h-64 overflow-auto">
               {changedFields.length > 0 ? (
@@ -241,7 +244,7 @@ export function ConflictResolutionModal({
             </div>
             {conflict.localUpdatedAt && (
               <div className="text-xs text-owl-text-muted mt-2">
-                Güncellenme: {new Date(conflict.localUpdatedAt).toLocaleString('tr-TR')}
+                {t('conflictResolution.localUpdated')} {new Date(conflict.localUpdatedAt).toLocaleString('tr-TR')}
               </div>
             )}
           </div>
@@ -249,7 +252,7 @@ export function ConflictResolutionModal({
           {/* Server Data */}
           <div className="border-l-4 border-owl-warning p-3 bg-owl-surface-3 rounded">
             <div className="text-xs font-medium text-owl-text-primary mb-2">
-              Sunucu Verisi
+              {t('conflictResolution.serverData')}
             </div>
             <div className="space-y-1 text-xs max-h-64 overflow-auto">
               {changedFields.length > 0 ? (
@@ -269,7 +272,7 @@ export function ConflictResolutionModal({
             </div>
             {conflict.serverUpdatedAt && (
               <div className="text-xs text-owl-text-muted mt-2">
-                Güncellenme: {new Date(conflict.serverUpdatedAt).toLocaleString('tr-TR')}
+                {t('conflictResolution.serverUpdated')} {new Date(conflict.serverUpdatedAt).toLocaleString('tr-TR')}
               </div>
             )}
           </div>
@@ -282,28 +285,28 @@ export function ConflictResolutionModal({
       <div className="grid grid-cols-2 gap-4 mb-4">
         <div className="border-l-4 border-owl-accent p-3 bg-owl-surface-3 rounded">
           <div className="text-xs font-medium text-owl-text-primary mb-2">
-            Yerel Veri
+            {t('conflictResolution.localData')}
           </div>
           <pre className="text-xs text-owl-text-secondary overflow-auto max-h-32 font-mono whitespace-pre-wrap">
             {JSON.stringify(conflict.localData, null, 2)}
           </pre>
           {conflict.localUpdatedAt && (
             <div className="text-xs text-owl-text-muted mt-2">
-              Güncellenme: {new Date(conflict.localUpdatedAt).toLocaleString('tr-TR')}
+              {t('conflictResolution.localUpdated')} {new Date(conflict.localUpdatedAt).toLocaleString('tr-TR')}
             </div>
           )}
         </div>
 
         <div className="border-l-4 border-owl-warning p-3 bg-owl-surface-3 rounded">
           <div className="text-xs font-medium text-owl-text-primary mb-2">
-            Sunucu Verisi
+            {t('conflictResolution.serverData')}
           </div>
           <pre className="text-xs text-owl-text-secondary overflow-auto max-h-32 font-mono whitespace-pre-wrap">
             {JSON.stringify(conflict.serverData, null, 2)}
           </pre>
           {conflict.serverUpdatedAt && (
             <div className="text-xs text-owl-text-muted mt-2">
-              Güncellenme: {new Date(conflict.serverUpdatedAt).toLocaleString('tr-TR')}
+              {t('conflictResolution.serverUpdated')} {new Date(conflict.serverUpdatedAt).toLocaleString('tr-TR')}
             </div>
           )}
         </div>
@@ -317,10 +320,10 @@ export function ConflictResolutionModal({
         {/* Header */}
         <div className="p-6 border-b border-owl-border">
           <h2 className="text-2xl font-bold text-owl-text-primary mb-2">
-            Senkronizasyon Çakışmaları
+            {t('conflictResolution.title')}
           </h2>
           <p className="text-sm text-owl-text-secondary">
-            {conflicts.length} çakışma tespit edildi. Lütfen her biri için bir çözüm seçin.
+            {t('conflictResolution.conflictsDetected').replace('{count}', String(conflicts.length))}
           </p>
         </div>
 
@@ -366,10 +369,10 @@ export function ConflictResolutionModal({
                   />
                   <div className="flex-1">
                     <div className="font-medium text-owl-text-primary">
-                      Yerel veriyi kullan
+                      {t('conflictResolution.useLocal')}
                     </div>
                     <div className="text-xs text-owl-text-secondary">
-                      Sunucudaki değişiklikler silinecek
+                      {t('conflictResolution.useLocalDesc')}
                     </div>
                   </div>
                 </label>
@@ -389,10 +392,10 @@ export function ConflictResolutionModal({
                   />
                   <div className="flex-1">
                     <div className="font-medium text-owl-text-primary">
-                      Sunucu verisini kullan
+                      {t('conflictResolution.useServer')}
                     </div>
                     <div className="text-xs text-owl-text-secondary">
-                      Yerel değişiklikler silinecek
+                      {t('conflictResolution.useServerDesc')}
                     </div>
                   </div>
                 </label>
@@ -415,7 +418,7 @@ export function ConflictResolutionModal({
             disabled={resolving}
             className="flex-1 px-4 py-2 border border-owl-border rounded hover:bg-owl-surface-2 text-owl-text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            İptal
+            {t('common.cancel')}
           </button>
           <button
             onClick={handleResolve}
@@ -424,7 +427,7 @@ export function ConflictResolutionModal({
             }
             className="flex-1 px-4 py-2 bg-owl-accent text-white rounded hover:bg-owl-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {resolving ? 'Çözülüyor...' : 'Tümünü Çöz'}
+            {resolving ? t('conflictResolution.resolving') : t('conflictResolution.resolveAll')}
           </button>
         </div>
       </div>

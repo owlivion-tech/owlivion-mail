@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from '../i18n';
 import { SearchFilters as SearchFiltersType, DateRange, DateRangePreset, FolderType } from '../types';
 import { Calendar, X, Filter, ChevronDown, ChevronUp } from 'lucide-react';
 
@@ -10,15 +11,16 @@ interface SearchFiltersProps {
 }
 
 export default function SearchFilters({ filters, onChange, onSearch, folders }: SearchFiltersProps) {
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
 
   // Date range presets
   const datePresets: Array<{ value: DateRangePreset; label: string }> = [
-    { value: 'last_7_days', label: 'Son 7 Gün' },
-    { value: 'last_30_days', label: 'Son 30 Gün' },
-    { value: 'last_3_months', label: 'Son 3 Ay' },
-    { value: 'last_year', label: 'Son 1 Yıl' },
-    { value: 'custom', label: 'Özel Tarih' },
+    { value: 'last_7_days', label: t('searchFilters.last7Days') },
+    { value: 'last_30_days', label: t('searchFilters.last30Days') },
+    { value: 'last_3_months', label: t('searchFilters.last3Months') },
+    { value: 'last_year', label: t('searchFilters.lastYear') },
+    { value: 'custom', label: t('searchFilters.custom') },
   ];
 
   // Calculate date range from preset
@@ -94,7 +96,7 @@ export default function SearchFilters({ filters, onChange, onSearch, folders }: 
       >
         <div className="flex items-center gap-2">
           <Filter className="w-4 h-4 text-owl-text-secondary" />
-          <span className="text-owl-text-primary">Gelişmiş Filtreler</span>
+          <span className="text-owl-text-primary">{t('searchFilters.advancedSearch')}</span>
           {activeFiltersCount > 0 && (
             <span className="px-2 py-0.5 text-xs bg-owl-accent text-white rounded-full">
               {activeFiltersCount}
@@ -115,7 +117,7 @@ export default function SearchFilters({ filters, onChange, onSearch, folders }: 
           <div>
             <label className="block text-xs font-medium text-owl-text-secondary mb-2">
               <Calendar className="w-3 h-3 inline mr-1" />
-              Tarih Aralığı
+              {t('searchFilters.dateRange')}
             </label>
             <div className="space-y-2">
               {/* Date Presets */}
@@ -151,7 +153,7 @@ export default function SearchFilters({ filters, onChange, onSearch, folders }: 
                     value={filters.dateRange.startDate || ''}
                     onChange={(e) => handleCustomDateChange('startDate', e.target.value)}
                     className="px-3 py-1.5 text-sm bg-owl-bg-tertiary border border-owl-border rounded-lg text-owl-text-primary focus:outline-none focus:ring-2 focus:ring-owl-accent"
-                    placeholder="Başlangıç"
+                    placeholder=""
                   />
                   <span className="text-owl-text-secondary text-sm">-</span>
                   <input
@@ -159,7 +161,7 @@ export default function SearchFilters({ filters, onChange, onSearch, folders }: 
                     value={filters.dateRange.endDate || ''}
                     onChange={(e) => handleCustomDateChange('endDate', e.target.value)}
                     className="px-3 py-1.5 text-sm bg-owl-bg-tertiary border border-owl-border rounded-lg text-owl-text-primary focus:outline-none focus:ring-2 focus:ring-owl-accent"
-                    placeholder="Bitiş"
+                    placeholder=""
                   />
                 </div>
               )}
@@ -169,7 +171,7 @@ export default function SearchFilters({ filters, onChange, onSearch, folders }: 
           {/* Sender Filter */}
           <div>
             <label className="block text-xs font-medium text-owl-text-secondary mb-2">
-              Gönderen
+              {t('searchFilters.from')}
             </label>
             <div className="flex gap-2">
               <input
@@ -199,7 +201,7 @@ export default function SearchFilters({ filters, onChange, onSearch, folders }: 
           {folders && folders.length > 0 && (
             <div>
               <label className="block text-xs font-medium text-owl-text-secondary mb-2">
-                Klasör
+                {t('searchFilters.folder')}
               </label>
               <div className="flex gap-2">
                 <select
@@ -212,7 +214,7 @@ export default function SearchFilters({ filters, onChange, onSearch, folders }: 
                   }
                   className="flex-1 px-3 py-1.5 text-sm bg-owl-bg-tertiary border border-owl-border rounded-lg text-owl-text-primary focus:outline-none focus:ring-2 focus:ring-owl-accent"
                 >
-                  <option value="">Tüm Klasörler</option>
+                  <option value="">{t('searchFilters.allFolders')}</option>
                   {folders.map((folder) => (
                     <option key={folder.id} value={folder.id}>
                       {folder.name}
@@ -234,7 +236,7 @@ export default function SearchFilters({ filters, onChange, onSearch, folders }: 
           {/* Quick Filters (Checkboxes) */}
           <div>
             <label className="block text-xs font-medium text-owl-text-secondary mb-2">
-              Hızlı Filtreler
+              {t('searchFilters.quickFilters')}
             </label>
             <div className="flex flex-wrap gap-2">
               {/* Has Attachments */}
@@ -250,7 +252,7 @@ export default function SearchFilters({ filters, onChange, onSearch, folders }: 
                   }
                   className="w-4 h-4 text-owl-accent bg-owl-bg-primary border-owl-border rounded focus:ring-owl-accent focus:ring-2"
                 />
-                <span className="text-sm text-owl-text-primary">Ekli Dosyalı</span>
+                <span className="text-sm text-owl-text-primary">{t('searchFilters.hasAttachments')}</span>
               </label>
 
               {/* Is Unread */}
@@ -266,7 +268,7 @@ export default function SearchFilters({ filters, onChange, onSearch, folders }: 
                   }
                   className="w-4 h-4 text-owl-accent bg-owl-bg-primary border-owl-border rounded focus:ring-owl-accent focus:ring-2"
                 />
-                <span className="text-sm text-owl-text-primary">Okunmamış</span>
+                <span className="text-sm text-owl-text-primary">{t('searchFilters.isUnread')}</span>
               </label>
 
               {/* Is Starred */}
@@ -282,7 +284,7 @@ export default function SearchFilters({ filters, onChange, onSearch, folders }: 
                   }
                   className="w-4 h-4 text-owl-accent bg-owl-bg-primary border-owl-border rounded focus:ring-owl-accent focus:ring-2"
                 />
-                <span className="text-sm text-owl-text-primary">Yıldızlı</span>
+                <span className="text-sm text-owl-text-primary">{t('searchFilters.isStarred')}</span>
               </label>
             </div>
           </div>
@@ -293,7 +295,7 @@ export default function SearchFilters({ filters, onChange, onSearch, folders }: 
               onClick={onSearch}
               className="px-4 py-2 bg-owl-accent text-white text-sm font-medium rounded-lg hover:bg-owl-accent-hover transition-colors"
             >
-              Ara
+              {t('searchFilters.searchButton')}
             </button>
             <button
               onClick={() => {
@@ -302,7 +304,7 @@ export default function SearchFilters({ filters, onChange, onSearch, folders }: 
               }}
               className="px-4 py-2 bg-owl-bg-tertiary text-owl-text-primary text-sm font-medium rounded-lg hover:bg-owl-bg-hover transition-colors"
             >
-              Filtreleri Temizle
+              {t('searchFilters.clearFilters')}
             </button>
           </div>
         </div>
