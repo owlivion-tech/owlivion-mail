@@ -1744,7 +1744,7 @@ function App() {
 
   // Unified Inbox state
   const [unifiedInboxMode, setUnifiedInboxMode] = useState(true); // DEFAULT: true (user preference)
-  const [sortBy, setSortBy] = useState<'date' | 'account' | 'unread' | 'priority'>('priority'); // DEFAULT: priority
+  const [sortBy, setSortBy] = useState<'date' | 'account' | 'unread' | 'priority'>('date'); // DEFAULT: date (newest first)
   const [sortDirection, setSortDirection] = useState<'desc' | 'asc'>('desc'); // DEFAULT: newest/unread first
   const [accountFetchStatuses, setAccountFetchStatuses] = useState<any[]>([]); // Track account fetch status for error display
 
