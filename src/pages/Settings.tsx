@@ -17,6 +17,7 @@ import { ActiveSessions } from '../components/settings/ActiveSessions';
 import { AuditLogViewer } from '../components/settings/AuditLogViewer';
 import { AuditStatsComponent } from '../components/settings/AuditStats';
 import TemplateSettings from '../components/settings/TemplateSettings';
+import { OsintSettings } from '../components/settings/OsintSettings';
 import { listAccounts } from '../services/mailService';
 import type { SettingsTab, Settings as SettingsType, Account } from '../types';
 
@@ -60,6 +61,12 @@ const defaultSettings: SettingsType = {
 
   // Shortcuts
   keyboardShortcutsEnabled: true,
+
+  // OSINT
+  osintEnabled: false,
+  osintAutoHarvest: false,
+  osintClaudeApiKey: '',
+  osintDockerContainer: 'mpc-kali',
 };
 
 export function Settings({ onBack }: SettingsProps) {
@@ -140,6 +147,15 @@ export function Settings({ onBack }: SettingsProps) {
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+      ),
+    },
+    {
+      id: 'osint',
+      label: t('settings.osint'),
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
         </svg>
       ),
     },
@@ -232,6 +248,9 @@ export function Settings({ onBack }: SettingsProps) {
       {activeTab === 'sync' && <SyncSettings onNavigateToMail={onBack} />}
       {activeTab === 'filters' && <FilterSettings accounts={accounts} />}
       {activeTab === 'templates' && <TemplateSettings accounts={accounts} />}
+      {activeTab === 'osint' && (
+        <OsintSettings settings={settings} onSettingsChange={handleSettingsChange} />
+      )}
       {activeTab === 'security' && (
         <div className="space-y-8">
           <div>

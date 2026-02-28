@@ -596,6 +596,123 @@ CREATE INDEX IF NOT EXISTS idx_history_data_type ON sync_history(data_type, crea
 CREATE INDEX IF NOT EXISTS idx_history_version ON sync_history(data_type, version);
 
 -- ============================================================================
+-- OSINT PROFILES TABLE
+-- Sender intelligence cache
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS osint_profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE,
+    domain TEXT NOT NULL,
+
+    -- Person info (from OSINT + AI)
+    person_name TEXT,
+    job_title TEXT,
+    company TEXT,
+    location TEXT,
+    social_profiles TEXT DEFAULT '{}',    -- JSON: {"linkedin": "...", "twitter": "..."}
+
+    -- Company info
+    company_industry TEXT,
+    company_size TEXT,
+    company_website TEXT,
+    company_tech_stack TEXT DEFAULT '[]', -- JSON array
+
+    -- Raw harvest data
+    raw_data TEXT DEFAULT '{}',           -- JSON: all raw tool outputs
+    ai_analysis TEXT,                     -- Claude AI structured analysis
+
+    -- Scoring
+    confidence_score INTEGER DEFAULT 0 CHECK (confidence_score BETWEEN 0 AND 100),
+    harvest_status TEXT NOT NULL DEFAULT 'pending' CHECK (
+        harvest_status IN ('pending', 'harvesting', 'completed', 'failed', 'excluded')
+    ),
+    error_message TEXT,
+
+    -- Timestamps
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_osint_profiles_email ON osint_profiles(email);
+CREATE INDEX IF NOT EXISTS idx_osint_profiles_domain ON osint_profiles(domain);
+CREATE INDEX IF NOT EXISTS idx_osint_profiles_status ON osint_profiles(harvest_status);
+
+-- ============================================================================
+-- COMPANY EMAILS TABLE
+-- Discovered emails from domain harvesting
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS company_emails (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    domain TEXT NOT NULL,
+    email TEXT NOT NULL,
+    name TEXT,
+    job_title TEXT,
+    source TEXT,                          -- Tool that found it (theHarvester, crt.sh, etc.)
+
+    -- Importance classification (from AI)
+    importance TEXT NOT NULL DEFAULT 'normal' CHECK (
+        importance IN ('vip', 'high', 'normal', 'low')
+    ),
+    importance_reason TEXT,
+
+    -- Auto-star
+    is_auto_starred INTEGER NOT NULL DEFAULT 0,
+
+    -- Timestamps
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+
+    UNIQUE(domain, email)
+);
+
+CREATE INDEX IF NOT EXISTS idx_company_emails_domain ON company_emails(domain);
+CREATE INDEX IF NOT EXISTS idx_company_emails_importance ON company_emails(importance);
+
+-- ============================================================================
+-- OSINT EXCLUSIONS TABLE
+-- Patterns to skip OSINT harvesting
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS osint_exclusions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pattern TEXT NOT NULL UNIQUE,
+    pattern_type TEXT NOT NULL DEFAULT 'domain' CHECK (
+        pattern_type IN ('domain', 'email', 'regex')
+    ),
+    description TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Default exclusions (noreply, marketing, automated)
+INSERT OR IGNORE INTO osint_exclusions (pattern, pattern_type, description) VALUES
+    ('noreply', 'regex', 'No-reply addresses'),
+    ('no-reply', 'regex', 'No-reply addresses'),
+    ('donotreply', 'regex', 'Do-not-reply addresses'),
+    ('mailer-daemon', 'regex', 'Mail system addresses'),
+    ('postmaster', 'regex', 'Mail system addresses'),
+    ('notifications@', 'regex', 'Notification addresses'),
+    ('newsletter@', 'regex', 'Newsletter addresses'),
+    ('marketing@', 'regex', 'Marketing addresses'),
+    ('github.com', 'domain', 'GitHub notifications'),
+    ('linkedin.com', 'domain', 'LinkedIn notifications'),
+    ('facebook.com', 'domain', 'Facebook notifications'),
+    ('twitter.com', 'domain', 'Twitter/X notifications'),
+    ('google.com', 'domain', 'Google notifications'),
+    ('youtube.com', 'domain', 'YouTube notifications'),
+    ('amazon.com', 'domain', 'Amazon notifications'),
+    ('apple.com', 'domain', 'Apple notifications'),
+    ('microsoft.com', 'domain', 'Microsoft notifications'),
+    ('hackerone.com', 'domain', 'HackerOne notifications'),
+    ('hepsiburada.com', 'domain', 'Hepsiburada notifications'),
+    ('trendyol.com', 'domain', 'Trendyol notifications'),
+    ('n11.com', 'domain', 'N11 notifications'),
+    ('getir.com', 'domain', 'Getir notifications');
+
+-- OSINT triggers for updated_at
+CREATE TRIGGER IF NOT EXISTS osint_profiles_updated_at AFTER UPDATE ON osint_profiles
+BEGIN
+    UPDATE osint_profiles SET updated_at = datetime('now') WHERE id = NEW.id;
+END;
+
+-- ============================================================================
 -- ERD (ASCII Reference)
 -- ============================================================================
 /*

@@ -268,6 +268,12 @@ export interface Settings {
   // Multi-Account Priority Settings
   accountPrioritySettings?: Record<string, boolean>; // accountId -> enabled
   unifiedInboxSortBy?: 'date' | 'account' | 'unread' | 'priority';
+
+  // OSINT
+  osintEnabled: boolean;
+  osintAutoHarvest: boolean;
+  osintClaudeApiKey?: string;
+  osintDockerContainer: string;
 }
 
 // Default settings
@@ -297,6 +303,10 @@ export const DEFAULT_SETTINGS: Settings = {
   autoSyncInterval: 5,
   accountPrioritySettings: {},
   unifiedInboxSortBy: 'priority',
+  osintEnabled: false,
+  osintAutoHarvest: false,
+  osintClaudeApiKey: undefined,
+  osintDockerContainer: 'mpc-kali',
 };
 
 // Sync status
@@ -322,7 +332,7 @@ export interface ComposeProps {
 }
 
 // Settings page tab
-export type SettingsTab = 'accounts' | 'general' | 'ai' | 'shortcuts' | 'signatures' | 'sync' | 'filters' | 'templates' | 'security';
+export type SettingsTab = 'accounts' | 'general' | 'ai' | 'shortcuts' | 'signatures' | 'sync' | 'filters' | 'templates' | 'security' | 'osint';
 
 // AI Reply request
 export interface AIReplyRequest {
@@ -933,4 +943,58 @@ export interface CategorizationResult {
   category: string;
   confidence: number;
   subcategory?: string;
+}
+
+// ============================================================================
+// OSINT Types
+// ============================================================================
+
+export interface OsintProfile {
+  id: number;
+  email: string;
+  domain: string;
+  personName?: string;
+  jobTitle?: string;
+  company?: string;
+  location?: string;
+  socialProfiles: Record<string, string>;
+  companyIndustry?: string;
+  companySize?: string;
+  companyWebsite?: string;
+  companyTechStack: string[];
+  rawData: Record<string, unknown>;
+  aiAnalysis?: string;
+  confidenceScore: number;
+  harvestStatus: 'pending' | 'harvesting' | 'completed' | 'failed' | 'excluded';
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CompanyEmail {
+  id: number;
+  domain: string;
+  email: string;
+  name?: string;
+  jobTitle?: string;
+  source?: string;
+  importance: 'vip' | 'high' | 'normal' | 'low';
+  importanceReason?: string;
+  isAutoStarred: boolean;
+  createdAt: string;
+}
+
+export interface OsintExclusion {
+  id: number;
+  pattern: string;
+  patternType: 'domain' | 'email' | 'regex';
+  description?: string;
+  createdAt: string;
+}
+
+export interface OsintHarvestResult {
+  profile?: OsintProfile;
+  companyEmails?: CompanyEmail[];
+  excluded: boolean;
+  error?: string;
 }

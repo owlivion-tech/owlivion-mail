@@ -8,6 +8,7 @@ pub mod db;
 pub mod filters;
 pub mod mail;
 pub mod oauth;
+pub mod osint;
 pub mod sync;
 pub mod tray;
 
@@ -4186,6 +4187,111 @@ async fn email_sync_all_background(
 }
 
 // ============================================================================
+// OSINT Commands
+// ============================================================================
+
+#[tauri::command]
+async fn osint_harvest_sender(
+    state: State<'_, AppState>,
+    email: String,
+    raw_headers: Option<String>,
+    claude_api_key: Option<String>,
+    docker_container: Option<String>,
+) -> Result<db::OsintProfile, String> {
+    let container = docker_container.unwrap_or_else(|| "mpc-kali".to_string());
+    let engine = osint::engine::OsintEngine::new(
+        state.db.clone(),
+        &container,
+        claude_api_key,
+    );
+    engine
+        .harvest_sender(&email, raw_headers.as_deref())
+        .await
+}
+
+#[tauri::command]
+async fn osint_get_profile(
+    state: State<'_, AppState>,
+    email: String,
+) -> Result<Option<db::OsintProfile>, String> {
+    state.db.osint_get_profile(&email).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn osint_harvest_company(
+    state: State<'_, AppState>,
+    domain: String,
+    claude_api_key: Option<String>,
+    docker_container: Option<String>,
+) -> Result<Vec<db::CompanyEmail>, String> {
+    let container = docker_container.unwrap_or_else(|| "mpc-kali".to_string());
+    let engine = osint::engine::OsintEngine::new(
+        state.db.clone(),
+        &container,
+        claude_api_key,
+    );
+    engine.harvest_company_emails(&domain).await
+}
+
+#[tauri::command]
+async fn osint_get_company_emails(
+    state: State<'_, AppState>,
+    domain: String,
+) -> Result<Vec<db::CompanyEmail>, String> {
+    state.db.osint_get_company_emails(&domain).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn osint_check_excluded(
+    state: State<'_, AppState>,
+    email: String,
+    raw_headers: Option<String>,
+) -> Result<bool, String> {
+    Ok(osint::exclusion::is_excluded(
+        &state.db,
+        &email,
+        raw_headers.as_deref(),
+    ))
+}
+
+#[tauri::command]
+async fn osint_list_exclusions(
+    state: State<'_, AppState>,
+) -> Result<Vec<db::OsintExclusion>, String> {
+    state.db.osint_list_exclusions().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn osint_add_exclusion(
+    state: State<'_, AppState>,
+    pattern: String,
+    pattern_type: String,
+    description: Option<String>,
+) -> Result<i64, String> {
+    state
+        .db
+        .osint_add_exclusion(&pattern, &pattern_type, description.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn osint_remove_exclusion(
+    state: State<'_, AppState>,
+    id: i64,
+) -> Result<(), String> {
+    state.db.osint_remove_exclusion(id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn osint_check_docker(
+    docker_container: Option<String>,
+) -> Result<bool, String> {
+    let container = docker_container.unwrap_or_else(|| "mpc-kali".to_string());
+    let client = osint::docker::DockerClient::new(&container);
+    Ok(client.is_available().await)
+}
+
+// ============================================================================
 // Application Entry Point
 // ============================================================================
 
@@ -4317,6 +4423,15 @@ pub fn run() {
             cache_get_stats,
             cache_clear,
             email_sync_all_background,
+            osint_harvest_sender,
+            osint_get_profile,
+            osint_harvest_company,
+            osint_get_company_emails,
+            osint_check_excluded,
+            osint_list_exclusions,
+            osint_add_exclusion,
+            osint_remove_exclusion,
+            osint_check_docker,
         ])
         .setup(|app| {
             // Initialize database using Tauri's path API (works on Android + Desktop)

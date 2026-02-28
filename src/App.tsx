@@ -10,10 +10,12 @@ import { ShortcutsHelp } from "./components/ShortcutsHelp";
 import { Welcome } from "./components/Welcome";
 import { AddAccountModal } from "./components/settings/AddAccountModal";
 import SearchFiltersComponent from "./components/SearchFilters";
+import { OsintBanner } from "./components/OsintBanner";
 import { summarizeEmail, analyzePhishing, detectEmailTracking, type PhishingAnalysis, type TrackingAnalysis } from "./services/geminiService";
 import { requestNotificationPermission, showNewEmailNotification, playNotificationSound } from "./services/notificationService";
 import { listDrafts, getDraft, deleteDraft, saveDraft } from "./services/draftService";
-import type { DraftEmail, EmailAddress, Account, ImapFolder, DraftListItem, SearchFilters } from "./types";
+import type { DraftEmail, EmailAddress, Account, ImapFolder, DraftListItem, SearchFilters, Settings as SettingsType } from "./types";
+import { DEFAULT_SETTINGS } from "./types";
 import { isMobile } from "./hooks/usePlatform";
 import { MobileLayout } from "./layouts/MobileLayout";
 import { MobileEmailList } from "./components/mobile/MobileEmailList";
@@ -1111,6 +1113,7 @@ function EmailView({
   onDownloadAttachment,
   selectedAccountId,
   accounts,
+  appSettings,
 }: {
   email: Email | null;
   accountId: string | null;
@@ -1138,6 +1141,7 @@ function EmailView({
   onDownloadAttachment: (attachmentIndex: number, filename: string) => void;
   selectedAccountId: number | null | 'all';
   accounts: Account[];
+  appSettings: SettingsType;
 }) {
   const { t, lang } = useTranslation();
   const [showSummary, setShowSummary] = useState(false);
@@ -1508,6 +1512,15 @@ function EmailView({
         </div>
       )}
 
+      {/* OSINT Banner */}
+      {email && email.from?.email && (
+        <OsintBanner
+          senderEmail={email.from.email}
+          rawHeaders={undefined}
+          settings={appSettings}
+        />
+      )}
+
       {/* Summary Section */}
       {(summary || isSummarizing) && (
         <div className="mx-4 mt-4 p-4 bg-owl-accent/10 border border-owl-accent/20 rounded-lg">
@@ -1759,6 +1772,7 @@ function App() {
   const [autoSyncInterval, setAutoSyncInterval] = useState(5); // minutes
   const [autoPhishingDetection, setAutoPhishingDetection] = useState(true);
   const [autoMarkReadDelay, setAutoMarkReadDelay] = useState(2); // seconds
+  const [appSettings, setAppSettings] = useState<SettingsType>(DEFAULT_SETTINGS);
 
   // Load settings from localStorage
   const loadSettings = useCallback(() => {
@@ -1771,6 +1785,7 @@ function App() {
         setAutoSyncInterval(settings.autoSyncInterval ?? 5);
         setAutoPhishingDetection(settings.autoPhishingDetection ?? true);
         setAutoMarkReadDelay(settings.autoMarkReadDelay ?? 2);
+        setAppSettings({ ...DEFAULT_SETTINGS, ...settings });
       }
     } catch (err) {
       console.error('Failed to load settings:', err);
@@ -3408,6 +3423,7 @@ function App() {
         onDownloadAttachment={handleDownloadAttachment}
         selectedAccountId={selectedAccountId}
         accounts={accounts}
+        appSettings={appSettings}
       />
 
       {/* Modals */}

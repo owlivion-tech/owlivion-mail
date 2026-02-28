@@ -385,6 +385,98 @@ impl Database {
             "#)?;
         }
 
+        // Migration 11: OSINT Harvester tables
+        let has_osint_profiles: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='osint_profiles'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !has_osint_profiles {
+            log::info!("Running migration: Creating OSINT tables (osint_profiles, company_emails, osint_exclusions)");
+            conn.execute_batch(r#"
+                CREATE TABLE IF NOT EXISTS osint_profiles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT NOT NULL UNIQUE,
+                    domain TEXT NOT NULL,
+                    person_name TEXT,
+                    job_title TEXT,
+                    company TEXT,
+                    location TEXT,
+                    social_profiles TEXT DEFAULT '{}',
+                    company_industry TEXT,
+                    company_size TEXT,
+                    company_website TEXT,
+                    company_tech_stack TEXT DEFAULT '[]',
+                    raw_data TEXT DEFAULT '{}',
+                    ai_analysis TEXT,
+                    confidence_score INTEGER DEFAULT 0,
+                    harvest_status TEXT NOT NULL DEFAULT 'pending',
+                    error_message TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+                CREATE INDEX IF NOT EXISTS idx_osint_profiles_email ON osint_profiles(email);
+                CREATE INDEX IF NOT EXISTS idx_osint_profiles_domain ON osint_profiles(domain);
+                CREATE INDEX IF NOT EXISTS idx_osint_profiles_status ON osint_profiles(harvest_status);
+
+                CREATE TABLE IF NOT EXISTS company_emails (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    domain TEXT NOT NULL,
+                    email TEXT NOT NULL,
+                    name TEXT,
+                    job_title TEXT,
+                    source TEXT,
+                    importance TEXT NOT NULL DEFAULT 'normal',
+                    importance_reason TEXT,
+                    is_auto_starred INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    UNIQUE(domain, email)
+                );
+                CREATE INDEX IF NOT EXISTS idx_company_emails_domain ON company_emails(domain);
+                CREATE INDEX IF NOT EXISTS idx_company_emails_importance ON company_emails(importance);
+
+                CREATE TABLE IF NOT EXISTS osint_exclusions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    pattern TEXT NOT NULL UNIQUE,
+                    pattern_type TEXT NOT NULL DEFAULT 'domain',
+                    description TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+
+                INSERT OR IGNORE INTO osint_exclusions (pattern, pattern_type, description) VALUES
+                    ('noreply', 'regex', 'No-reply addresses'),
+                    ('no-reply', 'regex', 'No-reply addresses'),
+                    ('donotreply', 'regex', 'Do-not-reply addresses'),
+                    ('mailer-daemon', 'regex', 'Mail system addresses'),
+                    ('postmaster', 'regex', 'Mail system addresses'),
+                    ('notifications@', 'regex', 'Notification addresses'),
+                    ('newsletter@', 'regex', 'Newsletter addresses'),
+                    ('marketing@', 'regex', 'Marketing addresses'),
+                    ('github.com', 'domain', 'GitHub notifications'),
+                    ('linkedin.com', 'domain', 'LinkedIn notifications'),
+                    ('facebook.com', 'domain', 'Facebook notifications'),
+                    ('twitter.com', 'domain', 'Twitter/X notifications'),
+                    ('google.com', 'domain', 'Google notifications'),
+                    ('youtube.com', 'domain', 'YouTube notifications'),
+                    ('amazon.com', 'domain', 'Amazon notifications'),
+                    ('apple.com', 'domain', 'Apple notifications'),
+                    ('microsoft.com', 'domain', 'Microsoft notifications'),
+                    ('hackerone.com', 'domain', 'HackerOne notifications'),
+                    ('hepsiburada.com', 'domain', 'Hepsiburada notifications'),
+                    ('trendyol.com', 'domain', 'Trendyol notifications'),
+                    ('n11.com', 'domain', 'N11 notifications'),
+                    ('getir.com', 'domain', 'Getir notifications');
+
+                CREATE TRIGGER IF NOT EXISTS osint_profiles_updated_at AFTER UPDATE ON osint_profiles
+                BEGIN
+                    UPDATE osint_profiles SET updated_at = datetime('now') WHERE id = NEW.id;
+                END;
+            "#)?;
+        }
+
         Ok(())
     }
 
@@ -2820,6 +2912,59 @@ pub struct SyncMetadata {
     pub error_message: Option<String>,
 }
 
+// ============================================================================
+// OSINT Types
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OsintProfile {
+    pub id: i64,
+    pub email: String,
+    pub domain: String,
+    pub person_name: Option<String>,
+    pub job_title: Option<String>,
+    pub company: Option<String>,
+    pub location: Option<String>,
+    pub social_profiles: String,
+    pub company_industry: Option<String>,
+    pub company_size: Option<String>,
+    pub company_website: Option<String>,
+    pub company_tech_stack: String,
+    pub raw_data: String,
+    pub ai_analysis: Option<String>,
+    pub confidence_score: i32,
+    pub harvest_status: String,
+    pub error_message: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompanyEmail {
+    pub id: i64,
+    pub domain: String,
+    pub email: String,
+    pub name: Option<String>,
+    pub job_title: Option<String>,
+    pub source: Option<String>,
+    pub importance: String,
+    pub importance_reason: Option<String>,
+    pub is_auto_starred: bool,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OsintExclusion {
+    pub id: i64,
+    pub pattern: String,
+    pub pattern_type: String,
+    pub description: Option<String>,
+    pub created_at: String,
+}
+
 impl Database {
     /// Get sync metadata for a data type
     pub fn get_sync_metadata(&self, data_type: &str) -> DbResult<Option<SyncMetadata>> {
@@ -3088,6 +3233,168 @@ impl Database {
         Ok(())
     }
 
+    // =========================================================================
+    // OSINT OPERATIONS
+    // =========================================================================
+
+    /// Get OSINT profile by email
+    pub fn osint_get_profile(&self, email: &str) -> DbResult<Option<OsintProfile>> {
+        let conn = self.get_conn()?;
+        let result = conn.query_row(
+            "SELECT id, email, domain, person_name, job_title, company, location,
+                    social_profiles, company_industry, company_size, company_website,
+                    company_tech_stack, raw_data, ai_analysis, confidence_score,
+                    harvest_status, error_message, created_at, updated_at
+             FROM osint_profiles WHERE email = ?1",
+            params![email],
+            |row| {
+                Ok(OsintProfile {
+                    id: row.get(0)?,
+                    email: row.get(1)?,
+                    domain: row.get(2)?,
+                    person_name: row.get(3)?,
+                    job_title: row.get(4)?,
+                    company: row.get(5)?,
+                    location: row.get(6)?,
+                    social_profiles: row.get::<_, String>(7).unwrap_or_else(|_| "{}".to_string()),
+                    company_industry: row.get(8)?,
+                    company_size: row.get(9)?,
+                    company_website: row.get(10)?,
+                    company_tech_stack: row.get::<_, String>(11).unwrap_or_else(|_| "[]".to_string()),
+                    raw_data: row.get::<_, String>(12).unwrap_or_else(|_| "{}".to_string()),
+                    ai_analysis: row.get(13)?,
+                    confidence_score: row.get(14)?,
+                    harvest_status: row.get(15)?,
+                    error_message: row.get(16)?,
+                    created_at: row.get(17)?,
+                    updated_at: row.get(18)?,
+                })
+            },
+        );
+        match result {
+            Ok(profile) => Ok(Some(profile)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(DbError::Sqlite(e)),
+        }
+    }
+
+    /// Upsert OSINT profile
+    pub fn osint_upsert_profile(&self, profile: &OsintProfile) -> DbResult<i64> {
+        let conn = self.get_conn()?;
+        conn.execute(
+            r#"INSERT INTO osint_profiles (
+                email, domain, person_name, job_title, company, location,
+                social_profiles, company_industry, company_size, company_website,
+                company_tech_stack, raw_data, ai_analysis, confidence_score,
+                harvest_status, error_message
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+            ON CONFLICT(email) DO UPDATE SET
+                domain=excluded.domain, person_name=excluded.person_name,
+                job_title=excluded.job_title, company=excluded.company,
+                location=excluded.location, social_profiles=excluded.social_profiles,
+                company_industry=excluded.company_industry, company_size=excluded.company_size,
+                company_website=excluded.company_website, company_tech_stack=excluded.company_tech_stack,
+                raw_data=excluded.raw_data, ai_analysis=excluded.ai_analysis,
+                confidence_score=excluded.confidence_score, harvest_status=excluded.harvest_status,
+                error_message=excluded.error_message
+            "#,
+            params![
+                profile.email, profile.domain, profile.person_name, profile.job_title,
+                profile.company, profile.location, profile.social_profiles,
+                profile.company_industry, profile.company_size, profile.company_website,
+                profile.company_tech_stack, profile.raw_data, profile.ai_analysis,
+                profile.confidence_score, profile.harvest_status, profile.error_message
+            ],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Get company emails by domain
+    pub fn osint_get_company_emails(&self, domain: &str) -> DbResult<Vec<CompanyEmail>> {
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, domain, email, name, job_title, source, importance,
+                    importance_reason, is_auto_starred, created_at
+             FROM company_emails WHERE domain = ?1 ORDER BY
+                CASE importance WHEN 'vip' THEN 1 WHEN 'high' THEN 2 WHEN 'normal' THEN 3 ELSE 4 END"
+        )?;
+        let rows = stmt.query_map(params![domain], |row| {
+            Ok(CompanyEmail {
+                id: row.get(0)?,
+                domain: row.get(1)?,
+                email: row.get(2)?,
+                name: row.get(3)?,
+                job_title: row.get(4)?,
+                source: row.get(5)?,
+                importance: row.get(6)?,
+                importance_reason: row.get(7)?,
+                is_auto_starred: row.get::<_, i32>(8).unwrap_or(0) != 0,
+                created_at: row.get(9)?,
+            })
+        })?;
+        let mut emails = Vec::new();
+        for row in rows {
+            emails.push(row?);
+        }
+        Ok(emails)
+    }
+
+    /// Upsert company email
+    pub fn osint_upsert_company_email(&self, ce: &CompanyEmail) -> DbResult<()> {
+        let conn = self.get_conn()?;
+        conn.execute(
+            r#"INSERT INTO company_emails (domain, email, name, job_title, source, importance, importance_reason, is_auto_starred)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            ON CONFLICT(domain, email) DO UPDATE SET
+                name=excluded.name, job_title=excluded.job_title, source=excluded.source,
+                importance=excluded.importance, importance_reason=excluded.importance_reason,
+                is_auto_starred=excluded.is_auto_starred"#,
+            params![
+                ce.domain, ce.email, ce.name, ce.job_title, ce.source,
+                ce.importance, ce.importance_reason, ce.is_auto_starred as i32
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// List all exclusions
+    pub fn osint_list_exclusions(&self) -> DbResult<Vec<OsintExclusion>> {
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, pattern, pattern_type, description, created_at FROM osint_exclusions ORDER BY pattern_type, pattern"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(OsintExclusion {
+                id: row.get(0)?,
+                pattern: row.get(1)?,
+                pattern_type: row.get(2)?,
+                description: row.get(3)?,
+                created_at: row.get(4)?,
+            })
+        })?;
+        let mut exclusions = Vec::new();
+        for row in rows {
+            exclusions.push(row?);
+        }
+        Ok(exclusions)
+    }
+
+    /// Add exclusion
+    pub fn osint_add_exclusion(&self, pattern: &str, pattern_type: &str, description: Option<&str>) -> DbResult<i64> {
+        let conn = self.get_conn()?;
+        conn.execute(
+            "INSERT OR IGNORE INTO osint_exclusions (pattern, pattern_type, description) VALUES (?1, ?2, ?3)",
+            params![pattern, pattern_type, description],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Remove exclusion
+    pub fn osint_remove_exclusion(&self, id: i64) -> DbResult<()> {
+        let conn = self.get_conn()?;
+        conn.execute("DELETE FROM osint_exclusions WHERE id = ?1", params![id])?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
