@@ -11,6 +11,7 @@ import { Welcome } from "./components/Welcome";
 import { AddAccountModal } from "./components/settings/AddAccountModal";
 import SearchFiltersComponent from "./components/SearchFilters";
 import { OsintBanner } from "./components/OsintBanner";
+import { DomainHarvestModal } from "./components/DomainHarvestModal";
 import { summarizeEmail, analyzePhishing, detectEmailTracking, type PhishingAnalysis, type TrackingAnalysis } from "./services/geminiService";
 import { requestNotificationPermission, showNewEmailNotification, playNotificationSound } from "./services/notificationService";
 import { listDrafts, getDraft, deleteDraft, saveDraft } from "./services/draftService";
@@ -412,6 +413,7 @@ function MailPanel({
   onSettingsClick,
   onComposeClick,
   onSyncClick,
+  onOsintClick,
   isSyncing,
   searchQuery,
   onSearchChange,
@@ -444,6 +446,7 @@ function MailPanel({
   onFiltersClick: () => void;
   onComposeClick: () => void;
   onSyncClick: () => void;
+  onOsintClick: () => void;
   isSyncing: boolean;
   searchQuery: string;
   onSearchChange: (query: string) => void;
@@ -653,6 +656,15 @@ function MailPanel({
               title={t('sidebar.sync')}
             >
               <Icons.Refresh />
+            </button>
+            <button
+              onClick={onOsintClick}
+              className="p-2 rounded-lg transition-colors text-owl-text-secondary hover:text-indigo-400 hover:bg-indigo-500/10"
+              title="OSINT Harvest"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+              </svg>
             </button>
             <button
               onClick={onComposeClick}
@@ -1773,6 +1785,7 @@ function App() {
   const [autoPhishingDetection, setAutoPhishingDetection] = useState(true);
   const [autoMarkReadDelay, setAutoMarkReadDelay] = useState(2); // seconds
   const [appSettings, setAppSettings] = useState<SettingsType>(DEFAULT_SETTINGS);
+  const [showDomainHarvest, setShowDomainHarvest] = useState(false);
 
   // Load settings from localStorage
   const loadSettings = useCallback(() => {
@@ -3367,6 +3380,7 @@ function App() {
         onFiltersClick={() => setCurrentPage('filters')}
         onComposeClick={() => openCompose('new')}
         onSyncClick={handleSync}
+        onOsintClick={() => setShowDomainHarvest(true)}
         isSyncing={isSyncing}
         searchQuery={searchQuery}
         onSearchChange={handleSearchChange}
@@ -3500,6 +3514,12 @@ function App() {
 
       <ShortcutsHelp isOpen={shortcutsHelpOpen} onClose={() => setShortcutsHelpOpen(false)} />
 
+      {showDomainHarvest && (
+        <DomainHarvestModal
+          settings={appSettings}
+          onClose={() => setShowDomainHarvest(false)}
+        />
+      )}
 
     </div>
   );
