@@ -31,6 +31,16 @@ function getNestedValue(obj: Record<string, unknown>, path: string): string | un
 
 const locales: Record<string, Translations> = { en, tr };
 
+function applyTheme(theme?: string) {
+  const resolved = theme || 'dark';
+  if (resolved === 'system') {
+    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.dataset.theme = isDark ? 'dark' : 'light';
+  } else {
+    document.documentElement.dataset.theme = resolved;
+  }
+}
+
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [lang, setLangState] = useState(() => {
     try {
@@ -59,7 +69,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     } catch { /* ignore */ }
   }, []);
 
-  // Listen for settings changes from other components
+  // Listen for settings changes from other components (language + theme)
   useEffect(() => {
     const handler = () => {
       try {
@@ -69,6 +79,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
           if (settings.language && settings.language !== lang) {
             setLangState(settings.language);
           }
+          applyTheme(settings.theme);
         }
       } catch { /* ignore */ }
     };
@@ -76,6 +87,24 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener('owlivion-settings-updated', handler);
     return () => window.removeEventListener('owlivion-settings-updated', handler);
   }, [lang]);
+
+  // Apply theme to document on mount and when system preference changes
+  useEffect(() => {
+    const saved = localStorage.getItem('owlivion-settings');
+    const settings = saved ? JSON.parse(saved) : {};
+    applyTheme(settings.theme);
+
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const systemHandler = () => {
+      const s = localStorage.getItem('owlivion-settings');
+      const st = s ? JSON.parse(s) : {};
+      if (st.theme === 'system') {
+        applyTheme('system');
+      }
+    };
+    mediaQuery.addEventListener('change', systemHandler);
+    return () => mediaQuery.removeEventListener('change', systemHandler);
+  }, []);
 
   return React.createElement(
     LanguageContext.Provider,

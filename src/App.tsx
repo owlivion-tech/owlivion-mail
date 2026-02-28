@@ -39,7 +39,7 @@ function sanitizeEmailHtml(html: string, blockImages: boolean = true, imageHidde
   // First: Block images if requested (before DOMPurify strips them)
   let processed = html;
   if (blockImages) {
-    processed = processed.replace(/<img[^>]*>/gi, `<div style="background: #1a1a24; padding: 20px; text-align: center; color: #71717a; border-radius: 8px; margin: 10px 0;">${imageHiddenText}</div>`);
+    processed = processed.replace(/<img[^>]*>/gi, `<div class="blocked-image">${imageHiddenText}</div>`);
   }
 
   // Config that allows images when not blocked

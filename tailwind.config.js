@@ -7,18 +7,18 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Owlivion Dark Theme
-        'owl-bg': '#0a0a0f',
-        'owl-surface': '#12121a',
-        'owl-surface-2': '#1a1a24',
-        'owl-border': '#2a2a3a',
-        'owl-text': '#e4e4e7',
-        'owl-text-secondary': '#71717a',
-        'owl-accent': '#8b5cf6',
-        'owl-accent-hover': '#7c3aed',
-        'owl-success': '#22c55e',
-        'owl-warning': '#f59e0b',
-        'owl-error': '#ef4444',
+        // Owlivion Theme - CSS variable based (dark/light)
+        'owl-bg': 'rgb(var(--owl-bg) / <alpha-value>)',
+        'owl-surface': 'rgb(var(--owl-surface) / <alpha-value>)',
+        'owl-surface-2': 'rgb(var(--owl-surface-2) / <alpha-value>)',
+        'owl-border': 'rgb(var(--owl-border) / <alpha-value>)',
+        'owl-text': 'rgb(var(--owl-text) / <alpha-value>)',
+        'owl-text-secondary': 'rgb(var(--owl-text-secondary) / <alpha-value>)',
+        'owl-accent': 'rgb(var(--owl-accent) / <alpha-value>)',
+        'owl-accent-hover': 'rgb(var(--owl-accent-hover) / <alpha-value>)',
+        'owl-success': 'rgb(var(--owl-success) / <alpha-value>)',
+        'owl-warning': 'rgb(var(--owl-warning) / <alpha-value>)',
+        'owl-error': 'rgb(var(--owl-error) / <alpha-value>)',
       },
       fontFamily: {
         sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],

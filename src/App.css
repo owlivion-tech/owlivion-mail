@@ -5,6 +5,46 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================================
+   Theme CSS Variables
+   Space-separated RGB values for Tailwind alpha support: rgb(var(--x) / 0.5)
+   ============================================================================ */
+:root {
+  /* Dark theme (default) */
+  --owl-bg: 10 10 15;
+  --owl-surface: 18 18 26;
+  --owl-surface-2: 26 26 36;
+  --owl-border: 42 42 58;
+  --owl-text: 228 228 231;
+  --owl-text-secondary: 113 113 122;
+  --owl-accent: 139 92 246;
+  --owl-accent-hover: 124 58 237;
+  --owl-success: 34 197 94;
+  --owl-warning: 245 158 11;
+  --owl-error: 239 68 68;
+
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  --owl-bg: 248 250 252;
+  --owl-surface: 255 255 255;
+  --owl-surface-2: 241 245 249;
+  --owl-border: 226 232 240;
+  --owl-text: 30 41 59;
+  --owl-text-secondary: 100 116 139;
+  --owl-accent: 139 92 246;
+  --owl-accent-hover: 124 58 237;
+  --owl-success: 34 197 94;
+  --owl-warning: 245 158 11;
+  --owl-error: 239 68 68;
+
+  color-scheme: light;
+}
+
+/* ============================================================================
+   Global Reset & Base
+   ============================================================================ */
 * {
   margin: 0;
   padding: 0;
@@ -18,8 +58,8 @@ html, body, #root {
 
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  background-color: #0a0a0f;
-  color: #e4e4e7;
+  background-color: rgb(var(--owl-bg));
+  color: rgb(var(--owl-text));
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -35,18 +75,22 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #2a2a3a;
+  background: rgb(var(--owl-border));
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3a3a4a;
+  background: rgb(var(--owl-text-secondary));
 }
 
 /* Selection */
 ::selection {
-  background: rgba(139, 92, 246, 0.3);
+  background: rgb(var(--owl-accent) / 0.3);
   color: #fff;
+}
+
+[data-theme="light"] ::selection {
+  color: #000;
 }
 
 /* Focus Ring */
@@ -55,38 +99,52 @@ body {
 }
 
 *:focus-visible {
-  outline: 2px solid #8b5cf6;
+  outline: 2px solid rgb(var(--owl-accent));
   outline-offset: 2px;
 }
 
-/* Email Content Styles - Force dark mode on light-themed email HTML */
+/* ============================================================================
+   Email Content Styles
+   Dark mode: Force dark colors on light-themed email HTML
+   Light mode: Let email's own styles render naturally
+   ============================================================================ */
 .email-content {
   line-height: 1.6;
+}
+
+/* Dark mode email forcing */
+:root:not([data-theme="light"]) .email-content {
   color: #d4d4d8 !important;
   background-color: transparent !important;
 }
 
-.email-content div,
-.email-content td,
-.email-content th,
-.email-content table,
-.email-content tr,
-.email-content tbody,
-.email-content thead,
-.email-content section,
-.email-content article,
-.email-content header,
-.email-content footer,
-.email-content span,
-.email-content p,
-.email-content h1, .email-content h2, .email-content h3,
-.email-content h4, .email-content h5, .email-content h6,
-.email-content li, .email-content ul, .email-content ol {
+:root:not([data-theme="light"]) .email-content div,
+:root:not([data-theme="light"]) .email-content td,
+:root:not([data-theme="light"]) .email-content th,
+:root:not([data-theme="light"]) .email-content table,
+:root:not([data-theme="light"]) .email-content tr,
+:root:not([data-theme="light"]) .email-content tbody,
+:root:not([data-theme="light"]) .email-content thead,
+:root:not([data-theme="light"]) .email-content section,
+:root:not([data-theme="light"]) .email-content article,
+:root:not([data-theme="light"]) .email-content header,
+:root:not([data-theme="light"]) .email-content footer,
+:root:not([data-theme="light"]) .email-content span,
+:root:not([data-theme="light"]) .email-content p,
+:root:not([data-theme="light"]) .email-content h1,
+:root:not([data-theme="light"]) .email-content h2,
+:root:not([data-theme="light"]) .email-content h3,
+:root:not([data-theme="light"]) .email-content h4,
+:root:not([data-theme="light"]) .email-content h5,
+:root:not([data-theme="light"]) .email-content h6,
+:root:not([data-theme="light"]) .email-content li,
+:root:not([data-theme="light"]) .email-content ul,
+:root:not([data-theme="light"]) .email-content ol {
   background-color: transparent !important;
   color: #d4d4d8 !important;
 }
 
-.email-content a {
+:root:not([data-theme="light"]) .email-content a {
   color: #a78bfa !important;
   text-decoration: underline;
 }
@@ -96,29 +154,41 @@ body {
   height: auto;
 }
 
-.email-content hr {
+:root:not([data-theme="light"]) .email-content hr {
   border-color: #2a2a3a !important;
 }
 
-.email-content td, .email-content th {
+:root:not([data-theme="light"]) .email-content td,
+:root:not([data-theme="light"]) .email-content th {
   border-color: #2a2a3a !important;
 }
 
-.email-content blockquote {
+:root:not([data-theme="light"]) .email-content blockquote {
   border-left: 3px solid #3a3a4a !important;
   padding-left: 1rem;
   margin: 1rem 0;
   color: #a1a1aa !important;
 }
 
-.email-content strong, .email-content b {
+:root:not([data-theme="light"]) .email-content strong,
+:root:not([data-theme="light"]) .email-content b {
   color: #e4e4e7 !important;
+}
+
+/* Blocked image placeholder - theme-aware */
+.blocked-image {
+  background: rgb(var(--owl-surface-2));
+  padding: 20px;
+  text-align: center;
+  color: rgb(var(--owl-text-secondary));
+  border-radius: 8px;
+  margin: 10px 0;
 }
 
 /* Command Palette Backdrop */
 .command-backdrop {
   backdrop-filter: blur(8px);
-  background: rgba(10, 10, 15, 0.8);
+  background: rgb(var(--owl-bg) / 0.8);
 }
 
 /* Animations */
@@ -154,36 +224,55 @@ body {
   filter: hue-rotate(230deg) saturate(2) brightness(1.2);
 }
 
-/* Dark themed select dropdowns - Settings and all forms */
+[data-theme="light"] .logo-purple {
+  filter: hue-rotate(230deg) saturate(1.5) brightness(0.9);
+}
+
+/* Themed select dropdowns */
 select,
 select.bg-owl-bg,
 .settings-panel select,
 [class*="settings"] select {
-  background-color: #0a0a0f !important;
-  color: #e4e4e7 !important;
-  border-color: #2a2a3a !important;
+  background-color: rgb(var(--owl-bg)) !important;
+  color: rgb(var(--owl-text)) !important;
+  border-color: rgb(var(--owl-border)) !important;
   -webkit-appearance: none !important;
   -moz-appearance: none !important;
   appearance: none !important;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2371717a'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E") !important;
   background-repeat: no-repeat !important;
   background-position: right 0.75rem center !important;
   background-size: 1rem !important;
   padding-right: 2.5rem !important;
 }
 
+/* Select arrow - dark mode */
+:root:not([data-theme="light"]) select,
+:root:not([data-theme="light"]) select.bg-owl-bg,
+:root:not([data-theme="light"]) .settings-panel select,
+:root:not([data-theme="light"]) [class*="settings"] select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2371717a'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E") !important;
+}
+
+/* Select arrow - light mode */
+[data-theme="light"] select,
+[data-theme="light"] select.bg-owl-bg,
+[data-theme="light"] .settings-panel select,
+[data-theme="light"] [class*="settings"] select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E") !important;
+}
+
 select option,
 select.bg-owl-bg option {
-  background-color: #0a0a0f !important;
-  color: #e4e4e7 !important;
+  background-color: rgb(var(--owl-bg)) !important;
+  color: rgb(var(--owl-text)) !important;
   padding: 8px 12px;
 }
 
 select option:hover,
 select option:focus,
 select option:checked {
-  background-color: #2a2a3a !important;
-  color: #fff !important;
+  background-color: rgb(var(--owl-surface-2)) !important;
+  color: rgb(var(--owl-text)) !important;
 }
 
 /* Webkit dropdown menu styling */
@@ -192,37 +281,32 @@ select::-webkit-scrollbar {
 }
 
 select::-webkit-scrollbar-track {
-  background: #1a1a24;
+  background: rgb(var(--owl-surface));
 }
 
 select::-webkit-scrollbar-thumb {
-  background: #3a3a4a;
+  background: rgb(var(--owl-text-secondary));
   border-radius: 4px;
 }
 
 /* Firefox specific */
 @-moz-document url-prefix() {
   select {
-    background-color: #0a0a0f !important;
-    color: #e4e4e7 !important;
+    background-color: rgb(var(--owl-bg)) !important;
+    color: rgb(var(--owl-text)) !important;
   }
   select option {
-    background-color: #0a0a0f !important;
-    color: #e4e4e7 !important;
+    background-color: rgb(var(--owl-bg)) !important;
+    color: rgb(var(--owl-text)) !important;
   }
 }
 
-/* Toggle switches - ensure proper dark theme colors */
-button[type="button"].rounded-full {
-  /* Toggle background when off */
-}
-
-/* Input and form elements in dark theme */
+/* Input and form elements - inherit theme color scheme */
 input[type="text"],
 input[type="email"],
 input[type="password"],
 input[type="number"] {
-  color-scheme: dark;
+  color-scheme: inherit;
 }
 
 /* ============================================================================
@@ -231,7 +315,7 @@ input[type="number"] {
 
 /* Prose (TipTap content) */
 .prose {
-  color: #e4e4e7;
+  color: rgb(var(--owl-text));
   max-width: none;
 }
 
@@ -248,7 +332,7 @@ input[type="number"] {
 }
 
 .prose h1, .prose h2, .prose h3 {
-  color: #fff;
+  color: rgb(var(--owl-text));
   font-weight: 600;
   margin: 1.5rem 0 0.75rem;
 }
@@ -258,7 +342,7 @@ input[type="number"] {
 .prose h3 { font-size: 1.25rem; line-height: 1.75rem; }
 
 .prose strong, .prose b {
-  color: #fff;
+  color: rgb(var(--owl-text));
   font-weight: 600;
 }
 
@@ -271,12 +355,12 @@ input[type="number"] {
 }
 
 .prose a {
-  color: #8b5cf6;
+  color: rgb(var(--owl-accent));
   text-decoration: underline;
 }
 
 .prose a:hover {
-  color: #a78bfa;
+  color: rgb(var(--owl-accent-hover));
 }
 
 .prose ul, .prose ol {
@@ -297,16 +381,16 @@ input[type="number"] {
 }
 
 .prose blockquote {
-  border-left: 3px solid #8b5cf6;
+  border-left: 3px solid rgb(var(--owl-accent));
   padding-left: 1rem;
   margin: 1rem 0;
-  color: #a1a1aa;
+  color: rgb(var(--owl-text-secondary));
   font-style: italic;
 }
 
 .prose pre {
-  background: #1a1a24;
-  border: 1px solid #2a2a3a;
+  background: rgb(var(--owl-surface-2));
+  border: 1px solid rgb(var(--owl-border));
   border-radius: 0.5rem;
   padding: 1rem;
   overflow-x: auto;
@@ -314,8 +398,8 @@ input[type="number"] {
 }
 
 .prose code {
-  background: #1a1a24;
-  border: 1px solid #2a2a3a;
+  background: rgb(var(--owl-surface-2));
+  border: 1px solid rgb(var(--owl-border));
   border-radius: 0.25rem;
   padding: 0.125rem 0.25rem;
   font-family: 'Courier New', monospace;
@@ -339,7 +423,7 @@ input[type="number"] {
 .ProseMirror p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   float: left;
-  color: #71717a;
+  color: rgb(var(--owl-text-secondary));
   pointer-events: none;
   height: 0;
 }
@@ -351,7 +435,7 @@ input[type="number"] {
 
 /* TipTap selection */
 .ProseMirror ::selection {
-  background: rgba(139, 92, 246, 0.3);
+  background: rgb(var(--owl-accent) / 0.3);
 }
 
 /* Ensure proper spacing in editor */

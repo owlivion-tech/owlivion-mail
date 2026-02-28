@@ -40,7 +40,7 @@ const purifyConfig = {
 function sanitizeEmailHtml(html: string, blockImages: boolean = true): string {
   let processed = html;
   if (blockImages) {
-    processed = processed.replace(/<img[^>]*>/gi, '<div style="background: #1a1a24; padding: 12px; text-align: center; color: #71717a; border-radius: 8px; margin: 8px 0; font-size: 13px;">[Resim gizlendi]</div>');
+    processed = processed.replace(/<img[^>]*>/gi, '<div class="blocked-image" style="font-size: 13px;">[Image hidden]</div>');
   }
 
   const config = blockImages ? purifyConfig : {

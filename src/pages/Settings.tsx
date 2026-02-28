@@ -28,7 +28,7 @@ interface SettingsProps {
 const defaultSettings: SettingsType = {
   // Appearance
   theme: 'dark',
-  language: 'tr',
+  language: 'en',
   compactListView: false,
   showAvatars: true,
   conversationView: true,

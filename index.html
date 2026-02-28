@@ -8,6 +8,20 @@
   </head>
 
   <body>
+    <script>
+      // Prevent FOUC: apply theme before first paint
+      try {
+        var s = JSON.parse(localStorage.getItem('owlivion-settings') || '{}');
+        var t = s.theme || 'dark';
+        if (t === 'system') {
+          document.documentElement.dataset.theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        } else {
+          document.documentElement.dataset.theme = t;
+        }
+      } catch(e) {
+        document.documentElement.dataset.theme = 'dark';
+      }
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
