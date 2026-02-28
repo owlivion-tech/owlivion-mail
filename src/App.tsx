@@ -606,7 +606,7 @@ function MailPanel({
     }
 
     // Apply sorting
-    const dir = sortDirection === 'asc' ? 1 : -1;
+    const dir = sortDirection === 'desc' ? 1 : -1;
     result = [...result].sort((a, b) => {
       let cmp = 0;
       switch (sortBy) {
@@ -2610,7 +2610,7 @@ function App() {
     }
 
     // Apply sorting
-    const dir = sortDirection === 'asc' ? 1 : -1;
+    const dir = sortDirection === 'desc' ? 1 : -1;
     result = [...result].sort((a, b) => {
       let cmp = 0;
       switch (sortBy) {
