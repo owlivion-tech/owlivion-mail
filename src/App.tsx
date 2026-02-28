@@ -3484,13 +3484,6 @@ function App() {
 
       <ShortcutsHelp isOpen={shortcutsHelpOpen} onClose={() => setShortcutsHelpOpen(false)} />
 
-      {/* Keyboard hint */}
-      <div className="fixed bottom-4 right-4 flex items-center gap-2 text-xs text-owl-text-secondary bg-owl-surface px-3 py-2 rounded-lg border border-owl-border">
-        <Icons.Command />
-        <span>Press</span>
-        <kbd className="px-1.5 py-0.5 bg-owl-bg rounded">?</kbd>
-        <span>for shortcuts</span>
-      </div>
 
     </div>
   );

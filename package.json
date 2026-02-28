@@ -13,7 +13,8 @@
     "build:linux": "./scripts/build-linux.sh",
     "build:deb": "pnpm tauri build --bundles deb",
     "build:appimage": "pnpm tauri build --bundles appimage",
-    "check:deps": "./scripts/check-build-deps.sh"
+    "check:deps": "./scripts/check-build-deps.sh",
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
