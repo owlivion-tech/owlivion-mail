@@ -116,6 +116,46 @@ Only return valid JSON array, no markdown."#,
         self.send_message(&prompt).await
     }
 
+    /// Discover likely email addresses for a domain using AI reasoning + deep OSINT context
+    pub async fn discover_emails(
+        &self,
+        domain: &str,
+        context: &str,
+    ) -> Result<String, String> {
+        let prompt = format!(
+            r#"You are an OSINT analyst. Given the following domain intelligence, discover and suggest the most likely email addresses that exist for this organization.
+
+Domain: {domain}
+
+Intelligence gathered:
+{context}
+
+Based on ALL the intelligence above (subdomains, DNS records, MX servers, SPF records, SMTP banners, WHOIS data, and any emails already found), reason about:
+1. What kind of organization this is (tech company, agency, e-commerce, etc.)
+2. What email infrastructure they use (Outlook 365, Google Workspace, self-hosted, etc.)
+3. What email naming patterns they likely use (first.last@, first@, f.last@, etc.)
+4. What departments they likely have based on subdomains (training, career, cdn, etc.)
+
+Return a JSON array with discovered/inferred email addresses:
+[
+  {{"email": "example@{domain}", "confidence": "high|medium|low", "reason": "Why this email likely exists"}}
+]
+
+Rules:
+- Generate 5-20 realistic email addresses for @{domain}
+- Include common organizational ones (info@, contact@, admin@, support@, hr@, careers@)
+- Infer department emails from subdomains (e.g. training subdomain → training@, egitim@)
+- Infer role-based emails (ceo@, cto@, founder@, director@, manager@)
+- If WHOIS shows person names, generate name-based emails using common patterns
+- Prioritize high-confidence ones (found on website, implied by infrastructure)
+- Only return valid JSON array, no markdown or explanation."#,
+            domain = domain,
+            context = &context[..context.len().min(6000)],
+        );
+
+        self.send_message(&prompt).await
+    }
+
     /// Send a message to Claude API
     async fn send_message(&self, prompt: &str) -> Result<String, String> {
         let request = ClaudeRequest {

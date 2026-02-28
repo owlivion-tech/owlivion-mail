@@ -66,8 +66,8 @@ impl DockerClient {
         }
     }
 
-    /// Harvest emails from a domain using theHarvester + crt.sh
-    pub async fn email_harvest(&self, domain: &str, depth: u32) -> DockerResult {
+    /// Deep email harvest from a domain using multiple OSINT techniques
+    pub async fn email_harvest(&self, domain: &str, _depth: u32) -> DockerResult {
         // SECURITY: Validate domain to prevent command injection
         let sanitized = sanitize_domain(domain);
         if sanitized.is_empty() {
@@ -78,13 +78,43 @@ impl DockerClient {
             };
         }
 
+        // Multi-source deep harvest:
+        // 1. Website crawl (main page links + common pages + subdomains)
+        // 2. DNS intelligence (MX, SPF, DMARC, TXT)
+        // 3. SMTP recon (open ports, server banner)
+        // 4. WHOIS registrant info
+        // 5. crt.sh certificate transparency (subdomains)
+        // 6. theHarvester (if available)
         let cmd = format!(
-            "theHarvester -d {} -b all -l {} 2>/dev/null || echo 'theHarvester not available'; \
-             echo '---SEPARATOR---'; \
-             curl -s 'https://crt.sh/?q=%.{}&output=json' 2>/dev/null | head -c 50000 || echo '[]'",
-            sanitized,
-            depth.min(500),
-            sanitized
+            r#"echo '=== WEBSITE_EMAILS ===';
+for url in 'https://{d}' 'https://{d}/contact' 'https://{d}/about' 'https://{d}/iletisim' 'https://{d}/impressum' 'https://{d}/team' 'https://{d}/people' 'https://{d}/kurumsal' 'https://{d}/hakkimizda' 'https://www.{d}'; do
+  curl -sL --max-time 5 "$url" 2>/dev/null;
+done | grep -oE '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{{2,}}' | sort -u;
+echo '=== DEEP_CRAWL_EMAILS ===';
+LINKS=$(curl -sL --max-time 8 'https://{d}' 2>/dev/null | grep -oE 'href="[^"]*"' | sed 's/href="//;s/"//' | grep -E '^/' | sort -u | head -40);
+for link in $LINKS; do
+  curl -sL --max-time 4 "https://{d}$link" 2>/dev/null;
+done | grep -oE '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{{2,}}' | sort -u;
+echo '=== CRT_SH_JSON ===';
+curl -s --max-time 15 'https://crt.sh/?q=%.{d}&output=json' 2>/dev/null | head -c 50000 || echo '[]';
+echo;
+echo '=== SUBDOMAIN_EMAILS ===';
+SUBS=$(curl -s --max-time 15 'https://crt.sh/?q=%.{d}&output=json' 2>/dev/null | grep -oE '"name_value":"[^"]*"' | sed 's/"name_value":"//;s/"//' | tr '\\n' '\n' | grep -v '\*' | sort -u | head -15);
+for sub in $SUBS; do
+  curl -sL --max-time 4 "https://$sub" 2>/dev/null;
+done | grep -oE '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{{2,}}' | sort -u;
+echo '=== DNS_INTEL ===';
+echo 'MX:'; dig {d} MX +short 2>/dev/null;
+echo 'SPF:'; dig {d} TXT +short 2>/dev/null | grep -i spf;
+echo 'DMARC:'; dig _dmarc.{d} TXT +short 2>/dev/null;
+echo 'NS:'; dig {d} NS +short 2>/dev/null;
+echo '=== WHOIS_INFO ===';
+whois {d} 2>/dev/null | grep -iE 'registrant|admin|tech|email|e-mail|organization|org-name|person|phone' | head -30;
+echo '=== SMTP_RECON ===';
+nmap -Pn -p 25,587,465 --script smtp-commands,smtp-enum-users {d} 2>/dev/null | head -30;
+echo '=== THEHARVESTER ===';
+theHarvester -d {d} -b all -l 200 2>/dev/null || echo 'not available'"#,
+            d = sanitized,
         );
         self.exec(&cmd).await
     }

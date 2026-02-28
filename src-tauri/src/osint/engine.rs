@@ -166,7 +166,7 @@ impl OsintEngine {
         Ok(profile)
     }
 
-    /// Harvest company emails from a domain
+    /// Harvest company emails from a domain using deep OSINT
     pub async fn harvest_company_emails(
         &self,
         domain: &str,
@@ -179,20 +179,96 @@ impl OsintEngine {
         }
 
         let mut discovered_emails: Vec<String> = Vec::new();
+        let mut subdomains: Vec<String> = Vec::new();
+        let mut intel_context = String::new();
 
-        // Use Docker for email harvesting
+        // Use Docker for deep email harvesting
         if self.docker.is_available().await {
             let harvest_result = self.docker.email_harvest(domain, 200).await;
             if harvest_result.success {
-                // Parse emails from theHarvester + crt.sh output
-                for line in harvest_result.output.lines() {
-                    let trimmed = line.trim();
-                    if trimmed.contains('@') && trimmed.contains('.') {
-                        // Extract email-like patterns
-                        for word in trimmed.split_whitespace() {
-                            let cleaned = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '@' && c != '.' && c != '-' && c != '_');
-                            if cleaned.contains('@') && cleaned.contains('.') && cleaned.len() <= 254 {
-                                discovered_emails.push(cleaned.to_lowercase());
+                let output = &harvest_result.output;
+
+                // Helper: extract emails from a section between two markers
+                let extract_emails_from_section = |start_marker: &str, end_markers: &[&str]| -> Vec<String> {
+                    let mut emails = Vec::new();
+                    if let Some(start) = output.find(start_marker) {
+                        let section = &output[start..];
+                        let end = end_markers.iter()
+                            .filter_map(|m| section.find(m))
+                            .min()
+                            .unwrap_or(section.len());
+                        for line in section[..end].lines().skip(1) {
+                            let trimmed = line.trim();
+                            if trimmed.contains('@') && trimmed.contains('.') && trimmed.len() <= 254 {
+                                let cleaned = trimmed.trim_matches(|c: char| !c.is_alphanumeric() && c != '@' && c != '.' && c != '-' && c != '_' && c != '+');
+                                if cleaned.contains('@') {
+                                    emails.push(cleaned.to_lowercase());
+                                }
+                            }
+                        }
+                    }
+                    emails
+                };
+
+                // Parse all email sections
+                let end_markers_web = &["=== DEEP_CRAWL_EMAILS ===", "=== CRT_SH_JSON ==="];
+                discovered_emails.extend(extract_emails_from_section("=== WEBSITE_EMAILS ===", end_markers_web));
+
+                let end_markers_crawl = &["=== CRT_SH_JSON ==="];
+                discovered_emails.extend(extract_emails_from_section("=== DEEP_CRAWL_EMAILS ===", end_markers_crawl));
+
+                let end_markers_sub = &["=== DNS_INTEL ==="];
+                discovered_emails.extend(extract_emails_from_section("=== SUBDOMAIN_EMAILS ===", end_markers_sub));
+
+                let end_markers_th: &[&str] = &[];
+                discovered_emails.extend(extract_emails_from_section("=== THEHARVESTER ===", end_markers_th));
+
+                // Parse CRT_SH_JSON for subdomains
+                if let Some(crt_start) = output.find("=== CRT_SH_JSON ===") {
+                    let crt_section = &output[crt_start..];
+                    let crt_end = crt_section.find("=== SUBDOMAIN_EMAILS ===").unwrap_or(crt_section.len());
+                    let json_str = crt_section["=== CRT_SH_JSON ===".len()..crt_end].trim();
+                    if let Ok(certs) = serde_json::from_str::<Vec<serde_json::Value>>(json_str) {
+                        for cert in &certs {
+                            if let Some(name_value) = cert["name_value"].as_str() {
+                                for name in name_value.lines() {
+                                    let name = name.trim().trim_start_matches("*.");
+                                    if !name.is_empty() && name.contains('.') && !subdomains.contains(&name.to_string()) {
+                                        subdomains.push(name.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Collect DNS/WHOIS/SMTP intelligence for AI context
+                for section_name in &["DNS_INTEL", "WHOIS_INFO", "SMTP_RECON"] {
+                    let marker = format!("=== {} ===", section_name);
+                    if let Some(start) = output.find(&marker) {
+                        let section = &output[start..];
+                        let next_marker = section[marker.len()..].find("=== ").map(|p| p + marker.len()).unwrap_or(section.len());
+                        let content = section[..next_marker].trim();
+                        if !content.is_empty() {
+                            intel_context.push_str(content);
+                            intel_context.push('\n');
+                        }
+                    }
+                }
+
+                // Extract emails from WHOIS section too
+                if let Some(whois_start) = output.find("=== WHOIS_INFO ===") {
+                    let whois_section = &output[whois_start..];
+                    let whois_end = whois_section.find("=== SMTP_RECON ===").unwrap_or(whois_section.len());
+                    for line in whois_section[..whois_end].lines() {
+                        if line.contains('@') {
+                            // Extract email from line like "Registrant Email: foo@bar.com"
+                            let after_colon = line.split(':').last().unwrap_or("").trim();
+                            if after_colon.contains('@') && after_colon.contains('.') && after_colon.len() <= 254 {
+                                let cleaned = after_colon.trim_matches(|c: char| !c.is_alphanumeric() && c != '@' && c != '.' && c != '-' && c != '_');
+                                if cleaned.contains('@') && !cleaned.is_empty() {
+                                    discovered_emails.push(cleaned.to_lowercase());
+                                }
                             }
                         }
                     }
@@ -204,11 +280,46 @@ impl OsintEngine {
         discovered_emails.sort();
         discovered_emails.dedup();
 
+        // Always use Claude to discover additional emails when we have context
+        if let Some(ref api_key) = self.claude_api_key {
+            if !api_key.is_empty() {
+                let claude = ClaudeClient::new(api_key);
+                let context = format!(
+                    "Domain: {}\nSubdomains (crt.sh): {}\nEmails found so far: {}\n\n{}",
+                    domain,
+                    if subdomains.is_empty() { "none".to_string() } else { subdomains.join(", ") },
+                    if discovered_emails.is_empty() { "none".to_string() } else { discovered_emails.join(", ") },
+                    intel_context
+                );
+                match claude.discover_emails(domain, &context).await {
+                    Ok(emails_json) => {
+                        if let Ok(emails) = serde_json::from_str::<Vec<serde_json::Value>>(&emails_json) {
+                            for item in &emails {
+                                if let Some(email) = item["email"].as_str() {
+                                    let email_lower = email.to_lowercase();
+                                    if email_lower.contains('@') && email_lower.contains('.') && !discovered_emails.contains(&email_lower) {
+                                        discovered_emails.push(email_lower);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("Claude email discovery failed: {}", e);
+                    }
+                }
+            }
+        }
+
+        // Final deduplicate
+        discovered_emails.sort();
+        discovered_emails.dedup();
+
         if discovered_emails.is_empty() {
             return Ok(Vec::new());
         }
 
-        // AI classification if available
+        // AI classification
         let mut company_emails: Vec<CompanyEmail> = Vec::new();
 
         if let Some(ref api_key) = self.claude_api_key {
@@ -239,7 +350,7 @@ impl OsintEngine {
                                     email,
                                     name: item["estimated_name"].as_str().map(|s| s.to_string()),
                                     job_title: item["estimated_title"].as_str().map(|s| s.to_string()),
-                                    source: Some("theHarvester+AI".to_string()),
+                                    source: Some("deep-harvest+AI".to_string()),
                                     importance: importance.to_string(),
                                     importance_reason: item["reason"].as_str().map(|s| s.to_string()),
                                     is_auto_starred: importance == "vip" || importance == "high",
@@ -257,7 +368,7 @@ impl OsintEngine {
             }
         }
 
-        // If no AI, store raw emails with default importance
+        // Fallback: store raw emails with heuristic importance
         if company_emails.is_empty() {
             for email in &discovered_emails {
                 let importance = guess_importance_from_email(email);
@@ -267,7 +378,7 @@ impl OsintEngine {
                     email: email.clone(),
                     name: None,
                     job_title: None,
-                    source: Some("theHarvester".to_string()),
+                    source: Some("deep-harvest".to_string()),
                     importance: importance.to_string(),
                     importance_reason: None,
                     is_auto_starred: importance == "vip" || importance == "high",
