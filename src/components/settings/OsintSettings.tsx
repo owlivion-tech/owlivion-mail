@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from '../../i18n';
 import type { Settings, OsintExclusion } from '../../types';
+import { DEFAULT_SETTINGS } from '../../types';
 import * as osintService from '../../services/osintService';
 
 interface OsintSettingsProps {
@@ -48,9 +49,10 @@ export function OsintSettings({ settings, onSettingsChange }: OsintSettingsProps
 
   // Check Claude API key
   const checkClaude = useCallback(() => {
-    if (settings.osintClaudeApiKey && settings.osintClaudeApiKey.startsWith('sk-ant-')) {
+    const key = settings.osintClaudeApiKey || DEFAULT_SETTINGS.osintClaudeApiKey || '';
+    if (key.startsWith('sk-ant')) {
       setClaudeStatus('valid');
-    } else if (settings.osintClaudeApiKey && settings.osintClaudeApiKey.length > 0) {
+    } else if (key.length > 0) {
       setClaudeStatus('invalid');
     } else {
       setClaudeStatus('unchecked');
