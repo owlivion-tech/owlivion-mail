@@ -1767,6 +1767,10 @@ export const en = {
     patternPlaceholder: 'e.g. example.com or noreply',
     privacyNote: 'Privacy Notice',
     privacyNoteDesc: 'OSINT data is collected from public sources. AI analysis is performed via Claude API. All data is stored locally. Use responsibly.',
+    domainHarvest: 'Domain Harvest',
+    domainHarvestDesc: 'Discover email addresses from any domain',
+    harvestingDomain: 'Harvesting domain emails...',
+    domainHarvestHint: 'Enter a domain to discover email addresses',
   },
 } as const;
 

@@ -1770,5 +1770,9 @@ export const tr: TranslationKeys = {
     patternPlaceholder: 'ör. example.com veya noreply',
     privacyNote: 'Gizlilik Bildirimi',
     privacyNoteDesc: 'OSINT verileri kamuya açık kaynaklardan toplanır. AI analizi Claude API üzerinden yapılır. Tüm veriler yerel olarak saklanır. Sorumlu kullanın.',
+    domainHarvest: 'Domain Harvest',
+    domainHarvestDesc: 'Herhangi bir domain\'den email adreslerini keşfedin',
+    harvestingDomain: 'Domain emailleri toplanıyor...',
+    domainHarvestHint: 'Email adreslerini keşfetmek için bir domain girin',
   },
 };
