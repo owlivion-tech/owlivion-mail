@@ -69,9 +69,9 @@ fn get_redirect_uri() -> String {
 pub fn gmail_config() -> OAuthConfig {
     OAuthConfig {
         client_id: std::env::var("GOOGLE_CLIENT_ID")
-            .unwrap_or_else(|_| "YOUR_GOOGLE_CLIENT_ID".to_string()),
+            .unwrap_or_else(|_| "846818433520-1bg0tb6hua12e7n8m87739u5p2gft9cu.apps.googleusercontent.com".to_string()),
         client_secret: std::env::var("GOOGLE_CLIENT_SECRET")
-            .unwrap_or_else(|_| "YOUR_GOOGLE_CLIENT_SECRET".to_string()),
+            .unwrap_or_else(|_| "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".to_string()),
         auth_url: "https://accounts.google.com/o/oauth2/v2/auth".to_string(),
         token_url: "https://oauth2.googleapis.com/token".to_string(),
         redirect_uri: get_redirect_uri(),
