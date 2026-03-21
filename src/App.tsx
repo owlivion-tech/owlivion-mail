@@ -231,7 +231,7 @@ function CompanyAvatar({ email, name, size = 'md', unread = false }: {
   // Show logo if available and not errored
   if (logoUrl && !logoError) {
     return (
-      <div className={`${baseClasses} ${isOwlivionDomain ? 'bg-owl-accent/10 p-1.5' : 'bg-white p-1'} border border-owl-border`}>
+      <div className={`${baseClasses} ${isOwlivionDomain ? 'bg-owl-accent/10 p-1.5' : 'bg-owl-surface p-1'} border border-owl-border/50`}>
         <img
           src={logoUrl}
           alt={name}

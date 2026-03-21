@@ -278,7 +278,7 @@ function SenderAvatar({ email, name, size = 'lg' }: { email: string; name: strin
 
   if (logoUrl && !logoError) {
     return (
-      <div className={`${sizeClasses[size]} rounded-full flex items-center justify-center shrink-0 ${isOwlivion ? 'bg-owl-accent/10 p-1.5' : 'bg-white p-1'} border border-owl-border/50`}>
+      <div className={`${sizeClasses[size]} rounded-full flex items-center justify-center shrink-0 ${isOwlivion ? 'bg-owl-accent/10 p-1.5' : 'bg-owl-surface p-1'} border border-owl-border/50`}>
         <img src={logoUrl} alt={name} className={`w-full h-full object-contain ${isOwlivion ? '' : 'rounded-full'}`} onError={() => setLogoError(true)} />
       </div>
     );
