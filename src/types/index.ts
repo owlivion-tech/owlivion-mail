@@ -333,7 +333,7 @@ export interface ComposeProps {
 }
 
 // Settings page tab
-export type SettingsTab = 'accounts' | 'general' | 'ai' | 'shortcuts' | 'signatures' | 'sync' | 'filters' | 'templates' | 'security';
+export type SettingsTab = 'accounts' | 'general' | 'ai' | 'shortcuts' | 'signatures' | 'sync' | 'filters' | 'templates';
 
 // AI Reply request
 export interface AIReplyRequest {

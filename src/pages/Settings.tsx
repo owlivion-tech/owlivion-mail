@@ -13,9 +13,6 @@ import { ShortcutsSettings } from '../components/settings/ShortcutsSettings';
 import { SignatureSettings } from '../components/settings/SignatureSettings';
 import { SyncSettings } from '../components/settings/SyncSettings';
 import { FilterSettings } from '../components/settings/FilterSettings';
-import { ActiveSessions } from '../components/settings/ActiveSessions';
-import { AuditLogViewer } from '../components/settings/AuditLogViewer';
-import { AuditStatsComponent } from '../components/settings/AuditStats';
 import TemplateSettings from '../components/settings/TemplateSettings';
 import { listAccounts } from '../services/mailService';
 import type { SettingsTab, Settings as SettingsType, Account } from '../types';
@@ -149,15 +146,6 @@ export function Settings({ onBack }: SettingsProps) {
         </svg>
       ),
     },
-    {
-      id: 'security',
-      label: t('settings.security'),
-      icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-        </svg>
-      ),
-    },
   ];
 
   // Load accounts from database
@@ -242,28 +230,6 @@ export function Settings({ onBack }: SettingsProps) {
       {activeTab === 'sync' && <SyncSettings onNavigateToMail={onBack} />}
       {activeTab === 'filters' && <FilterSettings accounts={accounts} />}
       {activeTab === 'templates' && <TemplateSettings accounts={accounts} />}
-      {activeTab === 'security' && (
-        <div className="space-y-8">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-              {t('settings.securitySettings.securityAndActivity')}
-            </h2>
-            <p className="text-gray-600 dark:text-gray-400">
-              {t('settings.securitySettings.securityAndActivityDesc')}
-            </p>
-          </div>
-          <ActiveSessions />
-          <hr className="border-gray-200 dark:border-gray-700" />
-          <div>
-            <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-              {t('settings.securitySettings.activityStats')}
-            </h3>
-            <AuditStatsComponent />
-          </div>
-          <hr className="border-gray-200 dark:border-gray-700" />
-          <AuditLogViewer />
-        </div>
-      )}
     </>
   );
 
