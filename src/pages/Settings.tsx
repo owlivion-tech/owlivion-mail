@@ -17,7 +17,6 @@ import { ActiveSessions } from '../components/settings/ActiveSessions';
 import { AuditLogViewer } from '../components/settings/AuditLogViewer';
 import { AuditStatsComponent } from '../components/settings/AuditStats';
 import TemplateSettings from '../components/settings/TemplateSettings';
-import { OsintSettings } from '../components/settings/OsintSettings';
 import { listAccounts } from '../services/mailService';
 import type { SettingsTab, Settings as SettingsType, Account } from '../types';
 
@@ -54,7 +53,12 @@ const defaultSettings: SettingsType = {
   autoSyncInterval: 5,
 
   // AI
+  aiProvider: 'gemini',
+  aiApiKey: undefined,
+  aiModel: undefined,
   geminiApiKey: '',
+  ollamaUrl: 'http://localhost:11434',
+  ollamaModel: 'llama3.2',
   aiAutoSummarize: true,
   aiReplyTone: 'professional',
   autoPhishingDetection: true, // Enabled by default for security
@@ -62,11 +66,6 @@ const defaultSettings: SettingsType = {
   // Shortcuts
   keyboardShortcutsEnabled: true,
 
-  // OSINT
-  osintEnabled: true,
-  osintAutoHarvest: false,
-  osintClaudeApiKey: 'REMOVED',
-  osintDockerContainer: 'mpc-kali',
 };
 
 export function Settings({ onBack }: SettingsProps) {
@@ -151,15 +150,6 @@ export function Settings({ onBack }: SettingsProps) {
       ),
     },
     {
-      id: 'osint',
-      label: t('settings.osint'),
-      icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
-        </svg>
-      ),
-    },
-    {
       id: 'security',
       label: t('settings.security'),
       icon: (
@@ -179,19 +169,23 @@ export function Settings({ onBack }: SettingsProps) {
           const frontendAccounts: Account[] = dbAccounts.map((acc: any) => ({
             id: acc.id,
             email: acc.email,
-            displayName: acc.display_name || acc.displayName || acc.email,
-            imapHost: acc.imap_host || acc.imapHost,
-            imapPort: acc.imap_port || acc.imapPort,
-            imapSecurity: acc.imap_security || acc.imapSecurity,
-            smtpHost: acc.smtp_host || acc.smtpHost,
-            smtpPort: acc.smtp_port || acc.smtpPort,
-            smtpSecurity: acc.smtp_security || acc.smtpSecurity,
-            isActive: acc.is_active ?? true,
-            isDefault: acc.is_default ?? true,
+            displayName: acc.displayName || acc.display_name || acc.email,
+            imapHost: acc.imapHost || acc.imap_host,
+            imapPort: acc.imapPort || acc.imap_port,
+            imapSecurity: acc.imapSecurity || acc.imap_security,
+            imapUsername: acc.imapUsername || acc.imap_username,
+            smtpHost: acc.smtpHost || acc.smtp_host,
+            smtpPort: acc.smtpPort || acc.smtp_port,
+            smtpSecurity: acc.smtpSecurity || acc.smtp_security,
+            smtpUsername: acc.smtpUsername || acc.smtp_username,
+            oauthProvider: acc.oauthProvider || acc.oauth_provider,
+            isActive: acc.isActive ?? acc.is_active ?? true,
+            isDefault: acc.isDefault ?? acc.is_default ?? true,
             signature: acc.signature || '',
-            syncDays: acc.sync_days || 30,
-            createdAt: acc.created_at || new Date().toISOString(),
-            updatedAt: acc.updated_at || new Date().toISOString(),
+            syncDays: acc.syncDays || acc.sync_days || 30,
+            acceptInvalidCerts: acc.acceptInvalidCerts ?? acc.accept_invalid_certs ?? false,
+            createdAt: acc.createdAt || acc.created_at || new Date().toISOString(),
+            updatedAt: acc.updatedAt || acc.updated_at || new Date().toISOString(),
           }));
           setAccounts(frontendAccounts);
         }
@@ -248,9 +242,6 @@ export function Settings({ onBack }: SettingsProps) {
       {activeTab === 'sync' && <SyncSettings onNavigateToMail={onBack} />}
       {activeTab === 'filters' && <FilterSettings accounts={accounts} />}
       {activeTab === 'templates' && <TemplateSettings accounts={accounts} />}
-      {activeTab === 'osint' && (
-        <OsintSettings settings={settings} onSettingsChange={handleSettingsChange} />
-      )}
       {activeTab === 'security' && (
         <div className="space-y-8">
           <div>

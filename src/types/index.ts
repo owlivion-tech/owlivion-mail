@@ -253,7 +253,12 @@ export interface Settings {
   closeToTray: boolean;
 
   // AI
-  geminiApiKey?: string;
+  aiProvider: 'gemini' | 'claude' | 'openai' | 'ollama';
+  aiApiKey?: string; // Universal API key (Gemini, Claude, or OpenAI)
+  aiModel?: string; // Optional model override
+  geminiApiKey?: string; // Legacy — migrated to aiApiKey
+  ollamaUrl: string;
+  ollamaModel: string;
   aiAutoSummarize: boolean;
   aiReplyTone: 'professional' | 'friendly' | 'formal' | 'casual';
   autoPhishingDetection: boolean; // Auto-analyze emails for phishing on selection
@@ -269,11 +274,6 @@ export interface Settings {
   accountPrioritySettings?: Record<string, boolean>; // accountId -> enabled
   unifiedInboxSortBy?: 'date' | 'account' | 'unread' | 'priority';
 
-  // OSINT
-  osintEnabled: boolean;
-  osintAutoHarvest: boolean;
-  osintClaudeApiKey?: string;
-  osintDockerContainer: string;
 }
 
 // Default settings
@@ -294,7 +294,12 @@ export const DEFAULT_SETTINGS: Settings = {
   signaturePosition: 'bottom',
   replyPosition: 'top',
   closeToTray: true,
+  aiProvider: 'gemini',
+  aiApiKey: undefined,
+  aiModel: undefined,
   geminiApiKey: undefined,
+  ollamaUrl: 'http://localhost:11434',
+  ollamaModel: 'llama3.2',
   aiAutoSummarize: false,
   aiReplyTone: 'professional',
   autoPhishingDetection: true, // Enabled by default for security
@@ -303,10 +308,6 @@ export const DEFAULT_SETTINGS: Settings = {
   autoSyncInterval: 5,
   accountPrioritySettings: {},
   unifiedInboxSortBy: 'priority',
-  osintEnabled: true,
-  osintAutoHarvest: false,
-  osintClaudeApiKey: 'REMOVED',
-  osintDockerContainer: 'mpc-kali',
 };
 
 // Sync status
@@ -332,7 +333,7 @@ export interface ComposeProps {
 }
 
 // Settings page tab
-export type SettingsTab = 'accounts' | 'general' | 'ai' | 'shortcuts' | 'signatures' | 'sync' | 'filters' | 'templates' | 'security' | 'osint';
+export type SettingsTab = 'accounts' | 'general' | 'ai' | 'shortcuts' | 'signatures' | 'sync' | 'filters' | 'templates' | 'security';
 
 // AI Reply request
 export interface AIReplyRequest {
@@ -990,6 +991,36 @@ export interface OsintExclusion {
   patternType: 'domain' | 'email' | 'regex';
   description?: string;
   createdAt: string;
+}
+
+export interface SpoofCheckResult {
+  domain: string;
+  spfRecord: string | null;
+  spfPolicy: string;
+  dmarcRecord: string | null;
+  dmarcPolicy: string;
+  dkimFound: boolean;
+  dkimSelectors: string[];
+  mxRecords: string[];
+  spoofable: boolean;
+  riskLevel: string;
+  summary: string;
+}
+
+export interface HarvestedSignature {
+  id: number;
+  domain: string;
+  signatureHtml: string;
+  signatureText?: string;
+  sourceType: 'inbox' | 'newsletter' | 'crawl';
+  sourceEmail?: string;
+  sourceUrl?: string;
+  senderName?: string;
+  senderTitle?: string;
+  confidence: number;
+  label?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface OsintHarvestResult {

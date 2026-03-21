@@ -74,7 +74,7 @@ export function SignatureSettings({ accounts, onAccountsChange }: SignatureSetti
   const [selectedTemplate, setSelectedTemplate] = useState<string>('none');
   const [customHtml, setCustomHtml] = useState<string>('');
   const [showPreview, setShowPreview] = useState(false);
-  const [signatureUrl, setSignatureUrl] = useState<string>('https://owlivion.com/mail/');
+  const [signatureUrl, setSignatureUrl] = useState<string>('https://');
   const [isLoadingUrl, setIsLoadingUrl] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isSaving, setIsSaving] = useState(false);

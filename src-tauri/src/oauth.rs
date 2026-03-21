@@ -62,7 +62,7 @@ fn get_redirect_uri() -> String {
     return "com.owlivion.mail://oauth/callback".to_string();
 
     #[cfg(not(target_os = "android"))]
-    return "http://localhost:8080/callback".to_string();
+    return "http://localhost:9090/callback".to_string();
 }
 
 /// Gmail OAuth2 configuration
@@ -239,14 +239,10 @@ pub fn start_callback_server(
     // Check if server is already running
     if OAUTH_SERVER_RUNNING.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
         log::warn!("OAuth server already running, waiting for it to finish...");
-        // Wait for the previous server to shut down
         for _ in 0..50 {
-            if !OAUTH_SERVER_RUNNING.load(Ordering::SeqCst) {
-                break;
-            }
+            if !OAUTH_SERVER_RUNNING.load(Ordering::SeqCst) { break; }
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
-        // Try again to set running flag
         if OAUTH_SERVER_RUNNING.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
             return Err(OAuthError::Server("OAuth server still running after timeout".to_string()));
         }
@@ -255,16 +251,16 @@ pub fn start_callback_server(
     // Reset shutdown flag
     OAUTH_SERVER_SHUTDOWN.store(false, Ordering::SeqCst);
 
-    // Try to bind to port 8080, with retries
-    let server = match Server::http("127.0.0.1:8080") {
+    // Try to bind to port 8080
+    let server = match Server::http("127.0.0.1:9090") {
         Ok(s) => s,
         Err(e) => {
             OAUTH_SERVER_RUNNING.store(false, Ordering::SeqCst);
-            return Err(OAuthError::Server(format!("Failed to bind to port 8080: {}. Please close any browser tabs pointing to localhost:8080 and try again.", e)));
+            return Err(OAuthError::Server(format!("Failed to bind to port 8080: {}. Please close any browser tabs pointing to localhost:9090 and try again.", e)));
         }
     };
 
-    log::info!("OAuth callback server started on http://localhost:8080");
+    log::info!("OAuth callback server started on http://localhost:9090");
 
     for request in server.incoming_requests() {
         // Check if we should shut down
@@ -293,12 +289,20 @@ pub fn start_callback_server(
                     if let Ok(mut guard) = callback_result.lock() {
                         *guard = Some(Err(OAuthError::OAuth2(error.to_string())));
                     }
-                    let _ = request.respond(Response::from_string(
-                        "<html><body style='font-family: sans-serif; text-align: center; padding: 50px;'>\
-                        <h1>❌ Authentication Failed</h1>\
-                        <p>You can close this window and return to Owlivion Mail.</p>\
-                        </body></html>"
-                    ));
+                    let error_html = r#"<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Owlivion Mail</title></head>
+<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#0f0a1a 0%,#1a1030 50%,#0d0d1a 100%);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+<div style="text-align:center;padding:60px;background:rgba(255,255,255,0.03);border:1px solid rgba(239,68,68,0.2);border-radius:24px;backdrop-filter:blur(20px);max-width:440px;">
+<div style="width:80px;height:80px;margin:0 auto 24px;background:linear-gradient(135deg,#ef4444,#dc2626);border-radius:20px;display:flex;align-items:center;justify-content:center;">
+<svg width="40" height="40" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+</div>
+<h1 style="color:#fff;font-size:28px;font-weight:700;margin:0 0 12px;">Authentication Failed</h1>
+<p style="color:#a1a1aa;font-size:15px;margin:0 0 32px;line-height:1.5;">Please close this window and try again<br>from Owlivion Mail.</p>
+</div>
+</body></html>"#;
+                    let response = Response::from_string(error_html)
+                        .with_header(tiny_http::Header::from_bytes(b"Content-Type", b"text/html; charset=utf-8").unwrap());
+                    let _ = request.respond(response);
                     break;
                 }
 
@@ -318,13 +322,22 @@ pub fn start_callback_server(
                     if let Ok(mut guard) = callback_result.lock() {
                         *guard = Some(Ok((decoded_code, state)));
                     }
-                    let _ = request.respond(Response::from_string(
-                        "<html><body style='font-family: sans-serif; text-align: center; padding: 50px;'>\
-                        <h1>✅ Authentication Successful!</h1>\
-                        <p>You can close this window and return to Owlivion Mail.</p>\
-                        <script>setTimeout(() => window.close(), 2000);</script>\
-                        </body></html>"
-                    ));
+                    let success_html = concat!(
+                        "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Owlivion Mail</title></head>",
+                        "<body style='margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;",
+                        "background:linear-gradient(135deg,#0f0a1a 0%,#1a1030 50%,#0d0d1a 100%);",
+                        "font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;'>",
+                        "<div style='text-align:center;padding:60px;max-width:440px;'>",
+                        "<img src='https://owlivion.com/mail/owlivion-logo.png' alt='Owlivion' width='200' ",
+                        "style='margin:0 auto 40px;display:block;'>",
+                        "<h1 style='color:#fff;font-size:28px;font-weight:700;margin:0 0 16px;'>Authentication Successful</h1>",
+                        "<p style='color:#a1a1aa;font-size:15px;margin:0;line-height:1.6;'>",
+                        "Your Google account has been connected to Owlivion Mail.</p>",
+                        "</div></body></html>"
+                    );
+                    let response = Response::from_string(success_html)
+                        .with_header(tiny_http::Header::from_bytes(b"Content-Type", b"text/html; charset=utf-8").unwrap());
+                    let _ = request.respond(response);
                     break;
                 }
             }
@@ -357,7 +370,7 @@ pub fn shutdown_callback_server() {
 
     // Try to make a request to wake up the server if it's waiting
     std::thread::spawn(|| {
-        let _ = reqwest::blocking::get("http://127.0.0.1:8080/shutdown");
+        let _ = reqwest::blocking::get("http://127.0.0.1:9090/shutdown");
     });
 }
 

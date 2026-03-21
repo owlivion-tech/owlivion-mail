@@ -63,9 +63,23 @@ function isValidEmail(email: string): boolean {
   return EMAIL_REGEX.test(email);
 }
 
-// SECURITY: Contacts should be loaded from backend, not hardcoded
-// Empty array - contacts will be loaded from database when implemented
-const contacts: EmailAddress[] = [];
+// Load recent recipients from localStorage
+function getRecentRecipients(): EmailAddress[] {
+  try {
+    const stored = localStorage.getItem('owlivion-recent-recipients');
+    return stored ? JSON.parse(stored) : [];
+  } catch { return []; }
+}
+
+export function saveRecentRecipients(recipients: EmailAddress[]) {
+  try {
+    const existing = getRecentRecipients();
+    const merged = [...recipients, ...existing];
+    // Deduplicate by email, keep most recent first, max 50
+    const unique = merged.filter((r, i, arr) => arr.findIndex(x => x.email === r.email) === i).slice(0, 50);
+    localStorage.setItem('owlivion-recent-recipients', JSON.stringify(unique));
+  } catch { /* ignore */ }
+}
 
 export function RecipientInput({
   recipients,
@@ -83,17 +97,18 @@ export function RecipientInput({
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Filter suggestions based on input
+  // Filter suggestions from recent recipients
   useEffect(() => {
-    if (inputValue.length >= 2 && contacts.length > 0) {
+    if (inputValue.length >= 1) {
       const query = inputValue.toLowerCase();
-      const filtered = contacts.filter(
+      const recentRecipients = getRecentRecipients();
+      const filtered = recentRecipients.filter(
         (contact) =>
           !recipients.some((r) => r.email === contact.email) &&
           (contact.email.toLowerCase().includes(query) ||
             contact.name?.toLowerCase().includes(query))
       );
-      setSuggestions(filtered.slice(0, 5)); // SECURITY: Limit suggestions
+      setSuggestions(filtered.slice(0, 5));
       setShowSuggestions(filtered.length > 0);
       setSelectedSuggestion(0);
     } else {
@@ -138,7 +153,7 @@ export function RecipientInput({
         setShowSuggestions(false);
       }
     } else {
-      if (e.key === 'Enter' || e.key === 'Tab' || e.key === ',') {
+      if (e.key === 'Enter' || e.key === ',' || (e.key === 'Tab' && inputValue.trim())) {
         e.preventDefault();
         const email = inputValue.trim().replace(/,$/, '').toLowerCase();
         if (email) {
@@ -148,6 +163,9 @@ export function RecipientInput({
             setError(t('recipientInput.invalidEmail'));
           }
         }
+      } else if (e.key === 'Tab' && !inputValue.trim()) {
+        // Let Tab naturally move to next field (Subject)
+        return;
       } else if (e.key === 'Backspace' && inputValue === '' && recipients.length > 0) {
         // Remove last recipient
         onChange(recipients.slice(0, -1));

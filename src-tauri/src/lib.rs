@@ -2556,6 +2556,8 @@ async fn sync_get_config(state: State<'_, AppState>) -> Result<SyncConfigDto, St
         device_name: config.device_name,
         platform: config.platform.as_str().to_string(),
         last_sync_at: config.last_sync_at.map(|t| t.to_rfc3339()),
+        sync_interval_minutes: Some(config.sync_interval_minutes),
+        sync_on_startup: Some(config.sync_on_startup),
         sync_accounts: config.sync_accounts,
         sync_contacts: config.sync_contacts,
         sync_preferences: config.sync_preferences,
@@ -2584,8 +2586,8 @@ async fn sync_update_config(state: State<'_, AppState>, config: SyncConfigDto) -
         device_name: config.device_name,
         platform,
         last_sync_at: config.last_sync_at.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok().map(|dt| dt.with_timezone(&chrono::Utc))),
-        sync_interval_minutes: 30, // TODO: Add to DTO
-        sync_on_startup: true, // TODO: Add to DTO
+        sync_interval_minutes: config.sync_interval_minutes.unwrap_or(30),
+        sync_on_startup: config.sync_on_startup.unwrap_or(true),
         sync_accounts: config.sync_accounts,
         sync_contacts: config.sync_contacts,
         sync_preferences: config.sync_preferences,
@@ -2756,7 +2758,7 @@ async fn enforce_sync_retention(
 async fn sync_get_sessions(
     _state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    Ok(serde_json::json!({ "sessions": [] }))
+    Ok(serde_json::json!({ "success": true, "sessions": [] }))
 }
 
 /// Revoke a specific session (stub)
@@ -2786,7 +2788,7 @@ async fn sync_get_audit_logs(
     _filters: Option<serde_json::Value>,
     _state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    Ok(serde_json::json!({ "logs": [], "total": 0 }))
+    Ok(serde_json::json!({ "success": true, "logs": [], "pagination": { "page": 1, "limit": 50, "total": 0, "pages": 0 } }))
 }
 
 /// Get audit statistics (stub - returns default stats)
@@ -2795,10 +2797,14 @@ async fn sync_get_audit_stats(
     _state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({
-        "total_events": 0,
-        "login_count": 0,
-        "sync_count": 0,
-        "security_events": 0
+        "success": true,
+        "stats": {
+            "overall": { "total_operations": 0, "successful": 0, "failed": 0, "unique_devices": 0, "unique_ips": 0, "first_activity": "", "last_activity": "" },
+            "by_data_type": [],
+            "by_action": [],
+            "recent_activity": [],
+            "recent_failures": []
+        }
     }))
 }
 
@@ -3899,6 +3905,8 @@ struct SyncConfigDto {
     device_name: String,
     platform: String,
     last_sync_at: Option<String>,
+    sync_interval_minutes: Option<i32>,
+    sync_on_startup: Option<bool>,
     sync_accounts: bool,
     sync_contacts: bool,
     sync_preferences: bool,

@@ -2,7 +2,7 @@
 // Owlivion Mail - Rich Text Editor Component (TipTap)
 // ============================================================================
 
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
@@ -33,6 +33,11 @@ export function RichTextEditor({
 }: RichTextEditorProps) {
   const { t } = useTranslation();
   const resolvedPlaceholder = placeholder || t('compose.bodyPlaceholder');
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const onPasteRef = useRef(onPaste);
+  onPasteRef.current = onPaste;
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -89,7 +94,7 @@ export function RichTextEditor({
         FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button'],
         FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover'],
       });
-      onChange(sanitized);
+      onChangeRef.current(sanitized);
     },
     editorProps: {
       handlePaste: (_view, event) => {
@@ -137,7 +142,7 @@ export function RichTextEditor({
           });
 
           // Also add to attachments
-          onPaste(imageFiles);
+          onPasteRef.current(imageFiles);
 
           return true; // Prevent default paste
         }
@@ -148,7 +153,37 @@ export function RichTextEditor({
         class: 'prose prose-sm sm:prose lg:prose-lg xl:prose-xl focus:outline-none min-h-[300px] max-w-none text-owl-text',
       },
     },
-  }, [content, disabled, resolvedPlaceholder, onChange, onPaste]);
+  }, [disabled, resolvedPlaceholder]); // content intentionally excluded — it's only for initial value. Including it recreates the editor on every keystroke.
+
+  // Sync content from parent when it changes externally (reply quote, template, AI reply)
+  // but NOT when the user is typing (to avoid cursor reset)
+  const isUserTyping = useRef(false);
+  const lastExternalContent = useRef(content);
+
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    // Only update if content changed externally (not from onUpdate)
+    if (content !== lastExternalContent.current && !isUserTyping.current) {
+      lastExternalContent.current = content;
+      const currentEditorHtml = editor.getHTML();
+      if (currentEditorHtml !== content) {
+        editor.commands.setContent(content, { emitUpdate: false });
+      }
+    }
+  }, [content, editor]);
+
+  // Track user typing to avoid external content overwriting
+  useEffect(() => {
+    if (!editor) return;
+    const onFocus = () => { isUserTyping.current = true; };
+    const onBlur = () => { isUserTyping.current = false; lastExternalContent.current = editor.getHTML(); };
+    editor.on('focus', onFocus);
+    editor.on('blur', onBlur);
+    return () => {
+      editor.off('focus', onFocus);
+      editor.off('blur', onBlur);
+    };
+  }, [editor]);
 
   // Toolbar button helpers
   const toggleBold = useCallback(() => {
