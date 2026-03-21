@@ -1,0 +1,44 @@
+name: owlivion-mail
+version: '1.2.0'
+summary: Privacy-first AI-powered email client
+description: |
+  Owlivion Mail is a modern desktop email client built with privacy and security at its core.
+
+  Features:
+  - AI-powered phishing detection and email summarization
+  - Multi-provider AI (Gemini, Claude, OpenAI, Ollama)
+  - Tracking pixel and link blocker (60+ services)
+  - AES-256-GCM encrypted local storage
+  - Multi-account with OAuth2 (Gmail, Outlook)
+  - Dark/Light theme, keyboard shortcuts
+  - Cross-device sync with E2E encryption
+
+grade: stable
+confinement: strict
+base: core22
+license: MIT
+
+architectures:
+  - build-on: amd64
+
+apps:
+  owlivion-mail:
+    command: owlivion-mail
+    desktop: share/applications/owlivion-mail.desktop
+    extensions: [gnome]
+    plugs:
+      - network
+      - network-bind
+      - desktop
+      - desktop-legacy
+      - wayland
+      - x11
+      - unity7
+      - browser-support
+      - password-manager-service
+
+parts:
+  owlivion-mail:
+    plugin: dump
+    source: https://github.com/owlivion-tech/owlivion-mail/releases/download/v1.2.0/Owlivion.Mail_1.2.0_amd64.deb
+    source-type: deb

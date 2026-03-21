@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Owlivion Mail
+Comment=Privacy-first AI-powered email client
+Exec=owlivion-mail
+Icon=com.owlivion.mail
+Terminal=false
+Type=Application
+Categories=Email;Network;Office;
+Keywords=email;mail;privacy;ai;
+StartupWMClass=owlivion-mail
+MimeType=x-scheme-handler/mailto;

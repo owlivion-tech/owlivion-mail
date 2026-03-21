@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.owlivion.mail</id>
+  <name>Owlivion Mail</name>
+  <summary>Privacy-first AI-powered email client</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <developer id="com.owlivion">
+    <name>Owlivion</name>
+  </developer>
+  <description>
+    <p>
+      Owlivion Mail is a modern, privacy-focused desktop email client with AI-powered features.
+      Built with security at its core, it provides phishing detection, tracking pixel blocking,
+      and end-to-end encrypted local storage.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>AI-powered phishing detection and email summarization</li>
+      <li>Multi-provider AI support (Gemini, Claude, OpenAI, Ollama)</li>
+      <li>Tracking pixel and link blocker (60+ marketing services)</li>
+      <li>AES-256-GCM encrypted local storage</li>
+      <li>Multi-account support with OAuth2 (Gmail, Outlook)</li>
+      <li>Dark and light theme</li>
+      <li>Full-text search</li>
+      <li>Email templates and signatures</li>
+      <li>Keyboard shortcuts</li>
+      <li>Cross-device sync with E2E encryption</li>
+    </ul>
+  </description>
+  <url type="homepage">https://owlivion.com/mail/</url>
+  <url type="bugtracker">https://github.com/owlivion-tech/owlivion-mail/issues</url>
+  <url type="vcs-browser">https://github.com/owlivion-tech/owlivion-mail</url>
+  <launchable type="desktop-id">com.owlivion.mail.desktop</launchable>
+  <categories>
+    <category>Email</category>
+    <category>Network</category>
+    <category>Office</category>
+  </categories>
+  <keywords>
+    <keyword>email</keyword>
+    <keyword>mail</keyword>
+    <keyword>privacy</keyword>
+    <keyword>ai</keyword>
+    <keyword>phishing</keyword>
+    <keyword>encryption</keyword>
+    <keyword>imap</keyword>
+  </keywords>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="1.2.0" date="2026-03-21">
+      <description>
+        <p>Major UX overhaul with progressive disclosure email view, multi-provider AI support, draggable compose window, and context menu.</p>
+      </description>
+    </release>
+  </releases>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://owlivion.com/mail/screenshots/main-inbox.webp</image>
+      <caption>Owlivion Mail inbox with dark theme</caption>
+    </screenshot>
+  </screenshots>
+</component>
