@@ -12,7 +12,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use crate::db::Database;
 
-const API_BASE_URL: &str = "https://owlivion.com/api/v1";
+const API_BASE_URL: &str = "https://sync.owlivion.com/api/v1";
 
 /// API client for Owlivion Sync Server
 pub struct SyncApiClient {

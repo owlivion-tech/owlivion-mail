@@ -10,6 +10,7 @@ import type { Settings } from '../types';
 interface AIReplyModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onUseReply?: (reply: string) => void;
   emailContent: string;
   emailSubject: string;
   senderName: string;
@@ -18,7 +19,7 @@ interface AIReplyModalProps {
 
 type Tone = Settings['aiReplyTone'];
 
-export function AIReplyModal({ isOpen, onClose, emailContent, emailSubject, senderName, apiKey }: AIReplyModalProps) {
+export function AIReplyModal({ isOpen, onClose, onUseReply, emailContent, emailSubject, senderName, apiKey }: AIReplyModalProps) {
   const { t } = useTranslation();
   const [tone, setTone] = useState<Tone>('professional');
   const [status, setStatus] = useState<'idle' | 'generating' | 'done' | 'error'>('idle');
@@ -243,7 +244,7 @@ export function AIReplyModal({ isOpen, onClose, emailContent, emailSubject, send
 
           {status === 'done' && (
             <button
-              onClick={() => { /* TODO: Use reply in composer */ handleClose(); }}
+              onClick={() => { if (onUseReply) { onUseReply(generatedReply); } handleClose(); }}
               className="flex items-center gap-2 px-4 py-2 bg-owl-accent hover:bg-owl-accent-hover text-white rounded-lg transition-colors"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

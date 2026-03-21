@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import DOMPurify from "dompurify";
 import "./App.css";
 import owlivionIcon from "./assets/owlivion-logo.svg";
 import { Settings } from "./pages/Settings";
@@ -10,8 +9,8 @@ import { ShortcutsHelp } from "./components/ShortcutsHelp";
 import { Welcome } from "./components/Welcome";
 import { AddAccountModal } from "./components/settings/AddAccountModal";
 import SearchFiltersComponent from "./components/SearchFilters";
-import { OsintBanner } from "./components/OsintBanner";
-import { DomainHarvestModal } from "./components/DomainHarvestModal";
+import { EmailView } from "./components/EmailView";
+import { ContextMenu, useContextMenu } from "./components/ContextMenu";
 import { summarizeEmail, analyzePhishing, detectEmailTracking, type PhishingAnalysis, type TrackingAnalysis } from "./services/geminiService";
 import { requestNotificationPermission, showNewEmailNotification, playNotificationSound } from "./services/notificationService";
 import { listDrafts, getDraft, deleteDraft, saveDraft } from "./services/draftService";
@@ -26,41 +25,7 @@ import { MobileBottomNav } from "./components/mobile/MobileBottomNav";
 import { useMobileNavigation } from "./stores/mobileNavigationStore";
 import { LanguageProvider, useTranslation } from "./i18n";
 
-// Configure DOMPurify to remove dangerous content
-// SECURITY: 'style' attribute removed to prevent CSS injection attacks (e.g., expression(), url(javascript:))
-const purifyConfig = {
-  ALLOWED_TAGS: ['p', 'br', 'b', 'i', 'u', 'strong', 'em', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'code', 'span', 'div', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'hr'],
-  ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'style', 'align', 'valign', 'width', 'height', 'colspan', 'rowspan'],
-  ALLOW_DATA_ATTR: false,
-  FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select', 'style', 'link', 'meta', 'base'],
-  FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur', 'srcset', 'data-src'],
-  RETURN_TRUSTED_TYPE: false,
-};
-
-// Sanitize HTML with optional image blocking
-function sanitizeEmailHtml(html: string, blockImages: boolean = true, imageHiddenText: string = '[Image hidden]'): string {
-  // First: Block images if requested (before DOMPurify strips them)
-  let processed = html;
-  if (blockImages) {
-    processed = processed.replace(/<img[^>]*>/gi, `<div class="blocked-image">${imageHiddenText}</div>`);
-  }
-
-  // Config that allows images when not blocked
-  const config = blockImages ? purifyConfig : {
-    ...purifyConfig,
-    ALLOWED_TAGS: [...purifyConfig.ALLOWED_TAGS, 'img'],
-    ALLOWED_ATTR: [...purifyConfig.ALLOWED_ATTR, 'src', 'alt', 'style'],
-    FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur', 'srcset', 'data-src'],
-  };
-
-  // DOMPurify for XSS protection
-  let sanitized = DOMPurify.sanitize(processed, config) as string;
-
-  // Force external links to open in new tab with noopener
-  sanitized = sanitized.replace(/<a\s+([^>]*href=)/gi, '<a target="_blank" rel="noopener noreferrer" $1');
-
-  return sanitized;
-}
+// DOMPurify config & sanitizeEmailHtml moved to ./components/EmailView.tsx
 
 // Simple Icon Components
 const Icons = {
@@ -413,7 +378,7 @@ function MailPanel({
   onSettingsClick,
   onComposeClick,
   onSyncClick,
-  onOsintClick,
+  onOsintClick: _onOsintClick,
   isSyncing,
   searchQuery,
   onSearchChange,
@@ -436,6 +401,7 @@ function MailPanel({
   onSortByChange,
   sortDirection,
   onSortDirectionChange,
+  onEmailContextMenu,
 }: {
   emails: Email[];
   selectedId: string | null;
@@ -468,6 +434,7 @@ function MailPanel({
   onSortByChange: (sort: 'date' | 'account' | 'unread' | 'priority') => void;
   sortDirection: 'asc' | 'desc';
   onSortDirectionChange: (dir: 'asc' | 'desc') => void;
+  onEmailContextMenu?: (e: React.MouseEvent, email: Email) => void;
 }) {
   const { t, lang } = useTranslation();
   const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
@@ -658,15 +625,6 @@ function MailPanel({
               <Icons.Refresh />
             </button>
             <button
-              onClick={onOsintClick}
-              className="p-2 rounded-lg transition-colors text-owl-text-secondary hover:text-indigo-400 hover:bg-indigo-500/10"
-              title="OSINT Harvest"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
-              </svg>
-            </button>
-            <button
               onClick={onComposeClick}
               className="flex items-center gap-1.5 bg-owl-accent hover:bg-owl-accent-hover text-white py-1.5 px-3 rounded-lg transition-colors text-sm"
             >
@@ -809,66 +767,75 @@ function MailPanel({
         )}
       </div>
 
-      {/* Folder Tabs */}
-      <div className="px-2 py-2 border-b border-owl-border">
-        <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide">
-          {/* Main folders (Inbox, Sent, Drafts, Trash) */}
-          {mainFolders.slice(0, 4).map((folder) => (
-            <button
-              key={folder.path}
-              onClick={() => {
-                console.log('Main folder tab clicked:', folder.name, folder.path);
-                onFolderChange(folder.path);
-              }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap text-sm ${
-                activeFolder === folder.path
-                  ? "bg-owl-accent/20 text-owl-accent"
-                  : "text-owl-text-secondary hover:bg-owl-bg hover:text-owl-text"
-              }`}
-            >
-              {folder.icon}
-              <span>{folder.name}</span>
-              {folder.count > 0 && (
-                <span className={`text-xs px-1.5 py-0.5 rounded-full ml-1 ${
-                  activeFolder === folder.path ? "bg-owl-accent text-white" : "bg-owl-bg"
-                }`}>
-                  {folder.count}
-                </span>
-              )}
-            </button>
-          ))}
-          {/* Starred folder (local filter) */}
+      {/* Folder Tabs — compact icon-first design */}
+      <div className="px-3 py-2 border-b border-owl-border">
+        <div className="flex items-center gap-0.5">
+          {/* Main folders */}
+          {mainFolders.slice(0, 4).map((folder) => {
+            const isActive = activeFolder === folder.path;
+            return (
+              <button
+                key={folder.path}
+                onClick={() => onFolderChange(folder.path)}
+                className={`relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all text-[13px] ${
+                  isActive
+                    ? "bg-owl-accent/15 text-owl-accent font-medium"
+                    : "text-owl-text-secondary hover:bg-owl-bg hover:text-owl-text"
+                }`}
+                title={folder.name}
+              >
+                {folder.icon}
+                {isActive && <span>{folder.name}</span>}
+                {folder.count > 0 && (
+                  <span className={`text-[10px] min-w-[18px] text-center px-1 py-px rounded-full leading-tight ${
+                    isActive ? "bg-owl-accent text-white" : "bg-owl-bg text-owl-text-secondary"
+                  }`}>
+                    {folder.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+
+          {/* Starred */}
+          {(() => {
+            const isActive = activeFolder === '__starred__';
+            return (
+              <button
+                onClick={() => onFolderChange('__starred__')}
+                className={`relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all text-[13px] ${
+                  isActive
+                    ? "bg-owl-accent/15 text-owl-accent font-medium"
+                    : "text-owl-text-secondary hover:bg-owl-bg hover:text-owl-text"
+                }`}
+                title="Starred"
+              >
+                {starredFolder.icon}
+                {isActive && <span>Starred</span>}
+                {starredFolder.count > 0 && (
+                  <span className={`text-[10px] min-w-[18px] text-center px-1 py-px rounded-full leading-tight ${
+                    isActive ? "bg-owl-accent text-white" : "bg-owl-bg text-owl-text-secondary"
+                  }`}>
+                    {starredFolder.count}
+                  </span>
+                )}
+              </button>
+            );
+          })()}
+
+          {/* Spacer */}
+          <div className="flex-1" />
+
+          {/* All Folders dropdown */}
           <button
-            onClick={() => onFolderChange('__starred__')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap text-sm ${
-              activeFolder === '__starred__'
-                ? "bg-owl-accent/20 text-owl-accent"
-                : "text-owl-text-secondary hover:bg-owl-bg hover:text-owl-text"
+            onClick={() => setShowAllFolders(!showAllFolders)}
+            className={`flex items-center gap-1 px-2 py-1.5 rounded-lg transition-colors text-[13px] ${
+              showAllFolders ? "bg-owl-bg text-owl-text" : "text-owl-text-secondary hover:bg-owl-bg hover:text-owl-text"
             }`}
           >
-            {starredFolder.icon}
-            <span>{starredFolder.name}</span>
-            {starredFolder.count > 0 && (
-              <span className={`text-xs px-1.5 py-0.5 rounded-full ml-1 ${
-                activeFolder === '__starred__' ? "bg-owl-accent text-white" : "bg-owl-bg"
-              }`}>
-                {starredFolder.count}
-              </span>
-            )}
+            <Icons.Folder />
+            {showAllFolders ? <Icons.ChevronUp /> : <Icons.ChevronDown />}
           </button>
-          {/* All Folders dropdown */}
-          <div className="relative">
-            <button
-              onClick={() => setShowAllFolders(!showAllFolders)}
-              className={`flex items-center gap-1 px-2 py-1.5 rounded-lg transition-colors text-sm ${
-                showAllFolders ? "bg-owl-bg text-owl-text" : "text-owl-text-secondary hover:bg-owl-bg hover:text-owl-text"
-              }`}
-            >
-              <Icons.Folder />
-              <span>All</span>
-              {showAllFolders ? <Icons.ChevronUp /> : <Icons.ChevronDown />}
-            </button>
-          </div>
         </div>
       </div>
 
@@ -977,6 +944,7 @@ function MailPanel({
             <button
               key={email.accountId ? `${email.accountId}-${email.id}` : email.id}
               onClick={() => onSelect(email.id)}
+              onContextMenu={onEmailContextMenu ? (e) => onEmailContextMenu(e, email) : undefined}
               className={`w-full text-left p-3 rounded-lg transition-all mb-1 ${
                 selectedId === email.id
                   ? "bg-owl-accent/20 border border-owl-accent/50"
@@ -1097,571 +1065,6 @@ function MailPanel({
   );
 }
 
-// Email View Component
-function EmailView({
-  email,
-  accountId,
-  folder,
-  showImages,
-  isTrustedSender,
-  onLoadImages,
-  onTrustSender,
-  onAIReply,
-  onReply,
-  onReplyAll,
-  onForward,
-  onArchive,
-  onDelete,
-  onToggleStar,
-  onToggleRead,
-  summary,
-  onSummarize,
-  isSummarizing,
-  phishingAnalysis,
-  isAnalyzingPhishing,
-  phishingWarningCollapsed,
-  onTogglePhishingCollapse,
-  trackingAnalysis,
-  onDownloadAttachment,
-  selectedAccountId,
-  accounts,
-  appSettings,
-}: {
-  email: Email | null;
-  accountId: string | null;
-  folder: string;
-  showImages: boolean;
-  isTrustedSender: boolean;
-  onLoadImages: () => void;
-  onTrustSender: (email: string) => void;
-  onAIReply: () => void;
-  onReply: () => void;
-  onReplyAll: () => void;
-  onForward: () => void;
-  onArchive: () => void;
-  onDelete: () => void;
-  onToggleStar: () => void;
-  onToggleRead: () => void;
-  summary: string | null;
-  onSummarize: () => void;
-  isSummarizing: boolean;
-  phishingAnalysis: PhishingAnalysis | null;
-  isAnalyzingPhishing: boolean;
-  phishingWarningCollapsed: boolean;
-  onTogglePhishingCollapse: () => void;
-  trackingAnalysis: TrackingAnalysis | null;
-  onDownloadAttachment: (attachmentIndex: number, filename: string) => void;
-  selectedAccountId: number | null | 'all';
-  accounts: Account[];
-  appSettings: SettingsType;
-}) {
-  const { t, lang } = useTranslation();
-  const [showSummary, setShowSummary] = useState(false);
-  const [processedHtml, setProcessedHtml] = useState<string | null>(null);
-
-  // Process inline images (CID)
-  useEffect(() => {
-    if (!email?.bodyHtml || !email?.attachments || !accountId) {
-      setProcessedHtml(null);
-      return;
-    }
-
-    const processCidImages = async () => {
-      let html = email.bodyHtml!;
-
-      // Find all cid: references in the HTML
-      const cidRegex = /src=["']cid:([^"']+)["']/gi;
-      const matches = Array.from(html.matchAll(cidRegex));
-
-      if (matches.length === 0) {
-        setProcessedHtml(html);
-        return;
-      }
-
-      // Import download function
-      const { downloadAttachment } = await import('./services/mailService');
-
-      // Process each CID
-      for (const match of matches) {
-        const fullMatch = match[0];
-        const cid = match[1];
-
-        // Find attachment with matching content_id
-        const attachment = email.attachments?.find(att => {
-          if (!att.contentId) return false;
-          // Content-ID may have <> brackets, remove them
-          const cleanCid = att.contentId.replace(/^<|>$/g, '');
-          return cleanCid === cid;
-        });
-
-        if (attachment && email.id) {
-          try {
-            console.log('Loading inline image:', cid, attachment.filename);
-
-            // Download the attachment
-            const data = await downloadAttachment(
-              accountId,
-              folder,
-              parseInt(email.id),
-              attachment.index
-            );
-
-            // Convert to data URL
-            const dataUrl = `data:${data.contentType};base64,${data.data}`;
-
-            // Replace cid: with data URL
-            html = html.replace(fullMatch, `src="${dataUrl}"`);
-
-            console.log('✓ Inline image loaded:', attachment.filename);
-          } catch (err) {
-            console.error('Failed to load inline image:', err);
-          }
-        }
-      }
-
-      setProcessedHtml(html);
-    };
-
-    processCidImages();
-  }, [email?.bodyHtml, email?.attachments, email?.id, accountId, folder]);
-
-  if (!email) {
-    return (
-      <div className="flex-1 flex items-center justify-center bg-owl-bg">
-        <div className="text-center">
-          <div className="w-16 h-16 bg-owl-surface rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <Icons.Mail />
-          </div>
-          <p className="text-owl-text-secondary">{t('app.selectEmailToRead')}</p>
-          <p className="text-sm text-owl-text-secondary mt-2">
-            Press <kbd className="px-1.5 py-0.5 bg-owl-surface rounded text-xs">?</kbd> for shortcuts
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  const shouldShowImages = showImages || isTrustedSender;
-  const hasHtmlContent = !!email.bodyHtml;
-
-  // Use processed HTML (with CID images replaced) if available
-  const htmlToSanitize = processedHtml || email.bodyHtml;
-
-  // Sanitize HTML with DOMPurify for XSS protection
-  const sanitizedHtml = hasHtmlContent && htmlToSanitize
-    ? sanitizeEmailHtml(htmlToSanitize, !shouldShowImages, t('app.imageHidden'))
-    : null;
-
-  return (
-    <div className="flex-1 flex flex-col bg-owl-bg">
-      <div className="p-4 border-b border-owl-border">
-        <div className="flex items-start justify-between mb-4">
-          <div className="flex items-start gap-4">
-            <CompanyAvatar
-              email={email.from.email}
-              name={email.from.name}
-              size="lg"
-            />
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-semibold text-owl-text">{email.from.name}</span>
-                <span className="text-sm text-owl-text-secondary">&lt;{email.from.email}&gt;</span>
-                {isTrustedSender && (
-                  <span className="flex items-center gap-1 text-xs text-owl-success bg-owl-success/10 px-2 py-0.5 rounded-full">
-                    <Icons.ShieldCheck />
-                    {t('emailView.trusted')}
-                  </span>
-                )}
-                {/* Only show badge in unified inbox mode */}
-                {(() => {
-                  const isUnifiedMode = selectedAccountId === 'all';
-                  if (!isUnifiedMode) return null;
-
-                  if (!email.accountId) return null;
-
-                  const account = accounts.find(a => a.id.toString() === email.accountId);
-                  if (!account) return null;
-
-                  return (
-                    <AccountBadge
-                      accountEmail={account.email}
-                      accountName={account.displayName}
-                      size="sm"
-                    />
-                  );
-                })()}
-              </div>
-              <div className="text-sm text-owl-text-secondary mt-0.5">To: {email.to.map(t => t.email).join(", ")}</div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={onToggleStar}
-              className={`p-2 rounded-lg transition-colors ${email.starred ? 'text-yellow-500' : 'text-owl-text-secondary hover:text-owl-text'}`}
-              title={email.starred ? t('emailView.unstarAction') + ' (S)' : t('emailView.starAction') + ' (S)'}
-            >
-              {email.starred ? <Icons.StarFilled /> : <Icons.Star />}
-            </button>
-            <button
-              onClick={onToggleRead}
-              className="p-2 text-owl-text-secondary hover:text-owl-text rounded-lg transition-colors"
-              title={email.read ? t('emailView.markUnread') + ' (U)' : t('emailView.markRead') + ' (U)'}
-            >
-              {email.read ? <Icons.MailUnread /> : <Icons.MailOpen />}
-            </button>
-            <span className="text-sm text-owl-text-secondary">
-              {email.date.toLocaleDateString(lang === 'tr' ? 'tr-TR' : 'en-US', { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}
-            </span>
-          </div>
-        </div>
-        <h1 className="text-xl font-semibold text-owl-text">{email.subject}</h1>
-      </div>
-
-      {/* Image Loading Banner */}
-      {email.hasImages && !shouldShowImages && (
-        <div className="mx-4 mt-4 p-3 bg-owl-surface rounded-lg border border-owl-border flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-owl-warning/20 rounded-lg flex items-center justify-center text-owl-warning">
-              <Icons.Image />
-            </div>
-            <div>
-              <p className="text-sm text-owl-text">{t('emailView.imagesBlocked')}</p>
-              <p className="text-xs text-owl-text-secondary">{t('emailView.imagesBlockedDesc')}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button onClick={onLoadImages} className="text-sm px-3 py-1.5 bg-owl-accent hover:bg-owl-accent-hover text-white rounded-lg transition-colors">
-              {t('emailView.showImages')}
-            </button>
-            <button onClick={() => onTrustSender(email.from.email)} className="text-sm px-3 py-1.5 bg-owl-surface-2 hover:bg-owl-border text-owl-text rounded-lg transition-colors">
-              {t('emailView.alwaysShow')}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Phishing Warning Banner - Collapsible */}
-      {(isAnalyzingPhishing || (phishingAnalysis && phishingAnalysis.score >= 20)) && (
-        <div className={`mx-4 mt-4 rounded-lg border transition-all ${
-          isAnalyzingPhishing ? 'bg-owl-surface border-owl-border' :
-          phishingAnalysis?.riskLevel === 'critical' ? 'bg-red-500/20 border-red-500/50' :
-          phishingAnalysis?.riskLevel === 'high' ? 'bg-orange-500/20 border-orange-500/50' :
-          phishingAnalysis?.riskLevel === 'medium' ? 'bg-yellow-500/20 border-yellow-500/50' :
-          'bg-owl-surface border-owl-border'
-        }`}>
-          {isAnalyzingPhishing ? (
-            <div className="flex items-center gap-3 p-3">
-              <svg className="w-5 h-5 animate-spin text-owl-accent" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-              <span className="text-owl-text-secondary text-sm">{t('phishing.analyzing')}</span>
-            </div>
-          ) : phishingAnalysis && (() => {
-            const isCollapsed = phishingWarningCollapsed; // Prop from parent
-
-            return (
-              <div>
-                {/* Collapsed: Compact badge */}
-                {isCollapsed ? (
-                  <button
-                    onClick={onTogglePhishingCollapse}
-                    className="w-full p-3 flex items-center justify-between hover:bg-white/5 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                        phishingAnalysis.riskLevel === 'critical' ? 'bg-red-500/30 text-red-400' :
-                        phishingAnalysis.riskLevel === 'high' ? 'bg-orange-500/30 text-orange-400' :
-                        phishingAnalysis.riskLevel === 'medium' ? 'bg-yellow-500/30 text-yellow-400' :
-                        'bg-owl-surface-2 text-owl-text-secondary'
-                      }`}>
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                      </div>
-                      <div className="text-left">
-                        <p className={`text-sm font-medium ${
-                          phishingAnalysis.riskLevel === 'critical' ? 'text-red-400' :
-                          phishingAnalysis.riskLevel === 'high' ? 'text-orange-400' :
-                          phishingAnalysis.riskLevel === 'medium' ? 'text-yellow-400' :
-                          'text-owl-text'
-                        }`}>
-                          {phishingAnalysis.riskLevel === 'critical' ? t('phishing.criticalRisk') :
-                           phishingAnalysis.riskLevel === 'high' ? t('phishing.highRisk') :
-                           phishingAnalysis.riskLevel === 'medium' ? t('phishing.mediumRisk') :
-                           t('phishing.attentionNeeded')}
-                        </p>
-                        <p className="text-xs text-owl-text-secondary">{t('phishing.riskScore')}: {phishingAnalysis.score}/100 • {t('phishing.clickForDetails')}</p>
-                      </div>
-                    </div>
-                    <svg className="w-5 h-5 text-owl-text-secondary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </button>
-                ) : (
-                  /* Expanded: Full details */
-                  <div className="p-4">
-                    <div className="flex items-start justify-between gap-3 mb-3">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                          phishingAnalysis.riskLevel === 'critical' ? 'bg-red-500/30 text-red-400' :
-                          phishingAnalysis.riskLevel === 'high' ? 'bg-orange-500/30 text-orange-400' :
-                          phishingAnalysis.riskLevel === 'medium' ? 'bg-yellow-500/30 text-yellow-400' :
-                          'bg-owl-surface-2 text-owl-text-secondary'
-                        }`}>
-                          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                          </svg>
-                        </div>
-                        <div>
-                          <p className={`font-medium ${
-                            phishingAnalysis.riskLevel === 'critical' ? 'text-red-400' :
-                            phishingAnalysis.riskLevel === 'high' ? 'text-orange-400' :
-                            phishingAnalysis.riskLevel === 'medium' ? 'text-yellow-400' :
-                            'text-owl-text'
-                          }`}>
-                            {phishingAnalysis.riskLevel === 'critical' ? t('phishing.criticalPhishing') :
-                             phishingAnalysis.riskLevel === 'high' ? t('phishing.highPhishing') :
-                             phishingAnalysis.riskLevel === 'medium' ? t('phishing.mediumPhishingRisk') :
-                             t('phishing.attention')}
-                          </p>
-                          <p className="text-xs text-owl-text-secondary">{t('phishing.riskScore')}: {phishingAnalysis.score}/100</p>
-                        </div>
-                      </div>
-                      <button
-                        onClick={onTogglePhishingCollapse}
-                        className="p-1 hover:bg-white/10 rounded transition-colors flex-shrink-0"
-                        title={t('emailView.collapse')}
-                      >
-                        <svg className="w-5 h-5 text-owl-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                        </svg>
-                      </button>
-                    </div>
-
-                    {phishingAnalysis.reasons.length > 0 && (
-                      <div className="mt-3 space-y-1">
-                        <p className="text-xs font-medium text-owl-text-secondary uppercase">{t('phishing.detectedIndicators')}</p>
-                        <ul className="text-sm text-owl-text space-y-1">
-                          {phishingAnalysis.reasons.slice(0, 4).map((reason, i) => (
-                            <li key={i} className="flex items-start gap-2">
-                              <span className="text-owl-warning mt-0.5">•</span>
-                              {reason}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {phishingAnalysis.recommendations.length > 0 && (
-                      <div className="mt-3 pt-3 border-t border-owl-border/50">
-                        <p className="text-xs font-medium text-owl-text-secondary uppercase mb-1">{t('phishing.recommendations')}</p>
-                        <ul className="text-sm text-owl-text space-y-1">
-                          {phishingAnalysis.recommendations.slice(0, 3).map((rec, i) => (
-                            <li key={i} className="flex items-start gap-2">
-                              <span className="text-owl-accent mt-0.5">→</span>
-                              {rec}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-        </div>
-      )}
-
-      {/* Email Tracking Warning Banner */}
-      {trackingAnalysis && trackingAnalysis.hasTracking && (
-        <div className="mx-4 mt-4 p-4 bg-purple-500/10 border border-purple-500/30 rounded-lg">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 bg-purple-500/20 rounded-lg flex items-center justify-center text-purple-400">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-              </svg>
-            </div>
-            <div>
-              <p className="font-medium text-purple-400">
-                {trackingAnalysis.isMarketingEmail ? t('phishing.marketingEmail') : t('phishing.trackingDetected')}
-              </p>
-              <p className="text-xs text-owl-text-secondary">
-                {trackingAnalysis.trackingPixels.length > 0 && `${trackingAnalysis.trackingPixels.length} ${t('phishing.trackingPixels')}`}
-                {trackingAnalysis.trackingPixels.length > 0 && trackingAnalysis.trackingLinks.length > 0 && ' • '}
-                {trackingAnalysis.trackingLinks.length > 0 && `${trackingAnalysis.trackingLinks.length} ${t('phishing.trackingLinks')}`}
-              </p>
-            </div>
-          </div>
-          {trackingAnalysis.trackingServices.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1">
-              {trackingAnalysis.trackingServices.map((service, i) => (
-                <span key={i} className="text-xs px-2 py-0.5 bg-purple-500/20 text-purple-300 rounded-full">
-                  {service}
-                </span>
-              ))}
-            </div>
-          )}
-          {trackingAnalysis.recommendations.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-purple-500/20">
-              <ul className="text-sm text-owl-text space-y-1">
-                {trackingAnalysis.recommendations.slice(0, 3).map((rec, i) => (
-                  <li key={i} className="flex items-start gap-2">
-                    <span className="text-purple-400 mt-0.5">•</span>
-                    {rec}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {!shouldShowImages && trackingAnalysis.trackingPixels.length > 0 && (
-            <div className="mt-3 px-3 py-2 bg-owl-success/10 rounded text-sm text-owl-success flex items-center gap-2">
-              <Icons.ShieldCheck />
-              {t('emailView.imagesHiddenNoTracking')}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* OSINT Banner */}
-      {email && email.from?.email && (
-        <OsintBanner
-          senderEmail={email.from.email}
-          rawHeaders={undefined}
-          settings={appSettings}
-        />
-      )}
-
-      {/* Summary Section */}
-      {(summary || isSummarizing) && (
-        <div className="mx-4 mt-4 p-4 bg-owl-accent/10 border border-owl-accent/20 rounded-lg">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2 text-owl-accent">
-              <Icons.Sparkles />
-              <span className="font-medium">{t('emailView.aiSummary')}</span>
-            </div>
-            <button onClick={() => setShowSummary(!showSummary)} className="text-owl-accent">
-              {showSummary ? <Icons.ChevronUp /> : <Icons.ChevronDown />}
-            </button>
-          </div>
-          {showSummary && (
-            isSummarizing ? (
-              <div className="flex items-center gap-2 text-owl-text-secondary">
-                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                <span>{t('emailView.summarizing')}</span>
-              </div>
-            ) : (
-              <p className="text-sm text-owl-text">{summary}</p>
-            )
-          )}
-        </div>
-      )}
-
-      {/* Trusted sender info */}
-      {email.hasImages && isTrustedSender && (
-        <div className="mx-4 mt-4 px-3 py-2 bg-owl-success/10 rounded-lg flex items-center gap-2 text-owl-success text-sm">
-          <Icons.ShieldCheck />
-          <span>{t('emailView.trustedSenderImages')}</span>
-        </div>
-      )}
-
-      <div className="flex-1 overflow-y-auto p-6">
-        {hasHtmlContent ? (
-          <div className="email-content text-owl-text leading-relaxed" dangerouslySetInnerHTML={{ __html: sanitizedHtml! }} />
-        ) : (
-          <div className="whitespace-pre-wrap text-owl-text leading-relaxed">{email.body}</div>
-        )}
-
-        {/* Attachments Section */}
-        {email.hasAttachments && email.attachments && email.attachments.length > 0 && (
-          <div className="mt-6 pt-6 border-t border-owl-border">
-            <div className="flex items-center gap-2 mb-3">
-              <Icons.Paperclip />
-              <span className="font-medium text-owl-text">{t('emailView.attachments')}</span>
-              <span className="text-xs text-owl-text-secondary">({email.attachments.length} {t('emailView.attachment')})</span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {email.attachments
-                .filter(att => !att.isInline)
-                .map((attachment) => {
-                  const sizeKB = (attachment.size / 1024).toFixed(1);
-                  const sizeMB = (attachment.size / (1024 * 1024)).toFixed(2);
-                  const displaySize = attachment.size > 1024 * 1024 ? `${sizeMB} MB` : `${sizeKB} KB`;
-
-                  return (
-                    <div key={attachment.index} className="flex items-center gap-3 p-3 bg-owl-surface rounded-lg border border-owl-border hover:border-owl-accent transition-colors">
-                      <div className="w-10 h-10 bg-owl-accent/20 rounded-lg flex items-center justify-center text-owl-accent">
-                        <Icons.File />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-owl-text truncate" title={attachment.filename}>
-                          {attachment.filename}
-                        </p>
-                        <p className="text-xs text-owl-text-secondary">{displaySize}</p>
-                      </div>
-                      <button
-                        onClick={() => onDownloadAttachment(attachment.index, attachment.filename)}
-                        className="p-2 text-owl-text-secondary hover:text-owl-accent rounded-lg transition-colors"
-                        title={t('emailView.download')}
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                      </button>
-                    </div>
-                  );
-                })}
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="p-4 border-t border-owl-border">
-        <div className="flex items-center gap-2">
-          <button onClick={onAIReply} className="flex items-center gap-2 px-4 py-2 bg-owl-accent hover:bg-owl-accent-hover text-white rounded-lg transition-colors">
-            <Icons.Sparkles />
-            <span>AI Reply</span>
-            <kbd className="text-xs bg-white/20 px-1.5 py-0.5 rounded ml-1">G</kbd>
-          </button>
-          <button onClick={onReply} className="flex items-center gap-2 px-4 py-2 bg-owl-surface hover:bg-owl-surface-2 text-owl-text rounded-lg transition-colors">
-            <Icons.Reply />
-            <span>Reply</span>
-            <kbd className="text-xs bg-owl-bg px-1.5 py-0.5 rounded ml-1">R</kbd>
-          </button>
-          <button onClick={onReplyAll} className="flex items-center gap-2 px-3 py-2 bg-owl-surface hover:bg-owl-surface-2 text-owl-text rounded-lg transition-colors" title={t('emailView.replyAll') + ' (A)'}>
-            <Icons.ReplyAll />
-          </button>
-          <button onClick={onForward} className="flex items-center gap-2 px-3 py-2 bg-owl-surface hover:bg-owl-surface-2 text-owl-text rounded-lg transition-colors" title={t('emailView.forward') + ' (F)'}>
-            <Icons.Forward />
-          </button>
-          <div className="flex-1" />
-          {email.body.length > 500 && !summary && (
-            <button
-              onClick={onSummarize}
-              disabled={isSummarizing}
-              className="flex items-center gap-2 px-3 py-2 text-owl-accent hover:bg-owl-accent/10 rounded-lg transition-colors"
-              title={t('emailView.summarizeWithAI')}
-            >
-              <Icons.Summarize />
-              <span className="text-sm">{t('emailView.summarize')}</span>
-            </button>
-          )}
-          <button onClick={onArchive} className="p-2 hover:bg-owl-surface-2 text-owl-text-secondary hover:text-owl-text rounded-lg transition-colors" title={t('emailView.archiveAction') + ' (E)'}>
-            <Icons.Archive />
-          </button>
-          <button onClick={onDelete} className="p-2 hover:bg-owl-surface-2 text-owl-text-secondary hover:text-owl-error rounded-lg transition-colors" title={t('emailView.deleteAction') + ' (#)'}>
-            <Icons.Trash />
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // Command Palette
 function CommandPalette({ isOpen, onClose, onCommand }: { isOpen: boolean; onClose: () => void; onCommand: (cmd: string) => void }) {
   const [query, setQuery] = useState("");
@@ -1729,6 +1132,7 @@ function App() {
   const mobile = isMobile();
   const { t: _tApp, lang: appLang } = useTranslation();
 
+  const contextMenu = useContextMenu();
   const [currentPage, setCurrentPage] = useState<Page>('mail');
   const [activeFolder, setActiveFolder] = useState("INBOX");
   const [emails, setEmails] = useState<Email[]>([]);  // Start empty - no mock data
@@ -1785,7 +1189,6 @@ function App() {
   const [autoPhishingDetection, setAutoPhishingDetection] = useState(true);
   const [autoMarkReadDelay, setAutoMarkReadDelay] = useState(2); // seconds
   const [appSettings, setAppSettings] = useState<SettingsType>(DEFAULT_SETTINGS);
-  const [showDomainHarvest, setShowDomainHarvest] = useState(false);
 
   // Load settings from localStorage
   const loadSettings = useCallback(() => {
@@ -1947,28 +1350,34 @@ function App() {
   }, [handleSearch]);
 
   // Function to reload accounts from database (used after settings changes)
+  const mapAccount = (acc: any): Account => ({
+    id: acc.id,
+    email: acc.email,
+    displayName: acc.displayName || acc.display_name || acc.email,
+    imapHost: acc.imapHost || acc.imap_host,
+    imapPort: acc.imapPort || acc.imap_port,
+    imapSecurity: acc.imapSecurity || acc.imap_security,
+    imapUsername: acc.imapUsername || acc.imap_username,
+    smtpHost: acc.smtpHost || acc.smtp_host,
+    smtpPort: acc.smtpPort || acc.smtp_port,
+    smtpSecurity: acc.smtpSecurity || acc.smtp_security,
+    smtpUsername: acc.smtpUsername || acc.smtp_username,
+    oauthProvider: acc.oauthProvider || acc.oauth_provider,
+    isActive: acc.isActive ?? acc.is_active ?? true,
+    isDefault: acc.isDefault ?? acc.is_default ?? true,
+    signature: acc.signature || '',
+    syncDays: acc.syncDays || acc.sync_days || 30,
+    acceptInvalidCerts: acc.acceptInvalidCerts ?? acc.accept_invalid_certs ?? false,
+    createdAt: acc.createdAt || acc.created_at || new Date().toISOString(),
+    updatedAt: acc.updatedAt || acc.updated_at || new Date().toISOString(),
+  });
+
   const reloadAccounts = useCallback(async () => {
     try {
       const { listAccounts } = await import('./services/mailService');
       const dbAccounts = await listAccounts();
       if (dbAccounts && dbAccounts.length > 0) {
-        const frontendAccounts: Account[] = dbAccounts.map((acc: any) => ({
-          id: acc.id,
-          email: acc.email,
-          displayName: acc.display_name || acc.displayName,
-          imapHost: acc.imap_host || acc.imapHost,
-          imapPort: acc.imap_port || acc.imapPort,
-          imapSecurity: acc.imap_security || acc.imapSecurity,
-          smtpHost: acc.smtp_host || acc.smtpHost,
-          smtpPort: acc.smtp_port || acc.smtpPort,
-          smtpSecurity: acc.smtp_security || acc.smtpSecurity,
-          isActive: acc.is_active ?? true,
-          isDefault: acc.is_default ?? true,
-          signature: acc.signature || '',
-          syncDays: acc.sync_days || 30,
-          createdAt: acc.created_at || new Date().toISOString(),
-          updatedAt: acc.updated_at || new Date().toISOString(),
-        }));
+        const frontendAccounts: Account[] = dbAccounts.map(mapAccount);
         setAccounts(frontendAccounts);
         console.log('Accounts reloaded from DB');
       }
@@ -1987,23 +1396,7 @@ function App() {
 
         if (dbAccounts && dbAccounts.length > 0) {
           // Convert database accounts to frontend Account type
-          const frontendAccounts: Account[] = dbAccounts.map((acc: any) => ({
-            id: acc.id,
-            email: acc.email,
-            displayName: acc.display_name || acc.displayName,
-            imapHost: acc.imap_host || acc.imapHost,
-            imapPort: acc.imap_port || acc.imapPort,
-            imapSecurity: acc.imap_security || acc.imapSecurity,
-            smtpHost: acc.smtp_host || acc.smtpHost,
-            smtpPort: acc.smtp_port || acc.smtpPort,
-            smtpSecurity: acc.smtp_security || acc.smtpSecurity,
-            isActive: acc.is_active ?? true,
-            isDefault: acc.is_default ?? true,
-            signature: acc.signature || '',
-            syncDays: acc.sync_days || 30,
-            createdAt: acc.created_at || new Date().toISOString(),
-            updatedAt: acc.updated_at || new Date().toISOString(),
-          }));
+          const frontendAccounts: Account[] = dbAccounts.map(mapAccount);
 
           setAccounts(frontendAccounts);
 
@@ -2540,12 +1933,15 @@ function App() {
   // Modal states
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [aiReplyOpen, setAiReplyOpen] = useState(false);
+  const [aiGeneratedReply, setAiGeneratedReply] = useState<string | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeMode, setComposeMode] = useState<ComposeMode>('new');
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
   const [draftToEdit, setDraftToEdit] = useState<DraftEmail | null>(null);
 
   // Email states
+  // Auto-trust own account emails so signatures/images always show
+  const ownEmails = useMemo(() => accounts.map(a => a.email), [accounts]);
   const [trustedSenders, setTrustedSenders] = useState<string[]>([]);
   const [loadedImageEmails, setLoadedImageEmails] = useState<string[]>([]);
   const [summaries, setSummaries] = useState<Record<string, string>>({});
@@ -2563,7 +1959,7 @@ function App() {
   const currentAccount = accounts.find(a => a.id === selectedAccountId) || accounts[0] || null;
 
   const currentEmail = emails.find((e) => e.id === selectedEmail) || null;
-  const isTrustedSender = currentEmail ? trustedSenders.includes(currentEmail.from.email) : false;
+  const isTrustedSender = currentEmail ? (trustedSenders.includes(currentEmail.from.email) || ownEmails.includes(currentEmail.from.email)) : false;
   const showImages = selectedEmail ? loadedImageEmails.includes(selectedEmail) : false;
 
   // Fetch full email content when selected
@@ -3048,10 +2444,11 @@ function App() {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if typing in input/textarea
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+      // Ignore if typing in input/textarea/contentEditable (TipTap editor)
+      const target = e.target as HTMLElement;
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.isContentEditable) {
         if (e.key === "Escape") {
-          (e.target as HTMLElement).blur();
+          target.blur();
         }
         return;
       }
@@ -3069,14 +2466,17 @@ function App() {
 
       if (modalOpen) return;
 
-      // Command palette
+      // Command palette (Ctrl+K / Cmd+K)
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         setCommandPaletteOpen(true);
         return;
       }
 
-      // Single key shortcuts
+      // Let system shortcuts through (Ctrl+C, Ctrl+V, Ctrl+A, Ctrl+X, Ctrl+Z, etc.)
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      // Single key shortcuts (no modifier)
       switch (e.key.toLowerCase()) {
         case "j": navigateEmail('next'); break;
         case "k": navigateEmail('prev'); break;
@@ -3304,6 +2704,11 @@ function App() {
             <AIReplyModal
               isOpen={aiReplyOpen}
               onClose={() => setAiReplyOpen(false)}
+              onUseReply={(reply) => {
+                setAiGeneratedReply(reply);
+                setAiReplyOpen(false);
+                openCompose('reply');
+              }}
               emailContent={currentEmail.body}
               emailSubject={currentEmail.subject}
               senderName={currentEmail.from.name}
@@ -3311,8 +2716,9 @@ function App() {
             />
             <Compose
               isOpen={composeOpen}
-              onClose={() => setComposeOpen(false)}
+              onClose={() => { setComposeOpen(false); setAiGeneratedReply(null); }}
               mode={composeMode}
+              initialBody={aiGeneratedReply || undefined}
               originalEmail={{
                 id: parseInt(currentEmail.id),
                 accountId: 1,
@@ -3380,7 +2786,7 @@ function App() {
         onFiltersClick={() => setCurrentPage('filters')}
         onComposeClick={() => openCompose('new')}
         onSyncClick={handleSync}
-        onOsintClick={() => setShowDomainHarvest(true)}
+        onOsintClick={() => {}}
         isSyncing={isSyncing}
         searchQuery={searchQuery}
         onSearchChange={handleSearchChange}
@@ -3402,6 +2808,19 @@ function App() {
         onSortByChange={setSortBy}
         sortDirection={sortDirection}
         onSortDirectionChange={setSortDirection}
+        onEmailContextMenu={(e, email) => {
+          contextMenu.show(e, [
+            { id: 'reply', label: 'Reply', shortcut: 'R', icon: <Icons.Reply />, onClick: () => { handleEmailSelect(email.id); openCompose('reply'); } },
+            { id: 'replyAll', label: 'Reply All', shortcut: 'A', icon: <Icons.ReplyAll />, onClick: () => { handleEmailSelect(email.id); openCompose('replyAll'); } },
+            { id: 'forward', label: 'Forward', shortcut: 'F', icon: <Icons.Forward />, onClick: () => { handleEmailSelect(email.id); openCompose('forward'); } },
+            { id: 'div1', label: '', divider: true, onClick: () => {} },
+            { id: 'star', label: email.starred ? 'Unstar' : 'Star', shortcut: 'S', icon: <Icons.Star />, onClick: () => handleToggleStar(email.id) },
+            { id: 'read', label: email.read ? 'Mark Unread' : 'Mark Read', shortcut: 'U', icon: <Icons.MailOpen />, onClick: () => { handleEmailSelect(email.id); setTimeout(handleToggleRead, 50); } },
+            { id: 'div2', label: '', divider: true, onClick: () => {} },
+            { id: 'archive', label: 'Archive', shortcut: 'E', icon: <Icons.Archive />, onClick: () => { handleEmailSelect(email.id); handleArchive(); } },
+            { id: 'delete', label: 'Delete', shortcut: '#', icon: <Icons.Trash />, danger: true, onClick: () => { handleEmailSelect(email.id); handleDelete(); } },
+          ]);
+        }}
       />
       <EmailView
         email={currentEmail}
@@ -3452,6 +2871,11 @@ function App() {
           <AIReplyModal
             isOpen={aiReplyOpen}
             onClose={() => setAiReplyOpen(false)}
+            onUseReply={(reply) => {
+              setAiGeneratedReply(reply);
+              setAiReplyOpen(false);
+              openCompose('reply');
+            }}
             emailContent={currentEmail.body}
             emailSubject={currentEmail.subject}
             senderName={currentEmail.from.name}
@@ -3460,8 +2884,9 @@ function App() {
 
           <Compose
             isOpen={composeOpen}
-            onClose={() => setComposeOpen(false)}
+            onClose={() => { setComposeOpen(false); setAiGeneratedReply(null); }}
             mode={composeMode}
+            initialBody={aiGeneratedReply || undefined}
             originalEmail={{
               id: parseEmailId(currentEmail.id, selectedAccountId).uid,
               accountId: parseInt(parseEmailId(currentEmail.id, selectedAccountId).accountId) || 1,
@@ -3514,13 +2939,9 @@ function App() {
 
       <ShortcutsHelp isOpen={shortcutsHelpOpen} onClose={() => setShortcutsHelpOpen(false)} />
 
-      {showDomainHarvest && (
-        <DomainHarvestModal
-          settings={appSettings}
-          onClose={() => setShowDomainHarvest(false)}
-        />
-      )}
 
+      {/* Context Menu (right-click) */}
+      <ContextMenu menu={contextMenu.menu} onClose={contextMenu.hide} />
     </div>
   );
 }

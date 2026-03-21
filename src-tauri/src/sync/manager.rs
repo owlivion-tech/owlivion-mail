@@ -1202,32 +1202,26 @@ impl SyncManager {
 
     /// Apply accounts rollback to local database
     async fn apply_accounts_rollback(&self, data: AccountSyncData) -> Result<(), SyncManagerError> {
-        // Note: This would need proper database operations
-        // For now, just log the operation
         log::info!("Applying accounts rollback with {} accounts", data.accounts.len());
-        // TODO: Implement actual database updates
-        Ok(())
+        self.apply_accounts_to_db(&data).await
     }
 
     /// Apply contacts rollback to local database
     async fn apply_contacts_rollback(&self, data: ContactSyncData) -> Result<(), SyncManagerError> {
         log::info!("Applying contacts rollback with {} contacts", data.contacts.len());
-        // TODO: Implement actual database updates
-        Ok(())
+        self.apply_contacts_to_db(&data).await
     }
 
     /// Apply preferences rollback to local database
-    async fn apply_preferences_rollback(&self, _data: PreferencesSyncData) -> Result<(), SyncManagerError> {
+    async fn apply_preferences_rollback(&self, data: PreferencesSyncData) -> Result<(), SyncManagerError> {
         log::info!("Applying preferences rollback");
-        // TODO: Implement actual database updates
-        Ok(())
+        self.apply_preferences_to_db(&data).await
     }
 
     /// Apply signatures rollback to local database
     async fn apply_signatures_rollback(&self, data: SignatureSyncData) -> Result<(), SyncManagerError> {
         log::info!("Applying signatures rollback with {} signatures", data.signatures.len());
-        // TODO: Implement actual database updates
-        Ok(())
+        self.apply_signatures_to_db(&data).await
     }
 
     /// Enforce history retention policy
@@ -1900,18 +1894,42 @@ impl SyncManager {
                 log::info!("Accounts uploaded successfully");
             }
             SyncDataType::Preferences => {
-                // TODO: Implement preferences collection from DB
-                // For now, use default preferences
-                log::warn!("Preferences upload not fully implemented - using defaults");
-                let local_data = PreferencesSyncData::default();
+                let mut local_data = PreferencesSyncData::default();
+                local_data.theme = self.db.get_setting("theme").ok().flatten().unwrap_or_else(|| "dark".to_string());
+                local_data.language = self.db.get_setting("language").ok().flatten().unwrap_or_else(|| "tr".to_string());
+                local_data.notifications_enabled = self.db.get_setting("notifications_enabled").ok().flatten().unwrap_or(true);
+                local_data.notification_sound = self.db.get_setting("notification_sound").ok().flatten().unwrap_or(true);
+                local_data.notification_badge = self.db.get_setting("notification_badge").ok().flatten().unwrap_or(true);
+                local_data.auto_mark_read = self.db.get_setting("auto_mark_read").ok().flatten().unwrap_or(true);
+                local_data.auto_mark_read_delay = self.db.get_setting("auto_mark_read_delay").ok().flatten().unwrap_or(3);
+                local_data.confirm_delete = self.db.get_setting("confirm_delete").ok().flatten().unwrap_or(true);
+                local_data.confirm_send = self.db.get_setting("confirm_send").ok().flatten().unwrap_or(false);
+                local_data.signature_position = self.db.get_setting("signature_position").ok().flatten().unwrap_or_else(|| "bottom".to_string());
+                local_data.reply_position = self.db.get_setting("reply_position").ok().flatten().unwrap_or_else(|| "top".to_string());
+                local_data.gemini_api_key = self.db.get_setting("gemini_api_key").ok().flatten();
+                local_data.ai_auto_summarize = self.db.get_setting("ai_auto_summarize").ok().flatten().unwrap_or(false);
+                local_data.ai_reply_tone = self.db.get_setting("ai_reply_tone").ok().flatten().unwrap_or_else(|| "professional".to_string());
+                local_data.keyboard_shortcuts_enabled = self.db.get_setting("keyboard_shortcuts_enabled").ok().flatten().unwrap_or(true);
+                local_data.compact_list_view = self.db.get_setting("compact_list_view").ok().flatten().unwrap_or(false);
+                local_data.show_avatars = self.db.get_setting("show_avatars").ok().flatten().unwrap_or(true);
+                local_data.conversation_view = self.db.get_setting("conversation_view").ok().flatten().unwrap_or(true);
+                local_data.synced_at = Some(chrono::Utc::now());
                 self.upload(SyncDataType::Preferences, &local_data, master_password).await?;
                 log::info!("Preferences uploaded successfully");
             }
             SyncDataType::Signatures => {
-                // TODO: Implement signature collection from DB
-                // SignatureSyncData uses HashMap<String, String> (email -> signature)
-                log::warn!("Signatures upload not fully implemented");
-                let local_data = SignatureSyncData::default();
+                let accounts = self.db.get_all_accounts()
+                    .map_err(|e| SyncManagerError::DatabaseError(format!("Failed to get accounts: {}", e)))?;
+                let mut signatures = std::collections::HashMap::new();
+                for account in accounts {
+                    if !account.signature.is_empty() {
+                        signatures.insert(account.email.clone(), account.signature.clone());
+                    }
+                }
+                let local_data = SignatureSyncData {
+                    signatures,
+                    synced_at: Some(chrono::Utc::now()),
+                };
                 self.upload(SyncDataType::Signatures, &local_data, master_password).await?;
                 log::info!("Signatures uploaded successfully");
             }

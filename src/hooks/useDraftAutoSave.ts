@@ -24,6 +24,8 @@ export function useDraftAutoSave(
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSavingRef = useRef(false);
   const lastSavedRef = useRef<string>('');
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
 
   const getDraftHash = useCallback((draft: DraftEmail) => {
     return JSON.stringify({
@@ -45,7 +47,7 @@ export function useDraftAutoSave(
   }, []);
 
   const save = useCallback(async () => {
-    if (!draft || isSavingRef.current || !enabled || isDraftEmpty(draft)) {
+    if (!draft || isSavingRef.current || !enabledRef.current || isDraftEmpty(draft) || !draft.accountId) {
       return;
     }
 

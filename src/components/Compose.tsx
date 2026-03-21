@@ -3,7 +3,7 @@
 // ============================================================================
 // SECURITY HARDENED: Strict sanitization, no style/img in compose
 
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, type PointerEvent as RPointerEvent } from 'react';
 import DOMPurify from 'dompurify';
 import { useTranslation } from '../i18n';
 import { useShortcut } from '../hooks/useKeyboardShortcuts';
@@ -51,6 +51,7 @@ interface ComposeProps {
   mode: 'new' | 'reply' | 'replyAll' | 'forward';
   originalEmail?: Email;
   draft?: DraftEmail; // Draft to edit
+  initialBody?: string; // Pre-filled body (e.g. from AI Reply)
   onSend: (email: DraftEmail) => Promise<void>;
   onSaveDraft: (email: DraftEmail) => Promise<void>;
   defaultAccount?: Account;
@@ -62,6 +63,7 @@ export function Compose({
   mode,
   originalEmail,
   draft,
+  initialBody,
   onSend,
   defaultAccount,
 }: ComposeProps) {
@@ -76,8 +78,18 @@ export function Compose({
 
   // Content
   const [subject, setSubject] = useState('');
-  const [bodyHtml, setBodyHtml] = useState('');
+  const [editorBodyHtml, setEditorBodyHtml] = useState(''); // Text body (without signature/quote)
+  const [signatureHtml, setSignatureHtml] = useState(''); // Signature rendered separately
+  const [quoteHtml, setQuoteHtml] = useState(''); // Reply/forward quote rendered separately
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+
+  // Combined bodyHtml for draft saving and sending: message + signature + quote
+  const bodyHtml = useMemo(() => {
+    let html = editorBodyHtml;
+    if (signatureHtml) html += `<br><div class="email-signature">${signatureHtml}</div>`;
+    if (quoteHtml) html += quoteHtml;
+    return html;
+  }, [editorBodyHtml, signatureHtml, quoteHtml]);
 
   // State
   const [isSending, setIsSending] = useState(false);
@@ -86,6 +98,71 @@ export function Compose({
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   // SECURITY: Use state-based notifications instead of alert()
   const [notification, setNotification] = useState<{ type: 'error' | 'success' | 'warning'; message: string } | null>(null);
+
+  // Draggable + Resizable window state
+  const [winPos, setWinPos] = useState({ x: 0, y: 0 });
+  const [winSize, setWinSize] = useState({ w: 720, h: 600 });
+  const [centered, setCentered] = useState(true); // Start centered, then free
+  const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+  const resizeRef = useRef<{ startX: number; startY: number; origW: number; origH: number } | null>(null);
+
+  // Reset position when opening
+  useEffect(() => {
+    if (isOpen) setCentered(true);
+  }, [isOpen]);
+
+  const onDragStart = useCallback((e: RPointerEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest('input, select, button, textarea')) return;
+    e.preventDefault();
+    const rect = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
+    if (centered) {
+      setWinPos({ x: rect.left, y: rect.top });
+      setCentered(false);
+    }
+    dragRef.current = { startX: e.clientX, startY: e.clientY, origX: centered ? rect.left : winPos.x, origY: centered ? rect.top : winPos.y };
+    const onMove = (ev: PointerEvent) => {
+      if (!dragRef.current) return;
+      setWinPos({
+        x: Math.max(0, dragRef.current.origX + ev.clientX - dragRef.current.startX),
+        y: Math.max(0, dragRef.current.origY + ev.clientY - dragRef.current.startY),
+      });
+    };
+    const onUp = () => { dragRef.current = null; document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp); };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  }, [centered, winPos]);
+
+  const onResizeStart = useCallback((e: RPointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
+    if (centered) {
+      setWinPos({ x: rect.left, y: rect.top });
+      setWinSize({ w: rect.width, h: rect.height });
+      setCentered(false);
+    }
+    resizeRef.current = { startX: e.clientX, startY: e.clientY, origW: centered ? rect.width : winSize.w, origH: centered ? rect.height : winSize.h };
+    const onMove = (ev: PointerEvent) => {
+      if (!resizeRef.current) return;
+      setWinSize({
+        w: Math.max(480, resizeRef.current.origW + ev.clientX - resizeRef.current.startX),
+        h: Math.max(400, resizeRef.current.origH + ev.clientY - resizeRef.current.startY),
+      });
+    };
+    const onUp = () => { resizeRef.current = null; document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp); };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  }, [centered, winSize]);
+
+  // Effective signature — from defaultAccount prop
+  const accountSignature = defaultAccount?.signature || '';
+
+  // Ensure signature is set when account loads after compose opens
+  useEffect(() => {
+    if (isOpen && accountSignature && !signatureHtml) {
+      setSignatureHtml(accountSignature);
+    }
+  }, [isOpen, accountSignature, signatureHtml]);
 
   // Template selector
   const [showTemplateSelector, setShowTemplateSelector] = useState(false);
@@ -145,7 +222,7 @@ export function Compose({
   }), [draftId, defaultAccount, to, cc, bcc, subject, bodyHtml, attachments, mode, originalEmail]);
 
   const { saveNow } = useDraftAutoSave(currentDraft, attachments, {
-    enabled: isOpen && !isSending,
+    enabled: isOpen && !isSending && (defaultAccount?.id || 0) > 0,
     debounceMs: 2000,
     onSaveStart: () => setAutoSaveStatus('saving'),
     onSaveSuccess: (id) => {
@@ -153,7 +230,11 @@ export function Compose({
       setAutoSaveStatus('saved');
       setTimeout(() => setAutoSaveStatus('idle'), 2000);
     },
-    onSaveError: () => setAutoSaveStatus('error'),
+    onSaveError: (err) => {
+      console.error('Draft auto-save error:', err);
+      // Don't show error to user — auto-save is best-effort
+      setAutoSaveStatus('idle');
+    },
   });
 
   // Initialize form from draft (if editing an existing draft)
@@ -164,7 +245,24 @@ export function Compose({
     setCc(draft.cc);
     setBcc(draft.bcc);
     setSubject(draft.subject);
-    setBodyHtml(draft.bodyHtml);
+    // Split draft body into: editor content, signature, quote
+    let remaining = draft.bodyHtml;
+    // Extract quote
+    const quoteMatch = remaining.match(/([\s\S]*?)(<br\s*\/?>)*\s*(<div class="email-quote">[\s\S]*$)/i);
+    if (quoteMatch) {
+      remaining = quoteMatch[1];
+      setQuoteHtml(quoteMatch[3]);
+    } else {
+      setQuoteHtml('');
+    }
+    // Extract signature
+    const sigMatch = remaining.match(/([\s\S]*?)(<br\s*\/?>)*\s*<div class="email-signature">([\s\S]*)<\/div>\s*$/i);
+    if (sigMatch) {
+      setEditorBodyHtml(sigMatch[1]);
+      setSignatureHtml(sigMatch[3]);
+    } else {
+      setEditorBodyHtml(remaining);
+    }
     setAttachments(draft.attachments);
     setDraftId(draft.id);
     setShowCc(draft.cc.length > 0);
@@ -181,34 +279,37 @@ export function Compose({
       setCc([]);
       setBcc([]);
       setSubject('');
-      // Add signature if account has one
-      const signature = defaultAccount?.signature;
-      if (signature) {
-        setBodyHtml(`<br><br><div class="email-signature">${signature}</div>`);
-      } else {
-        setBodyHtml('');
-      }
+      setEditorBodyHtml('');
+      setSignatureHtml(accountSignature);
+      setQuoteHtml('');
       setAttachments([]);
       setShowCc(false);
       setShowBcc(false);
     } else if (originalEmail) {
+      const aiPrefix = initialBody ? `<p>${escapeHtml(initialBody)}</p>` : '';
       if (mode === 'reply') {
         setTo([{ email: originalEmail.from.email, name: originalEmail.from.name }]);
         setSubject(originalEmail.subject.startsWith('Re:') ? originalEmail.subject : `${t('compose.replyPrefix')} ${originalEmail.subject}`);
-        setBodyHtml(generateQuote(originalEmail));
+        setEditorBodyHtml(aiPrefix);
+        setSignatureHtml(accountSignature);
+        setQuoteHtml(generateQuote(originalEmail));
       } else if (mode === 'replyAll') {
         setTo([{ email: originalEmail.from.email, name: originalEmail.from.name }]);
         setCc(originalEmail.to.filter((addr) => addr.email !== defaultAccount?.email));
         setShowCc(true);
         setSubject(originalEmail.subject.startsWith('Re:') ? originalEmail.subject : `${t('compose.replyPrefix')} ${originalEmail.subject}`);
-        setBodyHtml(generateQuote(originalEmail));
+        setEditorBodyHtml(aiPrefix);
+        setSignatureHtml(accountSignature);
+        setQuoteHtml(generateQuote(originalEmail));
       } else if (mode === 'forward') {
         setTo([]);
         setSubject(originalEmail.subject.startsWith('Fwd:') ? originalEmail.subject : `${t('compose.forwardPrefix')} ${originalEmail.subject}`);
-        setBodyHtml(generateForwardQuote(originalEmail));
+        setEditorBodyHtml('');
+        setSignatureHtml(accountSignature);
+        setQuoteHtml(generateForwardQuote(originalEmail));
       }
     }
-  }, [isOpen, mode, originalEmail, defaultAccount, draft]);
+  }, [isOpen, mode, originalEmail, defaultAccount, draft, accountSignature]);
 
 
   // Keyboard shortcuts
@@ -231,7 +332,10 @@ export function Compose({
     // SECURITY: Escape sender name and sanitize body content
     const safeName = escapeHtml(email.from.name || email.from.email);
     // SECURITY: Sanitize email body before including in quote
-    const safeBody = sanitizeForCompose(email.bodyHtml || `<p>${escapeHtml(email.bodyText || '')}</p>`);
+    // Strip original email's signature to avoid duplicate signatures in reply
+    let rawBody = email.bodyHtml || `<p>${escapeHtml(email.bodyText || '')}</p>`;
+    rawBody = rawBody.replace(/<div class="email-signature">[\s\S]*?<\/div>\s*$/i, '');
+    const safeBody = sanitizeForCompose(rawBody);
 
     const quoteHeader = t('compose.onDateWrote').replace('{date}', escapeHtml(dateStr)).replace('{name}', safeName);
 
@@ -309,6 +413,10 @@ export function Compose({
 
       await onSend(draft);
 
+      // Save recipients for future autocomplete
+      const { saveRecentRecipients } = await import('./compose/RecipientInput');
+      saveRecentRecipients([...to, ...cc, ...bcc]);
+
       // Delete auto-saved draft
       if (draftId) {
         try {
@@ -365,17 +473,8 @@ export function Compose({
       }
 
       // Append body (before signature if exists)
-      const signature = defaultAccount?.signature;
-      if (signature && bodyHtml.includes('email-signature')) {
-        // Insert before signature
-        const signatureIndex = bodyHtml.indexOf('<div class="email-signature">');
-        const before = bodyHtml.substring(0, signatureIndex);
-        const after = bodyHtml.substring(signatureIndex);
-        setBodyHtml(before + processedBody + '<br><br>' + after);
-      } else {
-        // Append at end
-        setBodyHtml(bodyHtml + (bodyHtml ? '<br><br>' : '') + processedBody);
-      }
+      // Append template to editor body (signature is rendered separately)
+      setEditorBodyHtml(editorBodyHtml + (editorBodyHtml ? '<br><br>' : '') + processedBody);
 
       // Increment usage count
       await templateIncrementUsage(template.id);
@@ -458,15 +557,21 @@ export function Compose({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className={`fixed inset-0 z-50 ${centered && !mobile ? 'flex items-center justify-center' : ''} bg-black/60 backdrop-blur-sm`}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
-      <div className={`bg-owl-surface shadow-owl-lg flex flex-col overflow-hidden ${
-        mobile
-          ? 'w-full h-full'
-          : 'border border-owl-border rounded-xl w-full max-w-3xl max-h-[90vh]'
-      }`}>
+      <div
+        className={`bg-owl-surface shadow-2xl flex flex-col overflow-hidden relative ${
+          mobile
+            ? 'w-full h-full'
+            : 'border border-owl-border rounded-xl'
+        }`}
+        style={mobile ? undefined : (centered
+          ? { width: `${winSize.w}px`, maxHeight: '90vh' }
+          : { position: 'fixed', left: `${winPos.x}px`, top: `${winPos.y}px`, width: `${winSize.w}px`, height: `${winSize.h}px` }
+        )}
+      >
         {/* SECURITY: Notification Toast (replaces alert) */}
         {notification && (
           <div
@@ -489,8 +594,11 @@ export function Compose({
             </button>
           </div>
         )}
-        {/* Header */}
-        <div className={`flex items-center justify-between border-b border-owl-border ${mobile ? 'px-4 py-3' : 'px-6 py-4'}`}>
+        {/* Header — draggable */}
+        <div
+          className={`flex items-center justify-between border-b border-owl-border ${mobile ? 'px-4 py-3' : 'px-6 py-4'} ${!mobile ? 'cursor-grab active:cursor-grabbing select-none' : ''}`}
+          onPointerDown={!mobile ? onDragStart : undefined}
+        >
           <div className="flex items-center gap-3">
             <h2 className={`font-semibold text-owl-text ${mobile ? 'text-base' : 'text-lg'}`}>
               {mode === 'new' && t('compose.newEmail')}
@@ -622,12 +730,28 @@ export function Compose({
         {/* Body */}
         <div className="flex-1 overflow-y-auto">
           <RichTextEditor
-            content={bodyHtml}
-            onChange={(html) => setBodyHtml(html)}
+            content={editorBodyHtml}
+            onChange={(html) => setEditorBodyHtml(html)}
             onPaste={handleImagePaste}
             placeholder={t('compose.bodyPlaceholder')}
             disabled={isSending}
           />
+          {/* Signature preview — rendered separately from editor for proper table/HTML layout */}
+          {/* Signature — between message and quote */}
+          {signatureHtml && (
+            <div className="mx-6 mb-2 pt-2 border-t border-owl-border/30">
+              <div
+                className="text-sm"
+                dangerouslySetInnerHTML={{ __html: sanitizeForCompose(signatureHtml) }}
+              />
+            </div>
+          )}
+          {/* Quote — below signature */}
+          {quoteHtml && (
+            <div className="mx-6 mb-4 text-sm text-owl-text-secondary">
+              <div dangerouslySetInnerHTML={{ __html: sanitizeForCompose(quoteHtml) }} />
+            </div>
+          )}
         </div>
 
         {/* Attachments */}
@@ -713,6 +837,18 @@ export function Compose({
             </button>
           </div>
         </div>
+        {/* Resize handle — bottom-right corner */}
+        {!mobile && (
+          <div
+            onPointerDown={onResizeStart}
+            className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize"
+            style={{ touchAction: 'none' }}
+          >
+            <svg className="w-4 h-4 text-owl-text-secondary/30" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M14 16H16V14H14V16ZM10 16H12V14H10V16ZM14 12H16V10H14V12Z" />
+            </svg>
+          </div>
+        )}
       </div>
 
       {/* Template Selector Modal */}
